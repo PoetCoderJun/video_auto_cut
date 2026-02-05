@@ -1,0 +1,710 @@
+{
+  "source": {
+    "inputs": [
+      "test_data/1.srt"
+    ]
+  },
+  "config": {
+    "min_quality": 60.0,
+    "merge_gap_s": 0.5,
+    "pad_head_s": 0.0,
+    "pad_tail_s": 0.0,
+    "repeat_similarity": 0.86,
+    "repeat_max_gap_s": 120.0
+  },
+  "segments": [
+    {
+      "id": 1,
+      "start": 0.0,
+      "end": 2.56,
+      "duration": 2.56,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 2,
+      "start": 2.56,
+      "end": 10.0,
+      "duration": 7.4399999999999995,
+      "text": "前段时间我发了续签香港签证的分享，并接受了凤凰卫视的采访，收到了大量的续签香港私信。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 3,
+      "start": 10.0,
+      "end": 11.04,
+      "duration": 1.0399999999999991,
+      "text": "签香港的私信。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 4,
+      "start": 11.44,
+      "end": 16.32,
+      "duration": 4.880000000000001,
+      "text": "那么澳联香港续签签证有四道变化，一分钟给大家总结非常重要。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 5,
+      "start": 16.88,
+      "end": 17.36,
+      "duration": 0.4800000000000004,
+      "text": "首先，",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 70.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 6,
+      "start": 17.36,
+      "end": 20.32,
+      "duration": 2.960000000000001,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 7,
+      "start": 20.32,
+      "end": 23.36,
+      "duration": 3.039999999999999,
+      "text": "这个在时间线上有很大的影响，也需特别注意。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.105,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 8,
+      "start": 23.36,
+      "end": 28.72,
+      "duration": 5.359999999999999,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 9,
+      "start": 28.72,
+      "end": 32.036,
+      "duration": 3.3160000000000025,
+      "text": "首先如果你不是pem的合同，现在不是。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 10,
+      "start": 32.16,
+      "end": 39.36,
+      "duration": 7.200000000000003,
+      "text": "对于IANG来说，需要在逗留期限截止日期前的二十八天内完成续签。",
+      "decision": "remove",
+      "reason": "repeat_keep_last:19",
+      "quality_score": 60.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 11,
+      "start": 39.36,
+      "end": 39.46,
+      "duration": 0.10000000000000142,
+      "text": "值。",
+      "decision": "remove",
+      "reason": "too_short",
+      "quality_score": 70.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 12,
+      "start": 39.92,
+      "end": 40.88,
+      "duration": 0.9600000000000009,
+      "text": "这个在时间。",
+      "decision": "remove",
+      "reason": "filler_short",
+      "quality_score": 68.0,
+      "filler_ratio": 0.4,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 13,
+      "start": 40.88,
+      "end": 42.88,
+      "duration": 2.0,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 14,
+      "start": 42.88,
+      "end": 49.52,
+      "duration": 6.640000000000001,
+      "text": "首先如果你不是pem的合同，现在不再是三加三的形式续签，而是去合同连线和三点最小",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 15,
+      "start": 49.52,
+      "end": 49.84,
+      "duration": 0.3200000000000003,
+      "text": "值。",
+      "decision": "remove",
+      "reason": "too_short",
+      "quality_score": 70.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 16,
+      "start": 50.16,
+      "end": 52.88,
+      "duration": 2.720000000000006,
+      "text": "这个在时间线上有很大的影响，也非常注意。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.111,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 17,
+      "start": 52.88,
+      "end": 53.92,
+      "duration": 1.0399999999999991,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 18,
+      "start": 53.92,
+      "end": 55.52,
+      "duration": 1.6000000000000014,
+      "text": "第二，怎么才能续签呢？",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.111,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 19,
+      "start": 55.52,
+      "end": 62.08,
+      "duration": 6.559999999999995,
+      "text": "首先对in来说，需要在逗留期间截止日期前的二十八天完成续签。",
+      "decision": "remove",
+      "reason": "repeat_keep_last:24",
+      "quality_score": 60.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 20,
+      "start": 62.72,
+      "end": 64.8,
+      "duration": 2.0799999999999983,
+      "text": "可以看一下来自入境处的截图。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 21,
+      "start": 64.8,
+      "end": 75.52,
+      "duration": 10.719999999999999,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 22,
+      "start": 75.52,
+      "end": 76.8,
+      "duration": 1.2800000000000011,
+      "text": "第二续签条件，",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 23,
+      "start": 77.44,
+      "end": 78.4,
+      "duration": 0.960000000000008,
+      "text": "怎样才能续签呢？",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 90.0,
+      "filler_ratio": 0.143,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 24,
+      "start": 78.4,
+      "end": 83.28,
+      "duration": 4.8799999999999955,
+      "text": "首先对in来说，需要在逗留期限前二十八天完成续签。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 25,
+      "start": 83.76,
+      "end": 86.16,
+      "duration": 2.3999999999999915,
+      "text": "我们可以看一下入境处最新的截图。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 26,
+      "start": 86.4,
+      "end": 93.44,
+      "duration": 7.039999999999992,
+      "text": "续签的考核标准包括但不限于：现有的福利公司的资质和营运状态，并且从事的工作必须要",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 27,
+      "start": 93.44,
+      "end": 97.76,
+      "duration": 4.320000000000007,
+      "text": "有学位的持有者担任以及薪酬福利必须达到市场水平。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 28,
+      "start": 97.76,
+      "end": 98.64,
+      "duration": 0.8799999999999955,
+      "text": "换句话说，",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 80.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 29,
+      "start": 99.28,
+      "end": 107.04,
+      "duration": 7.760000000000005,
+      "text": "对于申请者的学位、现在薪酬福利水平和学位持有都必须有一个要求，避免你",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 30,
+      "start": 107.04,
+      "end": 112.48,
+      "duration": 5.439999999999998,
+      "text": "去从事一些大家都懂的一些低技术的一些工作去达到续签的目的。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 31,
+      "start": 112.48,
+      "end": 117.92,
+      "duration": 5.439999999999998,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 32,
+      "start": 117.92,
+      "end": 125.76,
+      "duration": 7.840000000000003,
+      "text": "第三就是，第三就是续签费现在上调到了申请费六百块钱加上签证费一千三百块",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.118,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 33,
+      "start": 125.76,
+      "end": 127.68,
+      "duration": 1.9200000000000017,
+      "text": "钱一共是一千九百块钱。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 34,
+      "start": 128.24,
+      "end": 132.08,
+      "duration": 3.8400000000000034,
+      "text": "第四就是续签现在不再是通过填表，",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.133,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 35,
+      "start": 132.72,
+      "end": 138.16,
+      "duration": 5.439999999999998,
+      "text": "第四就是续签现在不再是通过填表的方式，而是通过存电子网站的。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.071,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 36,
+      "start": 138.16,
+      "end": 139.52,
+      "duration": 1.3600000000000136,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 37,
+      "start": 139.52,
+      "end": 145.04,
+      "duration": 5.519999999999982,
+      "text": "第四就是现在续签变成了存电子网站的一个方式，不再需要去填表了。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.069,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 38,
+      "start": 145.04,
+      "end": 146.88,
+      "duration": 1.8400000000000034,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 39,
+      "start": 146.88,
+      "end": 152.4,
+      "duration": 5.52000000000001,
+      "text": "很多人都被忽悠了，觉得说续签好复杂，需要找中介千万不要。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 40,
+      "start": 152.96,
+      "end": 160.64,
+      "duration": 7.679999999999978,
+      "text": "网上申请是非常容易的，并且如果你有续签香港的问题，都可以到人才办的网站去查询，会",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 41,
+      "start": 160.64,
+      "end": 161.84,
+      "duration": 1.200000000000017,
+      "text": "有专门的解答。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 42,
+      "start": 161.84,
+      "end": 164.16,
+      "duration": 2.319999999999993,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 43,
+      "start": 164.16,
+      "end": 171.76,
+      "duration": 7.599999999999994,
+      "text": "强烈大家关注香港人才服务办公室的官方小红书账号，那里有更多的实用信息和最新政策解",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 44,
+      "start": 171.76,
+      "end": 172.0,
+      "duration": 0.2400000000000091,
+      "text": "读。",
+      "decision": "remove",
+      "reason": "too_short",
+      "quality_score": 70.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 45,
+      "start": 172.32,
+      "end": 176.32,
+      "duration": 4.0,
+      "text": "如果你有续签的问题，欢迎点赞收藏评论，在评论里。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 46,
+      "start": 176.32,
+      "end": 177.36,
+      "duration": 1.0400000000000205,
+      "text": "< No Speech >",
+      "decision": "remove",
+      "reason": "no_speech",
+      "quality_score": 0.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    },
+    {
+      "id": 47,
+      "start": 177.36,
+      "end": 182.0,
+      "duration": 4.639999999999986,
+      "text": "如果你有续签问题，欢迎点赞收藏在评论区留言交流，下期见。",
+      "decision": "keep",
+      "reason": "",
+      "quality_score": 100.0,
+      "filler_ratio": 0.0,
+      "llm_decision": null,
+      "llm_reason": ""
+    }
+  ],
+  "edl": [
+    {
+      "start": 2.56,
+      "end": 16.32
+    },
+    {
+      "start": 16.88,
+      "end": 17.36
+    },
+    {
+      "start": 20.32,
+      "end": 23.36
+    },
+    {
+      "start": 28.72,
+      "end": 32.036
+    },
+    {
+      "start": 42.88,
+      "end": 49.52
+    },
+    {
+      "start": 50.16,
+      "end": 52.88
+    },
+    {
+      "start": 53.92,
+      "end": 55.52
+    },
+    {
+      "start": 62.72,
+      "end": 64.8
+    },
+    {
+      "start": 75.52,
+      "end": 76.8
+    },
+    {
+      "start": 77.44,
+      "end": 98.64
+    },
+    {
+      "start": 99.28,
+      "end": 112.48
+    },
+    {
+      "start": 117.92,
+      "end": 127.68
+    },
+    {
+      "start": 128.24,
+      "end": 132.08
+    },
+    {
+      "start": 132.72,
+      "end": 138.16
+    },
+    {
+      "start": 139.52,
+      "end": 145.04
+    },
+    {
+      "start": 146.88,
+      "end": 152.4
+    },
+    {
+      "start": 152.96,
+      "end": 161.84
+    },
+    {
+      "start": 164.16,
+      "end": 171.76
+    },
+    {
+      "start": 172.32,
+      "end": 176.32
+    },
+    {
+      "start": 177.36,
+      "end": 182.0
+    }
+  ]
+}
