@@ -6,6 +6,18 @@
 # OS
 .DS_Store
 
+# Media / test artifacts
+test_data/*.MOV
+test_data/*.mov
+test_data/*.MP4
+test_data/*.mp4
+test_data/*.wav
+test_data/*.mp3
+
+# Model weights (keep configs/READMEs, ignore large binaries)
+model/**/model.safetensors
+model/**/pytorch_model*.bin
+
 # Python
 __pycache__/
 *.py[cod]
