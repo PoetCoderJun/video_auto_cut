@@ -56,6 +56,7 @@ autocut -e test_data/1.srt --force
 输出：
 - `test_data/1.auto_edit.json`：每条字幕的 decision=keep/remove + 质量分数
 - `test_data/1.edl.json`：自动剪辑的时间段（可直接用于渲染）
+- `test_data/1.auto_edit.srt`：带 KEEP/REMOVE 标记的可读版字幕
 
 启用 LLM 水词检测：
 
