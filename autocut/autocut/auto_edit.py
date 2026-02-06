@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -34,7 +35,7 @@ def _build_llm_edit_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
         "你是口播视频的文案优化助手。输入是完整转写文案（已纠错），每行对应一个字幕句子。"
         "你的任务：基于全文语义删除水词/水段和语义重复内容，并在每行内修正用词与语病。"
-        "如果一个语义被多次表达，通常后面的是纠正，请只保留最后一次。"
+        "如果一个语义被多次表达，通常后面的是纠正，前面必须标记为删除，后面的保留。"
         "允许在单行内改字、改词、补标点，但禁止跨行修改：不要合并/拆分/重排句子。"
         f"如果要删除某行，请保留行号并输出 {REMOVE_TOKEN}。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
@@ -55,11 +56,12 @@ def _strip_code_fence(text: str) -> str:
 
 def _parse_tagged_output(
     text: str, segments: List[Dict[str, Any]]
-) -> Tuple[Dict[int, str], List[int]]:
+) -> Tuple[Dict[int, str], List[int], List[int], str]:
     cleaned = _strip_code_fence(text)
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     values: Dict[int, str] = {}
     seen: set = set()
+    duplicates: List[int] = []
 
     for line in lines:
         match = TAG_PATTERN.match(line)
@@ -67,6 +69,8 @@ def _parse_tagged_output(
             continue
         idx = int(match.group(1))
         content = (match.group(2) or "").strip()
+        if idx in seen:
+            duplicates.append(idx)
         values[idx] = content
         seen.add(idx)
 
@@ -74,9 +78,8 @@ def _parse_tagged_output(
     for i in range(1, len(segments) + 1):
         if i not in seen:
             missing.append(i)
-            values[i] = (segments[i - 1].get("text") or "").strip()
 
-    return values, missing
+    return values, missing, duplicates, cleaned
 
 
 def _segments_to_edl(
@@ -157,18 +160,8 @@ def _write_json(path: str, data: Any):
 
 
 def _write_optimized_srt(path: str, subs: List[srt.Subtitle], encoding: str):
-    normalized: List[srt.Subtitle] = []
-    for i, sub in enumerate(subs, start=1):
-        normalized.append(
-            srt.Subtitle(
-                index=i,
-                start=sub.start,
-                end=sub.end,
-                content=(sub.content or "").strip(),
-            )
-        )
     with open(path, "wb") as f:
-        f.write(srt.compose(normalized).encode(encoding, "replace"))
+        f.write(srt.compose(subs, reindex=False).encode(encoding, "replace"))
 
 
 class AutoEdit:
@@ -204,20 +197,21 @@ class AutoEdit:
                 continue
 
             base, _ = os.path.splitext(input_path)
-            output_base = getattr(self.args, "auto_edit_output", None) or base
-            edl_json = output_base + ".edl.json"
-            optimized_srt = output_base + ".optimized.srt"
-            debug_json = output_base + ".auto_edit.json"
+            optimized_srt = base + ".optimized.srt"
+            cache_dir = Path.cwd() / ".cache" / "auto_edit"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_base = cache_dir / os.path.basename(base)
+            edl_json = str(cache_base) + ".edl.json"
+            debug_json = str(cache_base) + ".debug.json"
 
             if _maybe_skip(optimized_srt, self.args.force):
                 continue
 
             result = self._auto_edit_segments(segments, total_length)
-            _write_json(edl_json, result["edl"])
             _write_optimized_srt(optimized_srt, result["optimized_subs"], self.args.encoding)
-            _write_json(debug_json, result["debug"])
-            logging.info(f"Saved EDL to {edl_json}")
             logging.info(f"Saved optimized SRT to {optimized_srt}")
+            _write_json(edl_json, result["edl"])
+            _write_json(debug_json, result["debug"])
 
     def _auto_edit_segments(
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
@@ -229,31 +223,53 @@ class AutoEdit:
         if not edited_text:
             raise RuntimeError("LLM returned empty edited text.")
 
-        mapped, missing = _parse_tagged_output(edited_text, segments)
+        mapped, missing, duplicates, cleaned = _parse_tagged_output(edited_text, segments)
         if missing:
-            logging.warning(f"Missing {len(missing)} line tags in LLM output, fallback to original text.")
+            raise RuntimeError(
+                f"LLM output missing {len(missing)} line tags. "
+                "Please re-run or increase --llm-max-tokens."
+            )
+        if duplicates:
+            logging.warning(f"LLM output has duplicated line tags: {sorted(set(duplicates))[:8]}")
 
         optimized_subs: List[srt.Subtitle] = []
         kept_segments: List[Dict[str, Any]] = []
         for idx, seg in enumerate(segments, start=1):
-            new_text = (mapped.get(idx) or "").strip()
-            if not new_text or new_text == REMOVE_TOKEN:
-                continue
+            raw_text = (mapped.get(idx) or "").strip()
+            orig_text = (seg.get("text") or "").strip()
+            remove = False
+            if not raw_text:
+                remove = True
+            elif raw_text == REMOVE_TOKEN:
+                remove = True
+            elif raw_text.startswith(REMOVE_TOKEN):
+                remove = True
+
+            if remove:
+                if orig_text:
+                    new_text = f"{REMOVE_TOKEN} {orig_text}".strip()
+                else:
+                    new_text = REMOVE_TOKEN
+            else:
+                new_text = raw_text
+
             sub = srt.Subtitle(
-                index=0,
+                index=int(seg.get("id") or idx),
                 start=datetime.timedelta(seconds=float(seg.get("start") or 0.0)),
                 end=datetime.timedelta(seconds=float(seg.get("end") or 0.0)),
                 content=new_text,
             )
             optimized_subs.append(sub)
-            kept_segments.append(
-                {
-                    "start": float(seg.get("start") or 0.0),
-                    "end": float(seg.get("end") or 0.0),
-                }
-            )
 
-        if not optimized_subs:
+            if not remove:
+                kept_segments.append(
+                    {
+                        "start": float(seg.get("start") or 0.0),
+                        "end": float(seg.get("end") or 0.0),
+                    }
+                )
+
+        if not kept_segments:
             raise RuntimeError("All segments removed. Check LLM output.")
 
         edl = _segments_to_edl(kept_segments, self.cfg, total_length)
@@ -263,6 +279,9 @@ class AutoEdit:
             "debug": {
                 "edited_text": edited_text,
                 "remove_token": REMOVE_TOKEN,
+                "raw_output": cleaned,
+                "missing_tags": missing,
+                "duplicate_tags": duplicates,
             },
         }
 

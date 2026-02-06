@@ -10,7 +10,7 @@
 python -m pip install -e autocut
 ```
 
-### 2) 配置 LLM（纠错 + 主题分段）
+### 2) 配置 LLM（纠错）
 
 项目根目录的 `.env` 已包含默认模板，请填入你的 API Key：
 
@@ -20,7 +20,7 @@ LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen3-max
 ```
 
-### 3) 运行转录 + 纠错 + 主题分段
+### 3) 运行转录 + 纠错
 
 ```bash
 autocut -t test_data/1.MOV \
@@ -30,40 +30,59 @@ autocut -t test_data/1.MOV \
   --qwen3-offline \
   --device cpu \
   --qwen3-correct \
-  --qwen3-topic-llm \
   --llm-temperature 0.0 \
   --force
 ```
 
-输出文件：
+核心输出：
 - `test_data/1.srt`：字幕（已纠错、带标点）
-- `test_data/1.md`：可编辑标注文件
-- `test_data/1.topics.json`：LLM 主题分段结果
 
 ## 说明
 
 - 纠错流程：`ASR → 对齐（原文）→ LLM 纠错（仅改文本，不改时间）`
-- 主题分段：LLM 基于字幕内容进行语义分块
 
-## 自动剪辑（规则 + LLM + 质量评分 + EDL）
+## 自动剪辑（LLM 语义优化 → 优化 SRT）
 
-从 `.srt` 或 segments JSON 直接生成剪辑建议与 EDL。
+从 `.srt` 或 segments JSON 生成优化后的字幕（行对齐，删除行标注 `<<REMOVE>>`，不删行）。
 
-```bash
-autocut -e test_data/1.srt --force
-```
-
-输出：
-- `test_data/1.auto_edit.json`：每条字幕的 decision=keep/remove + 质量分数
-- `test_data/1.edl.json`：自动剪辑的时间段（可直接用于渲染）
-- `test_data/1.auto_edit.srt`：带 KEEP/REMOVE 标记的可读版字幕
-
-启用 LLM 水词检测：
+启用 LLM 全文语义优化（允许句内修正，禁止跨句修改）：
 
 ```bash
 autocut -e test_data/1.srt --auto-edit-llm \
   --llm-base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
   --llm-model qwen3-max --force
+```
+
+输出：
+- `test_data/1.optimized.srt`
+
+说明：
+- 仅保留与原 `1.srt` 相同的行号和时间戳。
+- 被删除的行会标记为 `<<REMOVE>> 原文`，不会直接删除该行。
+- 中间产物写入 `.cache/auto_edit/`，无需关注。
+
+## 用 Remotion 渲染成片（拼接优化段）
+
+先安装 Remotion 依赖：
+
+```bash
+cd remotion
+npm install
+```
+
+然后使用优化后的 SRT 渲染成片（会自动拼接 `<<REMOVE>>` 之外的片段）：
+
+```bash
+autocut --render test_data/1.MOV test_data/1.optimized.srt
+```
+
+输出：
+- `test_data/1_remotion.mp4`
+
+快速预览（720p/15fps）：
+
+```bash
+autocut --render test_data/1.MOV test_data/1.optimized.srt --render-preview
 ```
 
 ## 常见问题

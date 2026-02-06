@@ -46,7 +46,7 @@ class Transcribe:
                     temperature=self.args.llm_temperature,
                     max_tokens=self.args.llm_max_tokens,
                 )
-                if (self.args.qwen3_correct or self.args.qwen3_topic_llm) and (
+                if self.args.qwen3_correct and (
                     not llm_config.get("base_url") or not llm_config.get("model")
                 ):
                     raise RuntimeError(
@@ -103,24 +103,6 @@ class Transcribe:
             logging.info(f"Transcribed {input} to {output}")
             self._save_md(name + ".md", output, input)
             logging.info(f'Saved texts to {name + ".md"} to mark sentences')
-            if (
-                self.args.whisper_mode == WhisperMode.QWEN3.value
-                and self.args.qwen3_topic_llm
-            ):
-                from . import qwen3_model
-                from . import llm_utils
-
-                llm_config = llm_utils.build_llm_config(
-                    base_url=self.args.llm_base_url,
-                    model=self.args.llm_model,
-                    api_key=self.args.llm_api_key,
-                    timeout=self.args.llm_timeout,
-                    temperature=self.args.llm_temperature,
-                    max_tokens=self.args.llm_max_tokens,
-                )
-                topics = qwen3_model.llm_topic_segments(subs, llm_config)
-                self._save_topics(name + ".topics.json", topics)
-                logging.info(f"Saved topic segments to {name + '.topics.json'}")
 
     def _detect_voice_activity(self, audio) -> List[SPEECH_ARRAY_INDEX]:
         """Detect segments that have voice activities"""
@@ -189,12 +171,6 @@ class Transcribe:
         with open(output, "wb") as f:
             f.write(srt.compose(subs).encode(self.args.encoding, "replace"))
         return subs
-
-    def _save_topics(self, output, topics):
-        import json
-
-        with open(output, "w", encoding="utf-8") as f:
-            json.dump(topics, f, ensure_ascii=False, indent=2)
 
     def _save_md(self, md_fn, srt_fn, video_fn):
         with open(srt_fn, encoding=self.args.encoding) as f:

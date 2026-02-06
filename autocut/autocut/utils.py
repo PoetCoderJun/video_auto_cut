@@ -23,11 +23,13 @@ def load_audio(file: str, sr: int = 16000) -> np.ndarray:
 
 def is_video(filename):
     _, ext = os.path.splitext(filename)
+    ext = ext.lower()
     return ext in [".mp4", ".mov", ".mkv", ".avi", ".flv", ".f4v", ".webm"]
 
 
 def is_audio(filename):
     _, ext = os.path.splitext(filename)
+    ext = ext.lower()
     return ext in [".ogg", ".wav", ".mp3", ".flac", ".m4a"]
 
 

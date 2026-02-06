@@ -1,0 +1,16 @@
+{
+  "name": "video-auto-cut-remotion",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.419",
+    "@remotion/media-utils": "4.0.419",
+    "@remotion/renderer": "4.0.419",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "remotion": "4.0.419"
+  }
+}

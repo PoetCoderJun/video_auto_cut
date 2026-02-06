@@ -54,6 +54,11 @@ def main():
         action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
+        "--render",
+        help="Render video with pipeline: existing autocut stitch + Remotion subtitle overlay",
+        action=argparse.BooleanOptionalAction,
+    )
+    parser.add_argument(
         "--lang",
         type=str,
         default="zh",
@@ -208,12 +213,6 @@ def main():
         help="Use LLM to correct ASR text before forced alignment",
     )
     parser.add_argument(
-        "--qwen3-topic-llm",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Use LLM to group subtitle segments into topics (writes .topics.json)",
-    )
-    parser.add_argument(
         "--llm-base-url",
         type=str,
         default=None,
@@ -223,7 +222,7 @@ def main():
         "--llm-model",
         type=str,
         default=None,
-        help="LLM model name for correction/topic segmentation",
+        help="LLM model name for correction/auto-edit",
     )
     parser.add_argument(
         "--llm-api-key",
@@ -292,6 +291,36 @@ def main():
         help="The bitrate to export the cutted video, such as 10m, 1m, or 500k",
     )
     parser.add_argument(
+        "--render-output",
+        type=str,
+        default=None,
+        help="Output filename for final render (default: <video>_remotion.mp4)",
+    )
+    parser.add_argument(
+        "--render-fps",
+        type=float,
+        default=None,
+        help="Override FPS for Remotion render (default: capped at 30fps)",
+    )
+    parser.add_argument(
+        "--render-preview",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable preview render (caps to 720p/15fps unless overridden)",
+    )
+    parser.add_argument(
+        "--render-codec",
+        type=str,
+        default=None,
+        help="Codec for Remotion render (e.g. h264, h265, prores)",
+    )
+    parser.add_argument(
+        "--render-crf",
+        type=int,
+        default=None,
+        help="CRF for Remotion render (lower is higher quality)",
+    )
+    parser.add_argument(
         "--vad", help="If or not use VAD", choices=["1", "0", "auto"], default="auto"
     )
     parser.add_argument(
@@ -339,6 +368,10 @@ def main():
         from .auto_edit import AutoEdit
 
         AutoEdit(args).run()
+    elif args.render:
+        from .remotion_render import RemotionRenderer
+
+        RemotionRenderer(args).run()
     elif args.daemon:
         from .daemon import Daemon
 

@@ -3,16 +3,44 @@
 .env.*
 !.env.example
 
-# OS
+# OS / Editor
 .DS_Store
+.idea/
+.vscode/
+*.swp
 
-# Media / test artifacts
-test_data/*.MOV
-test_data/*.mov
-test_data/*.MP4
-test_data/*.mp4
-test_data/*.wav
-test_data/*.mp3
+# Logs
+log/
+logs/
+*.log
+
+# JavaScript / Remotion
+**/node_modules/
+remotion/.cache/
+remotion/public/*.mp4
+remotion/public/*.mov
+remotion/public/*.mkv
+
+# Media assets and render outputs (ignore by default)
+*.[Mm][Pp]4
+*.[Mm][Oo][Vv]
+*.[Mm][Kk][Vv]
+*.[Ff][Ll][Vv]
+*.[Aa][Vv][Ii]
+*.[Ww][Ee][Bb][Mm]
+*.[Mm][Pp]3
+*.[Ww][Aa][Vv]
+*.[Aa][Aa][Cc]
+*.[Ff][Ll][Aa][Cc]
+*.[Oo][Gg][Gg]
+*.[Oo][Pp][Uu][Ss]
+*.[Mm]4[Aa]
+*.[Ww][Mm][Aa]
+*.[Aa][Ii][Ff]
+*.[Aa][Ii][Ff][Cc]
+
+# Keep intentionally versioned test fixtures
+!autocut/test/media/**
 
 # Model weights (keep configs/READMEs, ignore large binaries)
 model/**/model.safetensors
@@ -46,8 +74,3 @@ pip-wheel-metadata/
 htmlcov/
 .coverage
 .coverage.*
-
-# Editors
-.idea/
-.vscode/
-*.swp

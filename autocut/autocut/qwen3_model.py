@@ -251,19 +251,6 @@ def _build_segment_correction_prompt(lines: List[str]) -> List[Dict[str, str]]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def _build_topic_prompt(lines: List[str]) -> List[Dict[str, str]]:
-    system = (
-        "You group subtitle segments into coherent topic blocks. "
-        "Use only the provided segment ids. "
-        "Cover all ids exactly once, keep the original order, and do not invent ids. "
-        "Return JSON with format: "
-        '{"topics":[{"title":"...", "summary":"...", "segment_ids":[1,2,3]}]}.'
-    )
-    joined = "\n".join(lines)
-    user = f"Segments:\n{joined}\n\nReturn JSON only."
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
 def llm_correct_text(text: str, llm_config: Dict[str, Any]) -> str:
     from . import llm_utils
 
@@ -328,55 +315,6 @@ def llm_correct_segments(
         subs[id_to_index[sid]].content = text
 
     return subs
-
-
-def llm_topic_segments(
-    subs: List[srt.Subtitle],
-    llm_config: Dict[str, Any],
-) -> Dict[str, Any]:
-    from . import llm_utils
-
-    lines: List[str] = []
-    id_to_sub = {}
-    seg_id = 1
-    for sub in subs:
-        content = (sub.content or "").strip()
-        if not content or content == "< No Speech >":
-            continue
-        start_s = sub.start.total_seconds()
-        end_s = sub.end.total_seconds()
-        lines.append(f"{seg_id}|{start_s:.2f}-{end_s:.2f}|{content}")
-        id_to_sub[seg_id] = sub
-        seg_id += 1
-
-    if not lines:
-        return {"topics": []}
-
-    messages = _build_topic_prompt(lines)
-    raw = llm_utils.chat_completion(llm_config, messages)
-    data = llm_utils.extract_json(raw)
-    topics = data.get("topics", [])
-
-    normalized = []
-    for t in topics:
-        ids = t.get("segment_ids") or []
-        ids = [i for i in ids if isinstance(i, int) and i in id_to_sub]
-        if not ids:
-            continue
-        ids_sorted = sorted(ids)
-        start = id_to_sub[ids_sorted[0]].start.total_seconds()
-        end = id_to_sub[ids_sorted[-1]].end.total_seconds()
-        normalized.append(
-            {
-                "title": t.get("title", ""),
-                "summary": t.get("summary", ""),
-                "segment_ids": ids_sorted,
-                "start": start,
-                "end": end,
-            }
-        )
-
-    return {"topics": normalized}
 
 
 def _normalize_tokens(tokens: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
