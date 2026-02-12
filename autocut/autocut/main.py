@@ -185,13 +185,13 @@ def main():
     parser.add_argument(
         "--qwen3-max-seg",
         type=float,
-        default=8.0,
+        default=20.0,
         help="Max segment length (seconds) for Qwen3 subtitles",
     )
     parser.add_argument(
         "--qwen3-max-chars",
         type=int,
-        default=40,
+        default=0,
         help="Max characters per Qwen3 subtitle line",
     )
     parser.add_argument(
@@ -207,12 +207,6 @@ def main():
         help="Insert punctuation from ASR text and use it to split subtitles",
     )
     parser.add_argument(
-        "--qwen3-correct",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Use LLM to correct ASR text before forced alignment",
-    )
-    parser.add_argument(
         "--llm-base-url",
         type=str,
         default=None,
@@ -222,7 +216,7 @@ def main():
         "--llm-model",
         type=str,
         default=None,
-        help="LLM model name for correction/auto-edit",
+        help="LLM model name for auto-edit",
     )
     parser.add_argument(
         "--llm-api-key",
@@ -289,6 +283,12 @@ def main():
         type=str,
         default="10m",
         help="The bitrate to export the cutted video, such as 10m, 1m, or 500k",
+    )
+    parser.add_argument(
+        "--cut-merge-gap",
+        type=float,
+        default=0.0,
+        help="Merge adjacent kept subtitle segments when their gap is smaller than this value (seconds)",
     )
     parser.add_argument(
         "--render-output",

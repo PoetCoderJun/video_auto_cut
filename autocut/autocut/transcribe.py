@@ -36,23 +36,6 @@ class Transcribe:
                 self.whisper_model.load(self.args.whisper_model, self.args.device)
             elif self.args.whisper_mode == WhisperMode.QWEN3.value:
                 from . import qwen3_model
-                from . import llm_utils
-
-                llm_config = llm_utils.build_llm_config(
-                    base_url=self.args.llm_base_url,
-                    model=self.args.llm_model,
-                    api_key=self.args.llm_api_key,
-                    timeout=self.args.llm_timeout,
-                    temperature=self.args.llm_temperature,
-                    max_tokens=self.args.llm_max_tokens,
-                )
-                if self.args.qwen3_correct and (
-                    not llm_config.get("base_url") or not llm_config.get("model")
-                ):
-                    raise RuntimeError(
-                        "LLM config missing. Set --llm-base-url and --llm-model "
-                        "(or env LLM_BASE_URL/LLM_MODEL) to use Qwen3 LLM features."
-                    )
 
                 model_id = qwen3_model.default_model_id(
                     self.args.qwen3_model,
@@ -72,8 +55,6 @@ class Transcribe:
                     no_speech_gap_s=self.args.qwen3_no_speech_gap,
                     language=self.args.qwen3_language,
                     use_punct=bool(self.args.qwen3_use_punct),
-                    correct_with_llm=bool(self.args.qwen3_correct),
-                    llm_config=llm_config,
                 )
                 self.whisper_model.load(
                     model_id=model_id,

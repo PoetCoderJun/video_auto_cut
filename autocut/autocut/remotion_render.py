@@ -14,8 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import srt
 
 from . import utils
-from .auto_edit import REMOVE_TOKEN
-from .cut import Cutter
+from .cut import Cutter, filter_kept_subtitles, build_merged_segments, resolve_cut_merge_gap
 
 
 class RemotionRenderer:
@@ -40,27 +39,35 @@ class RemotionRenderer:
 
         remotion_dir = self._resolve_remotion_dir()
         self._ensure_node_ready(remotion_dir)
+        self._cleanup_stale_render_artifacts(remotion_dir, media_fn)
         cut_source = self._prepare_cut_source(remotion_dir, media_fn)
 
         kept_subs = self._load_kept_subtitles(srt_fn, self.args.encoding)
         if not kept_subs:
             raise RuntimeError("No kept subtitles found in optimized SRT.")
 
-        filtered_srt = self._write_filtered_srt(remotion_dir, media_fn, kept_subs)
-        cut_video = self._run_existing_cut(cut_source, filtered_srt)
-        cut_video = self._retag_bt709(cut_video)
+        merge_gap_s = resolve_cut_merge_gap(self.args)
 
-        captions = self._build_remapped_captions(kept_subs)
+        # Cut against standardized source by the original optimized SRT.
+        # Cutter and caption-remap share the same keep/merge logic in cut.py.
+        cut_video = self._run_existing_cut(cut_source, srt_fn, merge_gap_s)
+        render_source = self._retag_bt709(cut_video)
+
+        segments = build_merged_segments(kept_subs, merge_gap_s=merge_gap_s)
+        captions = self._build_remapped_captions(kept_subs, segments)
         if not captions:
             raise RuntimeError("No captions available after remapping subtitle timeline.")
+        self._write_timeline_debug(
+            remotion_dir, media_fn, kept_subs, segments, captions, merge_gap_s
+        )
 
-        meta = self._load_video_metadata(cut_video)
+        meta = self._load_video_metadata(render_source)
         fps = self._resolve_fps(meta)
         width, height = self._resolve_dimensions(meta)
         duration_s = float(meta.get("duration") or captions[-1]["end"])
         duration_frames = max(1, int(math.ceil(duration_s * fps)))
 
-        public_name = self._prepare_public_video(remotion_dir, cut_video)
+        public_name = self._prepare_public_video(remotion_dir, render_source)
         props = {
             "src": public_name,
             "captions": captions,
@@ -91,39 +98,17 @@ class RemotionRenderer:
     def _load_kept_subtitles(self, srt_fn: str, encoding: str) -> List[srt.Subtitle]:
         with open(srt_fn, encoding=encoding) as f:
             subs = list(srt.parse(f.read()))
+        return filter_kept_subtitles(subs)
 
-        kept: List[srt.Subtitle] = []
-        for sub in subs:
-            text = (sub.content or "").strip()
-            if not text:
-                continue
-            if text.startswith(REMOVE_TOKEN):
-                continue
-            if sub.end <= sub.start:
-                continue
-            kept.append(sub)
-
-        kept.sort(key=lambda x: x.start)
-        return kept
-
-    def _write_filtered_srt(
-        self, remotion_dir: Path, media_fn: str, kept_subs: List[srt.Subtitle]
-    ) -> str:
-        cache_dir = remotion_dir / ".cache" / "render"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        path = cache_dir / f"{Path(media_fn).stem}.kept.srt"
-        with open(path, "w", encoding=self.args.encoding) as f:
-            f.write(srt.compose(kept_subs))
-        return str(path)
-
-    def _run_existing_cut(self, media_fn: str, filtered_srt: str) -> str:
+    def _run_existing_cut(self, media_fn: str, srt_fn: str, merge_gap_s: float) -> str:
         cut_args = SimpleNamespace(
-            inputs=[media_fn, filtered_srt],
+            inputs=[media_fn, srt_fn],
             bitrate=self.args.bitrate,
             # Always rebuild cut clips during render to avoid stale media reuse
             # when optimized subtitles change.
             force=True,
             encoding=self.args.encoding,
+            cut_merge_gap=merge_gap_s,
         )
         Cutter(cut_args).run()
 
@@ -132,8 +117,17 @@ class RemotionRenderer:
             raise RuntimeError(f"Failed to generate cut video: {output_fn}")
         return output_fn
 
-    def _build_remapped_captions(self, kept_subs: List[srt.Subtitle]) -> List[Dict[str, object]]:
-        segments = self._build_cut_segments(kept_subs)
+    def _build_remapped_captions(
+        self, kept_subs: List[srt.Subtitle], segments: List[Dict[str, float]]
+    ) -> List[Dict[str, object]]:
+        timeline: List[Dict[str, float]] = []
+        cursor = 0.0
+        for seg in segments:
+            start = float(seg["start"])
+            end = float(seg["end"])
+            timeline.append({"start": start, "end": end, "out_start": cursor})
+            cursor += end - start
+
         captions: List[Dict[str, object]] = []
 
         seg_idx = 0
@@ -142,10 +136,18 @@ class RemotionRenderer:
             start = sub.start.total_seconds()
             end = sub.end.total_seconds()
 
-            while seg_idx + 1 < len(segments) and start > segments[seg_idx]["end"] + eps:
-                seg_idx += 1
+            while seg_idx + 1 < len(timeline):
+                seg_end = timeline[seg_idx]["end"]
+                if start > seg_end + eps:
+                    seg_idx += 1
+                    continue
+                # Boundary case: [a,b] and [b,c], subtitle starting at b belongs to next segment.
+                if abs(start - seg_end) <= eps and end > seg_end + eps:
+                    seg_idx += 1
+                    continue
+                break
 
-            seg = segments[seg_idx]
+            seg = timeline[seg_idx]
             if start < seg["start"] - eps or end > seg["end"] + eps:
                 logging.warning(
                     "Subtitle %.3f-%.3f is out of cut segment %.3f-%.3f",
@@ -171,27 +173,64 @@ class RemotionRenderer:
 
         return captions
 
-    def _build_cut_segments(self, kept_subs: List[srt.Subtitle]) -> List[Dict[str, float]]:
-        segments: List[Dict[str, float]] = []
-        for sub in kept_subs:
-            start = sub.start.total_seconds()
-            end = sub.end.total_seconds()
-            if not segments:
-                segments.append({"start": start, "end": end})
-                continue
+    def _write_timeline_debug(
+        self,
+        remotion_dir: Path,
+        media_fn: str,
+        kept_subs: List[srt.Subtitle],
+        segments: List[Dict[str, float]],
+        captions: List[Dict[str, object]],
+        merge_gap_s: float,
+    ) -> None:
+        cache_dir = remotion_dir / ".cache" / "render"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        stem = Path(media_fn).stem
+        out_path = cache_dir / f"{stem}.timeline.json"
 
-            # Keep exactly the same merge behavior as Cutter.
-            if start - segments[-1]["end"] < 0.5:
-                segments[-1]["end"] = end
-            else:
-                segments.append({"start": start, "end": end})
-
+        merged: List[Dict[str, float]] = []
         cursor = 0.0
         for seg in segments:
-            seg["out_start"] = cursor
-            cursor += seg["end"] - seg["start"]
+            start = float(seg["start"])
+            end = float(seg["end"])
+            merged.append(
+                {
+                    "start": round(start, 6),
+                    "end": round(end, 6),
+                    "out_start": round(cursor, 6),
+                    "out_end": round(cursor + (end - start), 6),
+                    "duration": round(end - start, 6),
+                }
+            )
+            cursor += end - start
 
-        return segments
+        kept_lines: List[Dict[str, object]] = []
+        for sub in kept_subs:
+            text = (sub.content or "").strip()
+            kept_lines.append(
+                {
+                    "index": int(sub.index),
+                    "start": round(sub.start.total_seconds(), 6),
+                    "end": round(sub.end.total_seconds(), 6),
+                    "duration": round(sub.end.total_seconds() - sub.start.total_seconds(), 6),
+                    "text": text,
+                }
+            )
+
+        payload = {
+            "source": media_fn,
+            "summary": {
+                "kept_subtitles": len(kept_lines),
+                "merged_segments": len(merged),
+                "captions": len(captions),
+                "cut_duration": round(sum(s["duration"] for s in merged), 6),
+                "cut_merge_gap": round(merge_gap_s, 6),
+            },
+            "kept_subtitles": kept_lines,
+            "merged_segments": merged,
+            "captions": captions,
+        }
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
 
     def _load_video_metadata(self, media_fn: str) -> Dict[str, object]:
         cmd = [
@@ -255,7 +294,7 @@ class RemotionRenderer:
         if proxy.exists() and proxy.stat().st_mtime >= src.stat().st_mtime:
             return str(proxy)
 
-        logging.info("Standardizing source to mp4/h264 SDR Rec.709 1080p30 before cut.")
+        logging.info("Standardizing source to mp4/h264 SDR Rec.709 1080p30 for render ingest.")
         scale_pad = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
         if is_hdr:
             self._ensure_zscale_available()
@@ -424,14 +463,74 @@ class RemotionRenderer:
             )
         return remotion_dir
 
+    def _cleanup_stale_render_artifacts(self, remotion_dir: Path, media_fn: str) -> None:
+        stem = Path(media_fn).stem
+        render_dir = remotion_dir / ".cache" / "render"
+        stale_kept = render_dir / f"{stem}.kept.srt"
+        if stale_kept.exists():
+            try:
+                stale_kept.unlink()
+            except OSError:
+                logging.warning("Failed to remove stale artifact: %s", stale_kept)
+
     def _ensure_node_ready(self, remotion_dir: Path):
         if shutil.which("node") is None:
             raise RuntimeError("Node.js not found. Install Node.js to use Remotion rendering.")
+        if shutil.which("npm") is None:
+            raise RuntimeError("npm not found. Install Node.js/npm to use Remotion rendering.")
         if not self._ffmpeg_bin or not self._ffprobe_bin:
             raise RuntimeError("ffmpeg/ffprobe not found. Install ffmpeg to use Remotion rendering.")
-        if not (remotion_dir / "node_modules").exists():
+        node_modules = remotion_dir / "node_modules"
+        if not node_modules.exists():
+            logging.info("Remotion dependencies missing; running npm install...")
+            self._install_remotion_deps(remotion_dir)
+            return
+
+        if self._remotion_deps_healthy(remotion_dir):
+            return
+
+        logging.info("Remotion dependencies are incomplete/corrupted; running npm install...")
+        self._install_remotion_deps(remotion_dir)
+
+    def _remotion_deps_healthy(self, remotion_dir: Path) -> bool:
+        required_files = [
+            remotion_dir / "node_modules" / "@remotion" / "bundler" / "package.json",
+            remotion_dir / "node_modules" / "@remotion" / "renderer" / "package.json",
+            remotion_dir / "node_modules" / "remotion" / "package.json",
+        ]
+        if not all(path.exists() for path in required_files):
+            return False
+
+        probe_script = (
+            "Promise.all(["
+            "import('@remotion/bundler'),"
+            "import('@remotion/renderer'),"
+            "import('remotion')"
+            "]).then(() => process.exit(0)).catch((e) => {"
+            "console.error((e && e.message) || e);"
+            "process.exit(1);"
+            "});"
+        )
+        result = subprocess.run(
+            ["node", "-e", probe_script],
+            cwd=str(remotion_dir),
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+
+    def _install_remotion_deps(self, remotion_dir: Path) -> None:
+        cmd = ["npm", "install"]
+        result = subprocess.run(cmd, cwd=str(remotion_dir), capture_output=True, text=True)
+        if result.returncode != 0:
             raise RuntimeError(
-                "Remotion dependencies not installed. Run `cd remotion && npm install` first."
+                "Failed to install Remotion dependencies with npm install: "
+                f"{(result.stderr or '').strip()}"
+            )
+        if not self._remotion_deps_healthy(remotion_dir):
+            raise RuntimeError(
+                "Remotion dependencies are still invalid after npm install. "
+                "Try removing remotion/node_modules and rerun."
             )
 
     def _prepare_public_video(self, remotion_dir: Path, media_fn: str) -> str:
@@ -443,6 +542,7 @@ class RemotionRenderer:
         stamp = self._file_stamp(media_path)
         safe_name = f"{media_path.stem}_{stamp}{media_path.suffix}"
         target = public_dir / safe_name
+        self._cleanup_public_stale_files(public_dir, media_path.stem, safe_name)
 
         if target.exists():
             try:
@@ -459,6 +559,22 @@ class RemotionRenderer:
         for item in public_dir.iterdir():
             if item.is_symlink():
                 item.unlink()
+
+    def _cleanup_public_stale_files(
+        self, public_dir: Path, stem: str, keep_name: str
+    ) -> None:
+        # Remove stale copied media from previous runs to keep public/ deterministic.
+        prefix = f"{stem}_"
+        for item in public_dir.iterdir():
+            if not item.is_file():
+                continue
+            if item.name == keep_name:
+                continue
+            if item.name.startswith(prefix):
+                try:
+                    item.unlink()
+                except OSError:
+                    logging.warning("Failed to remove stale public asset: %s", item)
 
     def _file_stamp(self, path: Path) -> str:
         stat = path.stat()

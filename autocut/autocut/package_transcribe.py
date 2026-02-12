@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import List, Any, Union, Literal, Optional, Dict
+from typing import List, Any, Union, Literal
 
 import numpy as np
 import torch
@@ -24,12 +24,10 @@ class Transcribe:
         qwen3_use_modelscope: bool = False,
         qwen3_offline: bool = False,
         qwen3_gap: float = 0.6,
-        qwen3_max_seg: float = 8.0,
-        qwen3_max_chars: int = 40,
+        qwen3_max_seg: float = 20.0,
+        qwen3_max_chars: int = 0,
         qwen3_no_speech_gap: float = 1.0,
         qwen3_use_punct: bool = True,
-        qwen3_correct: bool = False,
-        llm_config: Optional[Dict[str, Any]] = None,
     ):
         self.whisper_mode = whisper_mode
         self.whisper_model_size = whisper_model_size
@@ -71,8 +69,6 @@ class Transcribe:
                     no_speech_gap_s=qwen3_no_speech_gap,
                     language=qwen3_language,
                     use_punct=bool(qwen3_use_punct),
-                    correct_with_llm=bool(qwen3_correct),
-                    llm_config=llm_config or {},
                 )
                 self.whisper_model.load(
                     model_id=model_id,

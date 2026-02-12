@@ -224,99 +224,6 @@ def _apply_punctuation(tokens: List[Dict[str, Any]], text: str) -> List[Dict[str
 
     return out
 
-
-def _build_correction_prompt(text: str) -> List[Dict[str, str]]:
-    system = (
-        "You are a transcript correction assistant. "
-        "Fix obvious ASR mistakes (homophones, wrong words) and restore punctuation. "
-        "Do not add or remove content, and do not paraphrase. "
-        "Keep the original wording as much as possible. "
-        "Return ONLY the corrected text."
-    )
-    user = f"ASR text:\n{text}\n\nCorrected text:"
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def _build_segment_correction_prompt(lines: List[str]) -> List[Dict[str, str]]:
-    system = (
-        "You are a transcript correction assistant. "
-        "For each segment, fix obvious ASR mistakes (homophones, wrong words) and restore punctuation. "
-        "Do not add explanations, parentheses, or extra information. "
-        "Do not merge/split segments or change their order. "
-        "Keep the text length close to the original. "
-        "Return JSON only with format: {\"segments\":[{\"id\":1,\"text\":\"...\"}]}."
-    )
-    joined = "\n".join(lines)
-    user = f"Segments:\n{joined}\n\nReturn JSON only."
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-
-def llm_correct_text(text: str, llm_config: Dict[str, Any]) -> str:
-    from . import llm_utils
-
-    if not text:
-        return text
-    messages = _build_correction_prompt(text)
-    corrected = llm_utils.chat_completion(llm_config, messages).strip()
-    if corrected.startswith("```"):
-        corrected = re.sub(r"^```[a-zA-Z0-9_-]*", "", corrected).strip()
-        if corrected.endswith("```"):
-            corrected = corrected[: -len("```")].strip()
-    if corrected.startswith("\"") and corrected.endswith("\"") and len(corrected) > 1:
-        corrected = corrected[1:-1].strip()
-    if not corrected:
-        return text
-    if abs(len(corrected) - len(text)) / max(len(text), 1) > 0.3:
-        logging.warning("LLM correction length differs too much; using original ASR text.")
-        return text
-    return corrected
-
-
-def llm_correct_segments(
-    subs: List[srt.Subtitle],
-    llm_config: Dict[str, Any],
-    max_length_diff_ratio: float = 0.3,
-) -> List[srt.Subtitle]:
-    from . import llm_utils
-
-    lines: List[str] = []
-    id_to_index: Dict[int, int] = {}
-    originals: Dict[int, str] = {}
-    seg_id = 1
-    for idx, sub in enumerate(subs):
-        content = (sub.content or "").strip()
-        if not content or content == "< No Speech >":
-            continue
-        lines.append(f"{seg_id}|{content}")
-        id_to_index[seg_id] = idx
-        originals[seg_id] = content
-        seg_id += 1
-
-    if not lines:
-        return subs
-
-    messages = _build_segment_correction_prompt(lines)
-    raw = llm_utils.chat_completion(llm_config, messages)
-    data = llm_utils.extract_json(raw)
-    segments = data.get("segments") or []
-
-    for item in segments:
-        try:
-            sid = int(item.get("id"))
-        except Exception:
-            continue
-        text = (item.get("text") or "").strip()
-        if not text or sid not in id_to_index:
-            continue
-        original = originals.get(sid, "")
-        if original:
-            if abs(len(text) - len(original)) / max(len(original), 1) > max_length_diff_ratio:
-                continue
-        subs[id_to_index[sid]].content = text
-
-    return subs
-
-
 def _normalize_tokens(tokens: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cleaned: List[Dict[str, Any]] = []
     for t in tokens:
@@ -431,15 +338,13 @@ class Qwen3Model:
         self,
         sample_rate: int = 16000,
         gap_s: float = 0.6,
-        max_seg_s: float = 8.0,
-        max_chars: int = 40,
+        max_seg_s: float = 20.0,
+        max_chars: int = 0,
         no_speech_gap_s: float = 1.0,
         min_seg_s: float = 0.1,
         language: Optional[str] = None,
         use_punct: bool = True,
         punct_breaks: Optional[Iterable[str]] = None,
-        correct_with_llm: bool = False,
-        llm_config: Optional[Dict[str, Any]] = None,
     ):
         self.sample_rate = sample_rate
         self.gap_s = gap_s
@@ -450,8 +355,6 @@ class Qwen3Model:
         self.language = language
         self.use_punct = use_punct
         self.punct_breaks = set(punct_breaks or DEFAULT_PUNCT_BREAKS)
-        self.correct_with_llm = correct_with_llm
-        self.llm_config = llm_config or {}
         self.asr_model = None
         self.aligner = None
 
@@ -542,6 +445,4 @@ class Qwen3Model:
                 )
             )
             prev_end = end
-        if self.correct_with_llm:
-            subs = llm_correct_segments(subs, self.llm_config)
         return subs

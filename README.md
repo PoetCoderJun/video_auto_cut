@@ -10,7 +10,7 @@
 python -m pip install -e autocut
 ```
 
-### 2) 配置 LLM（纠错）
+### 2) 配置 LLM（自动剪辑优化字幕）
 
 项目根目录的 `.env` 已包含默认模板，请填入你的 API Key：
 
@@ -20,7 +20,7 @@ LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen3-max
 ```
 
-### 3) 运行转录 + 纠错
+### 3) 运行转录
 
 ```bash
 autocut -t test_data/1.MOV \
@@ -29,17 +29,16 @@ autocut -t test_data/1.MOV \
   --qwen3-aligner ./model/Qwen3-ForcedAligner-0.6B \
   --qwen3-offline \
   --device cpu \
-  --qwen3-correct \
-  --llm-temperature 0.0 \
   --force
 ```
 
 核心输出：
-- `test_data/1.srt`：字幕（已纠错、带标点）
+- `test_data/1.srt`：字幕（ASR 对齐结果，带标点）
 
 ## 说明
 
-- 纠错流程：`ASR → 对齐（原文）→ LLM 纠错（仅改文本，不改时间）`
+- 转录流程：`ASR → 对齐（原文）→ 分段出 SRT`
+- 字幕纠错已移动到自动剪辑第二步（优化字幕）。
 
 ## 自动剪辑（LLM 语义优化 → 优化 SRT）
 
@@ -50,7 +49,9 @@ autocut -t test_data/1.MOV \
 ```bash
 autocut -e test_data/1.srt --auto-edit-llm \
   --llm-base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-  --llm-model qwen3-max --force
+  --llm-model qwen3-max \
+  --llm-max-tokens 4096 \
+  --force
 ```
 
 输出：

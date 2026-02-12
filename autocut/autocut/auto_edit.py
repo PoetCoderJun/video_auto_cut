@@ -14,6 +14,7 @@ from . import llm_utils
 
 REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
+MAX_OPTIMIZE_LENGTH_DIFF_RATIO = 0.3
 
 
 @dataclass
@@ -31,17 +32,35 @@ def _segments_to_tagged_text(segments: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _build_llm_edit_prompt(tagged_text: str) -> List[Dict[str, str]]:
+def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
-        "你是口播视频的文案优化助手。输入是完整转写文案（已纠错），每行对应一个字幕句子。"
-        "你的任务：基于全文语义删除水词/水段和语义重复内容，并在每行内修正用词与语病。"
-        "如果一个语义被多次表达，通常后面的是纠正，前面必须标记为删除，后面的保留。"
-        "允许在单行内改字、改词、补标点，但禁止跨行修改：不要合并/拆分/重排句子。"
-        f"如果要删除某行，请保留行号并输出 {REMOVE_TOKEN}。"
+        "你是口播文案删减助手。输入是完整asr转写文案，每行对应一个字幕句子。"
+        "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多语义。"
+        "任务：只判断每行是否删除，不做改写。"
+        "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的重复/试错内容一并删除。"
+        f"删除行输出 {REMOVE_TOKEN}。保留行必须原样回填，不允许改字、改词、改标点。"
+        "禁止跨行操作：不要合并/拆分/重排句子。"
+        "必须保留每一行的行号标签，且行数必须与输入完全一致。"
+        "仅输出删减后的完整文案，不要输出任何解释。"
+    )
+    user = f"原文：\n{tagged_text}\n\n请输出第一步删减结果："
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
+    system = (
+        "你是口播视频的文案优化助手。输入是第一步删减结果，每行对应一个字幕句子。"
+        "第二步任务：只优化未删除行的用词和标点，降低 ASR 错误并提升可读性。"
+        "重点修正明显 ASR 错误（同音字、错词）并恢复标点。"
+        "不要新增或删减语义，不要改写句意。"
+        "每行文本长度应尽量接近原句。"
+        f"对于标记为 {REMOVE_TOKEN} 的行，必须原样输出 {REMOVE_TOKEN}，禁止恢复内容。"
+        "禁止新增删除，不要把保留行改成删除。"
+        "禁止跨行操作：不要合并/拆分/重排句子。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
         "仅输出优化后的完整文案，不要输出任何解释。"
     )
-    user = f"原文：\n{tagged_text}\n\n请输出优化后的完整文案："
+    user = f"第一步结果：\n{tagged_text}\n\n请输出第二步优化结果："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
@@ -80,6 +99,25 @@ def _parse_tagged_output(
             missing.append(i)
 
     return values, missing, duplicates, cleaned
+
+
+def _is_remove_line(content: str) -> bool:
+    value = (content or "").strip()
+    if not value:
+        return True
+    if value == REMOVE_TOKEN:
+        return True
+    if value.startswith(REMOVE_TOKEN):
+        return True
+    return False
+
+
+def _length_diff_too_large(candidate: str, original: str, ratio: float) -> bool:
+    c = (candidate or "").strip()
+    o = (original or "").strip()
+    if not c or not o:
+        return False
+    return abs(len(c) - len(o)) / max(len(o), 1) > ratio
 
 
 def _segments_to_edl(
@@ -217,33 +255,75 @@ class AutoEdit:
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
     ) -> Dict[str, Any]:
         tagged_text = _segments_to_tagged_text(segments)
-        edit_messages = _build_llm_edit_prompt(tagged_text)
-        edited_text = llm_utils.chat_completion(self.llm_config, edit_messages)
-        edited_text = _strip_code_fence(edited_text).strip()
-        if not edited_text:
-            raise RuntimeError("LLM returned empty edited text.")
 
-        mapped, missing, duplicates, cleaned = _parse_tagged_output(edited_text, segments)
-        if missing:
+        # Step 1: full-text semantic remove pass.
+        remove_messages = _build_llm_remove_prompt(tagged_text)
+        remove_text = llm_utils.chat_completion(self.llm_config, remove_messages)
+        remove_text = _strip_code_fence(remove_text).strip()
+        if not remove_text:
+            raise RuntimeError("LLM returned empty remove-pass text.")
+
+        remove_mapped, remove_missing, remove_duplicates, remove_cleaned = _parse_tagged_output(
+            remove_text, segments
+        )
+        if remove_missing:
             raise RuntimeError(
-                f"LLM output missing {len(missing)} line tags. "
+                f"LLM remove pass missing {len(remove_missing)} line tags. "
                 "Please re-run or increase --llm-max-tokens."
             )
-        if duplicates:
-            logging.warning(f"LLM output has duplicated line tags: {sorted(set(duplicates))[:8]}")
+        if remove_duplicates:
+            logging.warning(
+                "LLM remove pass has duplicated line tags: "
+                f"{sorted(set(remove_duplicates))[:8]}"
+            )
+
+        remove_flags: List[bool] = []
+        remove_stage_lines: List[str] = []
+        for idx, seg in enumerate(segments, start=1):
+            raw_text = (remove_mapped.get(idx) or "").strip()
+            orig_text = (seg.get("text") or "").strip()
+            remove = _is_remove_line(raw_text)
+            remove_flags.append(remove)
+            if remove:
+                remove_stage_lines.append(f"[L{idx:04d}] {REMOVE_TOKEN}")
+            else:
+                # Keep original text for step 2 to ensure remove/optimize responsibilities are split.
+                remove_stage_lines.append(f"[L{idx:04d}] {orig_text}")
+        remove_stage_text = "\n".join(remove_stage_lines)
+
+        # Step 2: optimize wording for kept lines only.
+        optimize_messages = _build_llm_optimize_prompt(remove_stage_text)
+        optimize_text = llm_utils.chat_completion(self.llm_config, optimize_messages)
+        optimize_text = _strip_code_fence(optimize_text).strip()
+        if not optimize_text:
+            raise RuntimeError("LLM returned empty optimize-pass text.")
+
+        optimize_mapped, optimize_missing, optimize_duplicates, optimize_cleaned = _parse_tagged_output(
+            optimize_text, segments
+        )
+        if optimize_missing:
+            logging.warning(
+                "LLM optimize pass missing %d line tags; fallback to remove-pass/original text "
+                "for missing lines. Consider increasing --llm-max-tokens.",
+                len(optimize_missing),
+            )
+            for idx in optimize_missing:
+                if remove_flags[idx - 1]:
+                    optimize_mapped[idx] = REMOVE_TOKEN
+                else:
+                    optimize_mapped[idx] = (segments[idx - 1].get("text") or "").strip()
+        if optimize_duplicates:
+            logging.warning(
+                "LLM optimize pass has duplicated line tags: "
+                f"{sorted(set(optimize_duplicates))[:8]}"
+            )
 
         optimized_subs: List[srt.Subtitle] = []
         kept_segments: List[Dict[str, Any]] = []
         for idx, seg in enumerate(segments, start=1):
-            raw_text = (mapped.get(idx) or "").strip()
+            raw_text = (optimize_mapped.get(idx) or "").strip()
             orig_text = (seg.get("text") or "").strip()
-            remove = False
-            if not raw_text:
-                remove = True
-            elif raw_text == REMOVE_TOKEN:
-                remove = True
-            elif raw_text.startswith(REMOVE_TOKEN):
-                remove = True
+            remove = remove_flags[idx - 1]
 
             if remove:
                 if orig_text:
@@ -251,7 +331,22 @@ class AutoEdit:
                 else:
                     new_text = REMOVE_TOKEN
             else:
-                new_text = raw_text
+                if _is_remove_line(raw_text):
+                    logging.warning(
+                        "LLM optimize pass attempted to remove kept line [L%04d]; using original text.",
+                        idx,
+                    )
+                    new_text = orig_text
+                else:
+                    new_text = raw_text or orig_text
+                    if _length_diff_too_large(
+                        new_text, orig_text, MAX_OPTIMIZE_LENGTH_DIFF_RATIO
+                    ):
+                        logging.warning(
+                            "LLM optimize pass changed kept line [L%04d] too much; using original text.",
+                            idx,
+                        )
+                        new_text = orig_text
 
             sub = srt.Subtitle(
                 index=int(seg.get("id") or idx),
@@ -277,11 +372,22 @@ class AutoEdit:
             "optimized_subs": optimized_subs,
             "edl": edl,
             "debug": {
-                "edited_text": edited_text,
+                "edited_text": optimize_text,
                 "remove_token": REMOVE_TOKEN,
-                "raw_output": cleaned,
-                "missing_tags": missing,
-                "duplicate_tags": duplicates,
+                "raw_output": optimize_cleaned,
+                "missing_tags": optimize_missing,
+                "duplicate_tags": optimize_duplicates,
+                "remove_pass": {
+                    "raw_output": remove_cleaned,
+                    "missing_tags": remove_missing,
+                    "duplicate_tags": remove_duplicates,
+                },
+                "optimize_pass": {
+                    "raw_output": optimize_cleaned,
+                    "missing_tags": optimize_missing,
+                    "duplicate_tags": optimize_duplicates,
+                    "max_length_diff_ratio": MAX_OPTIMIZE_LENGTH_DIFF_RATIO,
+                },
             },
         }
 
