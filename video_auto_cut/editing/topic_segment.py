@@ -112,7 +112,7 @@ def _build_segmentation_prompt(
         "背景：口播通常是总分总结构：开头intro，中间按分点展开，结尾收尾。"
         "显式线索（第一/首先/第二/第三/第四/最后/总结）应优先作为分段边界。"
         "输出严格 JSON，不要 markdown，不要解释。"
-        '格式：{"segments":[{"start_segment_id":1,"end_segment_id":5}]}。'
+        '格式：{"segments":[{"start_segment_id":1,"end_segment_id":5,"title":"章节标题"}]}。'
         "要求："
         "1) 覆盖全部 segment，不遗漏；"
         "2) 每段连续，不重叠，不跳号；"
@@ -121,7 +121,7 @@ def _build_segmentation_prompt(
         f"{min_topics}"
         " 到 "
         f"{max_topics}"
-        "。"
+        "；5) title 要概括该段核心信息。"
     )
     user = f"字幕输入：\n{payload}\n\n请仅输出分段 JSON："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -153,7 +153,7 @@ def _parse_segment_ids(item: Dict[str, Any]) -> List[int]:
     return list(range(start_id, end_id + 1))
 
 
-def _parse_segment_plan(text: str) -> List[List[int]]:
+def _parse_segment_plan(text: str) -> Tuple[List[List[int]], Dict[int, str]]:
     raw = _strip_code_fence(text)
     data = llm_utils.extract_json(raw)
     items = data.get("segments")
@@ -161,15 +161,20 @@ def _parse_segment_plan(text: str) -> List[List[int]]:
         raise RuntimeError("LLM response missing `segments` array.")
 
     plan: List[List[int]] = []
+    titles: Dict[int, str] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         ids = _parse_segment_ids(item)
         if ids:
             plan.append(ids)
+            idx = len(plan)
+            title = _clean_text(str(item.get("title") or ""))
+            if title:
+                titles[idx] = title
     if not plan:
         raise RuntimeError("LLM returned empty segmentation plan.")
-    return plan
+    return plan, titles
 
 
 def _is_contiguous(ids: List[int]) -> bool:
@@ -323,6 +328,21 @@ def _fallback_title_summary(
     return title, base
 
 
+def _fallback_title_only(
+    ids: List[int], segments: List[TopicSegment], index: int, total: int
+) -> str:
+    id_to_segment = {seg.segment_id: seg for seg in segments}
+    chosen = [id_to_segment[x] for x in ids if x in id_to_segment]
+    if chosen:
+        base = _clean_text(chosen[0].text)
+        base = re.sub(r"^[\s\-—,，。！？!?；;：:]+", "", base)
+        clause = re.split(r"[，。！？!?；;：:]", base)[0].strip()
+        if clause:
+            return clause[:10]
+    title, _ = _fallback_title_summary(ids, segments, index, total)
+    return title
+
+
 def _cap_summary(summary: str, max_chars: int) -> str:
     value = _clean_text(summary)
     if max_chars <= 0:
@@ -347,7 +367,10 @@ def _compose_topics(
         title, summary = title_summary_pairs[idx - 1]
         if not summary:
             _, summary = _fallback_title_summary(ids, segments, idx, len(plan))
-        summary = _cap_summary(summary, summary_max_chars)
+        if summary != title:
+            summary = _cap_summary(summary, summary_max_chars)
+        else:
+            summary = _clean_text(summary)
         topics.append(
             {
                 "title": title or f"章节{idx}",
@@ -380,6 +403,7 @@ class TopicSegmenter:
     def __init__(self, args):
         self.args = args
         self.max_topics = int(getattr(args, "topic_max_topics", 8))
+        self.generate_summary = bool(getattr(args, "topic_generate_summary", True))
         self.summary_max_chars = int(
             getattr(
                 args,
@@ -422,8 +446,9 @@ class TopicSegmenter:
 
         seg_prompt = _build_segmentation_prompt(segments, self.max_topics)
         seg_text = llm_utils.chat_completion(self.llm_config, seg_prompt)
+        seg_titles: Dict[int, str] = {}
         try:
-            plan = _parse_segment_plan(seg_text)
+            plan, seg_titles = _parse_segment_plan(seg_text)
             plan = _normalize_segment_plan(plan, segments)
         except Exception as exc:
             if self.strict:
@@ -431,20 +456,28 @@ class TopicSegmenter:
             logging.warning(f"Segmentation parsing failed, fallback to cue plan: {exc}")
             plan = _build_cue_fallback_plan(segments, self.max_topics)
 
-        sum_prompt = _build_summary_prompt(plan, segments, self.summary_max_chars)
-        sum_text = llm_utils.chat_completion(self.llm_config, sum_prompt)
-        try:
-            pairs = _parse_summary_plan(sum_text, topic_count=len(plan))
-        except Exception as exc:
-            if self.strict:
-                raise
-            logging.warning(f"Summary parsing failed, fallback to text lead: {exc}")
+        if self.generate_summary:
+            sum_prompt = _build_summary_prompt(plan, segments, self.summary_max_chars)
+            sum_text = llm_utils.chat_completion(self.llm_config, sum_prompt)
+            try:
+                pairs = _parse_summary_plan(sum_text, topic_count=len(plan))
+            except Exception as exc:
+                if self.strict:
+                    raise
+                logging.warning(f"Summary parsing failed, fallback to text lead: {exc}")
+                pairs = []
+                for idx, ids in enumerate(plan, start=1):
+                    pairs.append(_fallback_title_summary(ids, segments, idx, len(plan)))
+            summary_max_chars = self.summary_max_chars
+        else:
             pairs = []
             for idx, ids in enumerate(plan, start=1):
-                pairs.append(_fallback_title_summary(ids, segments, idx, len(plan)))
+                title = seg_titles.get(idx) or _fallback_title_only(ids, segments, idx, len(plan))
+                pairs.append((title, title))
+            summary_max_chars = max(32, self.summary_max_chars)
 
         topics = _compose_topics(
-            plan, pairs, segments, summary_max_chars=self.summary_max_chars
+            plan, pairs, segments, summary_max_chars=summary_max_chars
         )
         output = output_path or _default_output_path(srt_path)
         _write_json(output, {"topics": topics})

@@ -85,7 +85,7 @@ def _load_chapters(path: Path) -> list[dict[str, Any]]:
             {
                 "chapter_id": idx,
                 "title": str(topic.get("title") or f"章节{idx}"),
-                "summary": str(topic.get("summary") or ""),
+                "summary": str(topic.get("summary") or topic.get("title") or f"章节{idx}"),
                 "start": start,
                 "end": end,
                 "line_ids": [int(item) for item in line_ids if isinstance(item, (int, float))],

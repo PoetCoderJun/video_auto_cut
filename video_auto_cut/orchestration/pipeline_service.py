@@ -52,6 +52,7 @@ class PipelineOptions:
     topic_strict: bool = False
     topic_max_topics: int = 8
     topic_summary_max_chars: int = 6
+    topic_generate_summary: bool = True
 
 
 def require_llm(options: PipelineOptions, stage_name: str) -> None:
@@ -148,6 +149,7 @@ def build_topic_args(
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
         topic_summary_max_chars=int(options.topic_summary_max_chars),
+        topic_generate_summary=bool(options.topic_generate_summary),
         llm_base_url=options.llm_base_url,
         llm_model=options.llm_model,
         llm_api_key=options.llm_api_key,

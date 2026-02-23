@@ -47,6 +47,7 @@ def build_pipeline_options(**overrides: object) -> PipelineOptions:
         "topic_strict": False,
         "topic_max_topics": settings.topic_max_topics,
         "topic_summary_max_chars": settings.topic_summary_max_chars,
+        "topic_generate_summary": False,
     }
     values.update(overrides)
     return PipelineOptions(**values)
