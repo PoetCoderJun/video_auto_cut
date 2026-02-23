@@ -170,3 +170,90 @@ remotion/
 - `--render-preview`：预览模式（轻量渲染）
 - `--render-output`：指定最终视频路径
 - `--topic-output`：指定章节 JSON 路径
+
+## Web MVP（已实现接口与骨架）
+
+### 文档
+
+- `web_mvp_plan.md`
+- `web_api_interface.md`
+- `web_dev_plan_architecture.md`
+
+### 一键启动（推荐）
+
+```bash
+./scripts/start_web_mvp.sh
+```
+
+启动后会同时拉起：
+- FastAPI（`127.0.0.1:8000`）
+- Worker（后台任务消费）
+- Next.js（`127.0.0.1:3000`）
+
+按 `Ctrl+C` 会自动停止全部进程。
+
+说明：脚本会自动注入  
+`NEXT_PUBLIC_API_BASE=http://127.0.0.1:8000/api/v1`  
+避免 `localhost` 在部分环境下解析到 IPv6 导致连接被拒绝。
+
+实时看日志：
+
+```bash
+# 新版脚本会直接把日志打印在当前终端
+# 如需后台运行，再自行重定向：
+./scripts/start_web_mvp.sh > web_mvp.log 2>&1
+```
+
+### 后端 API（FastAPI）
+
+启动 API：
+
+```bash
+uvicorn web_api.app:app --host 127.0.0.1 --port 8000
+```
+
+启动 Worker（另一个终端）：
+
+```bash
+python -m web_api.worker.runner
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8000/healthz
+```
+
+### 产物自动清理（workdir）
+
+默认已开启两层清理机制：
+- 下载后自动清理：`GET /api/v1/jobs/{job_id}/download` 成功返回后，后台删除该任务 `workdir/jobs/{job_id}` 产物。
+- 超时自动清理：Worker 周期扫描，清理超过 TTL 的已完成任务产物。
+
+可配环境变量（`.env`）：
+
+```env
+WEB_CLEANUP_ENABLED=1
+WEB_CLEANUP_ON_DOWNLOAD=1
+WEB_CLEANUP_TTL_SECONDS=3600
+WEB_CLEANUP_INTERVAL_SECONDS=300
+WEB_CLEANUP_BATCH_SIZE=10
+```
+
+如果想保留下载后文件，可在下载时显式关闭：
+
+```text
+/api/v1/jobs/{job_id}/download?cleanup=0
+```
+
+### 前端（Next.js）
+
+```bash
+cd web_frontend
+npm install
+npm run dev
+```
+
+默认地址：`http://localhost:3000`  
+默认 API：`http://localhost:8000/api/v1`  
+可通过 `NEXT_PUBLIC_API_BASE` 覆盖。

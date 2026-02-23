@@ -1,4 +1,3 @@
-import datetime
 import json
 import logging
 import math
@@ -16,7 +15,8 @@ import srt
 
 from ..editing.topic_segment import TopicSegmenter
 from ..shared import media as utils
-from .cut import Cutter, filter_kept_subtitles, build_merged_segments, resolve_cut_merge_gap
+from .cut import Cutter, resolve_cut_merge_gap
+from .cut_srt import build_cut_srt_from_optimized_srt
 
 
 def _find_repo_root() -> Path:
@@ -55,32 +55,33 @@ class RemotionRenderer:
         self._cleanup_stale_render_artifacts(remotion_dir, media_fn)
         cut_source = self._prepare_cut_source(remotion_dir, media_fn)
 
-        kept_subs = self._load_kept_subtitles(srt_fn, self.args.encoding)
-        if not kept_subs:
-            raise RuntimeError("No kept subtitles found in optimized SRT.")
-
         merge_gap_s = resolve_cut_merge_gap(self.args)
+        cut_timeline = build_cut_srt_from_optimized_srt(
+            source_srt_path=srt_fn,
+            output_srt_path=self._resolve_cut_srt_output(srt_fn),
+            encoding=self.args.encoding,
+            merge_gap_s=merge_gap_s,
+        )
+        cut_srt = str(cut_timeline["cut_srt_path"])
+        kept_subs = list(cut_timeline["kept_subtitles"])
+        segments = list(cut_timeline["segments"])
+        captions = list(cut_timeline["captions"])
 
         # Cut against standardized source by the original optimized SRT.
         # Cutter and caption-remap share the same keep/merge logic in cut.py.
         cut_video = self._run_existing_cut(cut_source, srt_fn, merge_gap_s)
         render_source = self._retag_bt709(cut_video)
-
-        segments = build_merged_segments(kept_subs, merge_gap_s=merge_gap_s)
-        captions = self._build_remapped_captions(kept_subs, segments)
-        if not captions:
-            raise RuntimeError("No captions available after remapping subtitle timeline.")
-        cut_srt = self._write_cut_srt(srt_fn, captions, self.args.encoding)
-        captions = self._load_captions_from_srt(cut_srt, self.args.encoding)
-        if not captions:
-            raise RuntimeError("No captions available in generated cut SRT.")
-        topics_path = self._maybe_generate_topics_from_cut_srt(cut_srt)
-        if topics_path:
-            topics = self._load_topics(topics_path)
-        elif bool(getattr(self.args, "render_topics", True)):
-            topics = self._load_topics(self._resolve_topic_output(cut_srt))
+        manual_topics_input = getattr(self.args, "render_topics_input", None)
+        if manual_topics_input:
+            topics = self._load_topics(str(manual_topics_input))
         else:
-            topics = []
+            topics_path = self._maybe_generate_topics_from_cut_srt(cut_srt)
+            if topics_path:
+                topics = self._load_topics(topics_path)
+            elif bool(getattr(self.args, "render_topics", True)):
+                topics = self._load_topics(self._resolve_topic_output(cut_srt))
+            else:
+                topics = []
         self._write_timeline_debug(
             remotion_dir, media_fn, kept_subs, segments, captions, merge_gap_s, topics
         )
@@ -193,11 +194,6 @@ class RemotionRenderer:
             raise RuntimeError("Remotion render requires a video file and an optimized .srt file")
         return media_fn, srt_fn
 
-    def _load_kept_subtitles(self, srt_fn: str, encoding: str) -> List[srt.Subtitle]:
-        with open(srt_fn, encoding=encoding) as f:
-            subs = list(srt.parse(f.read()))
-        return filter_kept_subtitles(subs)
-
     def _run_existing_cut(self, media_fn: str, srt_fn: str, merge_gap_s: float) -> str:
         cut_args = SimpleNamespace(
             inputs=[media_fn, srt_fn],
@@ -214,111 +210,6 @@ class RemotionRenderer:
         if not os.path.exists(output_fn):
             raise RuntimeError(f"Failed to generate cut video: {output_fn}")
         return output_fn
-
-    def _build_remapped_captions(
-        self, kept_subs: List[srt.Subtitle], segments: List[Dict[str, float]]
-    ) -> List[Dict[str, object]]:
-        timeline: List[Dict[str, float]] = []
-        cursor = 0.0
-        for seg in segments:
-            start = float(seg["start"])
-            end = float(seg["end"])
-            timeline.append({"start": start, "end": end, "out_start": cursor})
-            cursor += end - start
-
-        captions: List[Dict[str, object]] = []
-
-        seg_idx = 0
-        eps = 1e-4
-        for sub in kept_subs:
-            start = sub.start.total_seconds()
-            end = sub.end.total_seconds()
-
-            while seg_idx + 1 < len(timeline):
-                seg_end = timeline[seg_idx]["end"]
-                if start > seg_end + eps:
-                    seg_idx += 1
-                    continue
-                # Boundary case: [a,b] and [b,c], subtitle starting at b belongs to next segment.
-                if abs(start - seg_end) <= eps and end > seg_end + eps:
-                    seg_idx += 1
-                    continue
-                break
-
-            seg = timeline[seg_idx]
-            if start < seg["start"] - eps or end > seg["end"] + eps:
-                logging.warning(
-                    "Subtitle %.3f-%.3f is out of cut segment %.3f-%.3f",
-                    start,
-                    end,
-                    seg["start"],
-                    seg["end"],
-                )
-                continue
-
-            out_start = seg["out_start"] + (start - seg["start"])
-            out_end = seg["out_start"] + (end - seg["start"])
-            if out_end <= out_start:
-                continue
-
-            captions.append(
-                {
-                    "start": round(out_start, 3),
-                    "end": round(out_end, 3),
-                    "text": (sub.content or "").strip(),
-                }
-            )
-
-        return captions
-
-    def _load_captions_from_srt(self, srt_fn: str, encoding: str) -> List[Dict[str, object]]:
-        with open(srt_fn, encoding=encoding) as f:
-            subs = list(srt.parse(f.read()))
-        captions: List[Dict[str, object]] = []
-        for sub in subs:
-            text = (sub.content or "").strip()
-            if not text:
-                continue
-            start = float(sub.start.total_seconds())
-            end = float(sub.end.total_seconds())
-            if end <= start:
-                continue
-            captions.append(
-                {
-                    "start": round(start, 3),
-                    "end": round(end, 3),
-                    "text": text,
-                }
-            )
-        return captions
-
-    def _write_cut_srt(self, source_srt: str, captions: List[Dict[str, object]], encoding: str) -> str:
-        output = self._resolve_cut_srt_output(source_srt)
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        subs: List[srt.Subtitle] = []
-        for idx, cap in enumerate(captions, start=1):
-            start = float(cap.get("start") or 0.0)
-            end = float(cap.get("end") or 0.0)
-            if end <= start:
-                continue
-            text = str(cap.get("text") or "").strip()
-            if not text:
-                continue
-            subs.append(
-                srt.Subtitle(
-                    index=idx,
-                    start=datetime.timedelta(seconds=start),
-                    end=datetime.timedelta(seconds=end),
-                    content=text,
-                )
-            )
-
-        with open(output_path, "wb") as f:
-            f.write(srt.compose(subs, reindex=False).encode(encoding, "replace"))
-        logging.info(f"Saved cut subtitles to {output_path}")
-        return str(output_path)
 
     def _write_timeline_debug(
         self,

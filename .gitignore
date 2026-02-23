@@ -16,6 +16,7 @@ logs/
 
 # JavaScript / Remotion
 **/node_modules/
+web_frontend/.next/
 remotion/.cache/
 remotion/public/*.mp4
 remotion/public/*.mov
@@ -68,6 +69,7 @@ pip-wheel-metadata/
 .mypy_cache/
 .ruff_cache/
 .cache/
+workdir/
 htmlcov/
 .coverage
 .coverage.*

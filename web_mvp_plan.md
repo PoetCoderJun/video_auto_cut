@@ -123,7 +123,7 @@
 
 ### 结论（按你的要求）
 - 前端框架确定为 `Next.js`。
-- 不使用 Vercel 也可以部署，采用自托管方案。
+- 部署方式确认：采用纯自部署（不使用 Vercel / EdgeOne）。
 - P0 阶段以工作台为主：上传、任务状态、逐行编辑、章节编辑、渲染进度。
 
 ### 技术落地建议（P0）
@@ -132,46 +132,63 @@
 - 状态管理可先用 `Zustand` 或 React Context（保持轻量）。
 - 与 Python 后端通过 REST API 通信，任务进度先用轮询，后续可升级 SSE/WebSocket。
 
-### 部署建议（不依赖 Vercel）
-- 方案 A：`next build && next start` + `pm2` + `Nginx` 反向代理。
-- 方案 B：Docker 部署 Next.js 服务，再由 `Nginx` 做统一入口。
+### 部署建议（纯自部署）
+- 默认方案：`Nginx + Next.js(next start) + FastAPI(uvicorn) + Worker`。
 - 静态资源和上传资源分离，上传文件由 Python 服务管理，前端只负责交互与展示。
+- 若后续要标准化交付，再切 `Docker + Nginx`（P1）。
+
+## 4.3 已确认部署方案（MVP）
+
+### 服务拓扑（单机）
+- `Nginx`：`80/443`，统一入口和 HTTPS
+- `Next.js`：`127.0.0.1:3000`
+- `FastAPI`：`127.0.0.1:8000`
+- `Worker`：后台任务进程（无公网端口）
+- `SQLite + 本地磁盘`：任务状态和视频产物
+
+### Nginx 路由约定
+- `/` -> `Next.js:3000`
+- `/api/v1/*` -> `FastAPI:8000`
+- `/downloads/*` -> 由 FastAPI 校验后返回下载流
+
+### 进程管理
+- `Next.js`：`pm2` 或 `systemd`
+- `FastAPI`：`systemd`（或 `supervisor`）
+- `Worker`：独立 `systemd` 服务，避免和 API 进程混跑
 
 ## 5. API 骨架（建议）
+
+以 `web_api_interface.md` 为准，MVP 实现 11 个接口：
 
 ## 5.1 任务与上传
 - `POST /api/v1/jobs`
   - 创建任务，返回 `job_id`
-- `POST /api/v1/jobs/{job_id}/upload`
-  - 上传文件并校验格式/大小
 - `GET /api/v1/jobs/{job_id}`
   - 查询任务状态与进度
+- `POST /api/v1/jobs/{job_id}/upload`
+  - 上传并校验视频
 
 ## 5.2 Step 1（字幕/切片）
 - `POST /api/v1/jobs/{job_id}/step1/run`
-  - 运行 ASR + auto_edit，生成建议
-- `GET /api/v1/jobs/{job_id}/step1/result`
-  - 获取逐行建议列表
-- `PUT /api/v1/jobs/{job_id}/step1/result`
-  - 提交人工修改后的逐行结果
-- `POST /api/v1/jobs/{job_id}/step1/confirm`
-  - 确认 Step 1
+  - 异步生成 Step1 结果
+- `GET /api/v1/jobs/{job_id}/step1`
+  - 获取逐行列表
+- `PUT /api/v1/jobs/{job_id}/step1/confirm`
+  - 提交并确认 Step1
 
 ## 5.3 Step 2（章节）
 - `POST /api/v1/jobs/{job_id}/step2/run`
-  - 生成章节建议
-- `GET /api/v1/jobs/{job_id}/step2/result`
+  - 异步生成章节
+- `GET /api/v1/jobs/{job_id}/step2`
   - 获取章节列表
-- `PUT /api/v1/jobs/{job_id}/step2/result`
-  - 提交人工修改章节
-- `POST /api/v1/jobs/{job_id}/step2/confirm`
-  - 确认 Step 2
+- `PUT /api/v1/jobs/{job_id}/step2/confirm`
+  - 提交并确认 Step2
 
-## 5.4 渲染
+## 5.4 渲染与下载
 - `POST /api/v1/jobs/{job_id}/render/run`
-  - 开始渲染
-- `GET /api/v1/jobs/{job_id}/artifacts`
-  - 获取下载地址和中间文件
+  - 启动渲染
+- `GET /api/v1/jobs/{job_id}/download`
+  - 下载最终视频
 
 ## 6. 数据结构（最小闭环）
 
@@ -219,9 +236,7 @@
 ## 9. 需要你确认的决策点
 
 1. P0 文件大小上限是否确定为 `2GB`？
-2. Next.js 自托管部署方式优先选哪种？
-   - `next start + pm2 + Nginx`
-   - Docker + Nginx（推荐）
+2. 自部署第一版是否按“单机拓扑”上线（`Nginx + Next + FastAPI + Worker + SQLite`）？
 3. Step 2 章节编辑粒度：
    - 仅改标题/摘要
    - 还是允许调整章节覆盖的行范围（推荐）
@@ -235,3 +250,4 @@
 ## 11. 接口文档
 
 - 前后端接口规范（P0）：`web_api_interface.md`
+- 开发计划与架构设计：`web_dev_plan_architecture.md`

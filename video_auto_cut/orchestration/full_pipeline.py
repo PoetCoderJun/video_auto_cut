@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import argparse
 import logging
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Optional
+
+from .pipeline_service import (
+    PipelineOptions,
+    run_auto_edit,
+    run_render,
+    run_transcribe,
+)
 
 _ENV_LOADED = False
 
@@ -66,90 +74,6 @@ def _setup_logging() -> None:
     )
 
 
-def _build_transcribe_args(args: argparse.Namespace, video_path: Path) -> SimpleNamespace:
-    return SimpleNamespace(
-        inputs=[str(video_path)],
-        force=bool(args.force),
-        encoding=args.encoding,
-        transcribe=True,
-        qwen3_model=args.qwen3_model,
-        qwen3_aligner=args.qwen3_aligner,
-        qwen3_language=args.qwen3_language,
-        qwen3_use_modelscope=bool(args.qwen3_use_modelscope),
-        qwen3_offline=bool(args.qwen3_offline),
-        qwen3_gap=float(args.qwen3_gap),
-        qwen3_max_seg=float(args.qwen3_max_seg),
-        qwen3_max_chars=int(args.qwen3_max_chars),
-        qwen3_no_speech_gap=float(args.qwen3_no_speech_gap),
-        qwen3_use_punct=bool(args.qwen3_use_punct),
-        device=args.device,
-        lang=args.lang,
-        prompt=args.prompt,
-    )
-
-
-def _build_auto_edit_args(args: argparse.Namespace, srt_path: Path) -> SimpleNamespace:
-    return SimpleNamespace(
-        inputs=[str(srt_path)],
-        force=bool(args.force),
-        encoding=args.encoding,
-        auto_edit=True,
-        auto_edit_llm=True,
-        auto_edit_merge_gap=float(args.auto_edit_merge_gap),
-        auto_edit_pad_head=float(args.auto_edit_pad_head),
-        auto_edit_pad_tail=float(args.auto_edit_pad_tail),
-        auto_edit_output=None,
-        auto_edit_topics=False,
-        llm_base_url=_resolve_llm_base_url(args),
-        llm_model=_resolve_llm_model(args),
-        llm_api_key=_resolve_llm_api_key(args),
-        llm_timeout=int(args.llm_timeout),
-        llm_temperature=float(args.llm_temperature),
-        llm_max_tokens=int(args.llm_max_tokens),
-        topic_output=None,
-        topic_strict=bool(args.topic_strict),
-        topic_max_topics=int(args.topic_max_topics),
-        topic_summary_max_chars=int(args.topic_summary_max_chars),
-    )
-
-
-def _build_render_args(
-    args: argparse.Namespace, video_path: Path, optimized_srt_path: Path
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        inputs=[str(video_path), str(optimized_srt_path)],
-        encoding=args.encoding,
-        bitrate=args.bitrate,
-        cut_merge_gap=float(args.cut_merge_gap),
-        render=True,
-        render_output=args.render_output,
-        render_cut_srt_output=args.render_cut_srt_output,
-        render_topics=bool(args.render_topics),
-        render_fps=args.render_fps,
-        render_preview=bool(args.render_preview),
-        render_codec=args.render_codec,
-        render_crf=args.render_crf,
-        topic_output=args.topic_output,
-        topic_strict=bool(args.topic_strict),
-        topic_max_topics=int(args.topic_max_topics),
-        topic_summary_max_chars=int(args.topic_summary_max_chars),
-        llm_base_url=_resolve_llm_base_url(args),
-        llm_model=_resolve_llm_model(args),
-        llm_api_key=_resolve_llm_api_key(args),
-        llm_timeout=int(args.llm_timeout),
-        llm_temperature=float(args.llm_temperature),
-        llm_max_tokens=int(args.llm_max_tokens),
-    )
-
-
-def _require_llm(args: argparse.Namespace, stage_name: str) -> None:
-    if not _resolve_llm_base_url(args) or not _resolve_llm_model(args):
-        raise RuntimeError(
-            f"{stage_name} requires LLM config: --llm-base-url and --llm-model, "
-            "or set LLM_BASE_URL/LLM_MODEL in .env."
-        )
-
-
 def _resolve_llm_base_url(args: argparse.Namespace) -> Optional[str]:
     return (args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip() or None
 
@@ -167,41 +91,53 @@ def _resolve_llm_api_key(args: argparse.Namespace) -> Optional[str]:
     )
 
 
-def _run_transcribe(args: argparse.Namespace, video_path: Path) -> Path:
-    from video_auto_cut.asr.transcribe import Transcribe
-
-    logging.info("Step 1/3: transcribe -> SRT")
-    transcribe_args = _build_transcribe_args(args, video_path)
-    Transcribe(transcribe_args).run()
-    srt_path = video_path.with_suffix(".srt")
-    if not srt_path.exists():
-        raise RuntimeError(f"Transcribe step did not produce SRT: {srt_path}")
-    return srt_path
-
-
-def _run_auto_edit(args: argparse.Namespace, srt_path: Path) -> Path:
-    from video_auto_cut.editing.auto_edit import AutoEdit
-
-    _require_llm(args, "Auto-edit")
-    logging.info("Step 2/3: auto edit -> optimized SRT")
-    auto_edit_args = _build_auto_edit_args(args, srt_path)
-    AutoEdit(auto_edit_args).run()
-    optimized = srt_path.with_name(f"{srt_path.stem}.optimized.srt")
-    if not optimized.exists():
-        raise RuntimeError(f"Auto-edit step did not produce optimized SRT: {optimized}")
-    return optimized
-
-
-def _run_render(
-    args: argparse.Namespace, video_path: Path, optimized_srt_path: Path
-) -> None:
-    from video_auto_cut.rendering.remotion_renderer import RemotionRenderer
-
-    if args.render_topics:
-        _require_llm(args, "Render topic segmentation")
-    logging.info("Step 3/3: remotion render")
-    render_args = _build_render_args(args, video_path, optimized_srt_path)
-    RemotionRenderer(render_args).run()
+def _build_pipeline_options(
+    args: argparse.Namespace,
+    *,
+    render_output: str | None = None,
+    render_cut_srt_output: str | None = None,
+    render_topics_input: str | None = None,
+) -> PipelineOptions:
+    return PipelineOptions(
+        encoding=args.encoding,
+        force=bool(args.force),
+        device=args.device,
+        lang=args.lang,
+        prompt=args.prompt,
+        qwen3_model=args.qwen3_model,
+        qwen3_aligner=args.qwen3_aligner,
+        qwen3_language=args.qwen3_language,
+        qwen3_use_modelscope=bool(args.qwen3_use_modelscope),
+        qwen3_offline=bool(args.qwen3_offline),
+        qwen3_gap=float(args.qwen3_gap),
+        qwen3_max_seg=float(args.qwen3_max_seg),
+        qwen3_max_chars=int(args.qwen3_max_chars),
+        qwen3_no_speech_gap=float(args.qwen3_no_speech_gap),
+        qwen3_use_punct=bool(args.qwen3_use_punct),
+        llm_base_url=_resolve_llm_base_url(args),
+        llm_model=_resolve_llm_model(args),
+        llm_api_key=_resolve_llm_api_key(args),
+        llm_timeout=int(args.llm_timeout),
+        llm_temperature=float(args.llm_temperature),
+        llm_max_tokens=int(args.llm_max_tokens),
+        auto_edit_merge_gap=float(args.auto_edit_merge_gap),
+        auto_edit_pad_head=float(args.auto_edit_pad_head),
+        auto_edit_pad_tail=float(args.auto_edit_pad_tail),
+        bitrate=args.bitrate,
+        cut_merge_gap=float(args.cut_merge_gap),
+        render_output=render_output,
+        render_cut_srt_output=render_cut_srt_output,
+        render_fps=args.render_fps,
+        render_preview=bool(args.render_preview),
+        render_codec=args.render_codec,
+        render_crf=args.render_crf,
+        render_topics=bool(args.render_topics),
+        render_topics_input=render_topics_input,
+        topic_output=args.topic_output,
+        topic_strict=bool(args.topic_strict),
+        topic_max_topics=int(args.topic_max_topics),
+        topic_summary_max_chars=int(args.topic_summary_max_chars),
+    )
 
 
 def _resolve_render_output_path(args: argparse.Namespace, video_path: Path) -> Path:
@@ -341,7 +277,8 @@ def main() -> None:
         if srt_path.exists() and not args.force:
             logging.info("Step 1/3: skip transcribe (exists): %s", srt_path)
         else:
-            srt_path = _run_transcribe(args, video_path)
+            options = _build_pipeline_options(args)
+            srt_path = run_transcribe(video_path, options)
     elif not srt_path.exists():
         raise FileNotFoundError(
             f"Missing SRT while --skip-transcribe is set: {srt_path}"
@@ -351,7 +288,8 @@ def main() -> None:
         if optimized_path.exists() and not args.force:
             logging.info("Step 2/3: skip auto edit (exists): %s", optimized_path)
         else:
-            optimized_path = _run_auto_edit(args, srt_path)
+            options = _build_pipeline_options(args)
+            optimized_path = run_auto_edit(srt_path, options)
     elif not optimized_path.exists():
         raise FileNotFoundError(
             f"Missing optimized SRT while --skip-auto-edit is set: {optimized_path}"
@@ -361,7 +299,12 @@ def main() -> None:
         if render_output_path.exists() and not args.force:
             logging.info("Step 3/3: skip remotion render (exists): %s", render_output_path)
         else:
-            _run_render(args, video_path, optimized_path)
+            options = _build_pipeline_options(
+                args,
+                render_output=str(render_output_path),
+                render_cut_srt_output=args.render_cut_srt_output,
+            )
+            run_render(video_path, optimized_path, options)
 
     logging.info("Done")
     logging.info("SRT: %s", srt_path)

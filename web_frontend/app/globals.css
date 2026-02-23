@@ -1,0 +1,155 @@
+:root {
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+  --text: #12243c;
+  --muted: #5f6f84;
+  --line: #d7e0ea;
+  --primary: #0c7f6c;
+  --primary-weak: #e1f5f1;
+  --danger: #bd2b2b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 12% 10%, #fffef6 0%, transparent 28%),
+    radial-gradient(circle at 88% 12%, #e7f4ff 0%, transparent 32%),
+    var(--bg);
+}
+
+main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 16px 80px;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: 0 10px 35px rgba(20, 40, 70, 0.06);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+button.ghost {
+  border-color: #b6c8d8;
+  color: #2f4458;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  border: 1px solid #c8d4e2;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: #fff;
+}
+
+textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border-bottom: 1px solid #e7edf3;
+  padding: 8px;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+th {
+  background: #f8fbff;
+  text-align: left;
+  color: #385372;
+}
+
+.status-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e8eef5;
+  color: #344c67;
+}
+
+.status-badge.running {
+  background: #fff3d8;
+  color: #875e00;
+}
+
+.status-badge.done {
+  background: #dff7f2;
+  color: #0a6e5b;
+}
+
+.status-badge.failed {
+  background: #fde2e2;
+  color: #8c2020;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.progress-wrap {
+  width: 100%;
+  height: 14px;
+  background: #dfe8f2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #0c7f6c, #18b194);
+}

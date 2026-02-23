@@ -1,7 +1,10 @@
 ffmpeg-python
+fastapi
 moviepy
 numpy
 opencc-python-reimplemented
+python-multipart
 qwen-asr
 srt
 torch
+uvicorn
