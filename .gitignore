@@ -39,9 +39,6 @@ remotion/public/*.mkv
 *.[Aa][Ii][Ff]
 *.[Aa][Ii][Ff][Cc]
 
-# Keep intentionally versioned test fixtures
-!autocut/test/media/**
-
 # Model weights (keep configs/READMEs, ignore large binaries)
 model/**/model.safetensors
 model/**/pytorch_model*.bin

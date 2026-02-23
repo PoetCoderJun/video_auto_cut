@@ -75,6 +75,8 @@ const entry = path.join(__dirname, 'src', 'index.tsx');
 const serveUrl = await bundle({
   entryPoint: entry,
   publicDir: path.join(__dirname, 'public'),
+  // Avoid noisy non-fatal webpack filesystem cache warnings in CLI renders.
+  enableCaching: false,
 });
 
 const compositions = await getCompositions(serveUrl, {

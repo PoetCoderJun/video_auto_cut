@@ -1,0 +1,82 @@
+{
+  "topics": [
+    {
+      "title": "续签四大变化",
+      "summary": "政策更新速览",
+      "segment_ids": [
+        1,
+        2
+      ],
+      "start": 0.0,
+      "end": 13.36,
+      "start_segment_id": 1,
+      "end_segment_id": 2
+    },
+    {
+      "title": "续签时长调整",
+      "summary": "按合同期限定",
+      "segment_ids": [
+        3,
+        4,
+        5
+      ],
+      "start": 13.36,
+      "end": 23.52,
+      "start_segment_id": 3,
+      "end_segment_id": 5
+    },
+    {
+      "title": "续签条件明确",
+      "summary": "学位岗位薪酬",
+      "segment_ids": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "start": 23.52,
+      "end": 58.48,
+      "start_segment_id": 6,
+      "end_segment_id": 12
+    },
+    {
+      "title": "费用上调",
+      "summary": "1900港元",
+      "segment_ids": [
+        13
+      ],
+      "start": 58.48,
+      "end": 68.24,
+      "start_segment_id": 13,
+      "end_segment_id": 13
+    },
+    {
+      "title": "电子化申请",
+      "summary": "取消纸质表格",
+      "segment_ids": [
+        14
+      ],
+      "start": 68.24,
+      "end": 73.76,
+      "start_segment_id": 14,
+      "end_segment_id": 14
+    },
+    {
+      "title": "官方渠道指引",
+      "summary": "别信中介",
+      "segment_ids": [
+        15,
+        16,
+        17,
+        18
+      ],
+      "start": 73.76,
+      "end": 100.64,
+      "start_segment_id": 15,
+      "end_segment_id": 18
+    }
+  ]
+}

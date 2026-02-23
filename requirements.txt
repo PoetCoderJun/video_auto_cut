@@ -1,0 +1,7 @@
+ffmpeg-python
+moviepy
+numpy
+opencc-python-reimplemented
+qwen-asr
+srt
+torch

@@ -5,6 +5,7 @@ import {StitchVideo, type StitchVideoProps} from './stitch-video';
 const defaultProps: StitchVideoProps = {
   src: '',
   captions: [],
+  topics: [],
   fps: 30,
   width: 1920,
   height: 1080,

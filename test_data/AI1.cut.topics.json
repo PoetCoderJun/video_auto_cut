@@ -1,0 +1,59 @@
+{
+  "topics": [
+    {
+      "title": "断更原因",
+      "summary": "剪辑耗时挫败",
+      "segment_ids": [
+        1,
+        2,
+        3
+      ],
+      "start": 0.0,
+      "end": 18.32,
+      "start_segment_id": 1,
+      "end_segment_id": 3
+    },
+    {
+      "title": "一键剪口播",
+      "summary": "自动精剪成品",
+      "segment_ids": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "start": 18.32,
+      "end": 42.4,
+      "start_segment_id": 4,
+      "end_segment_id": 9
+    },
+    {
+      "title": "开放试用",
+      "summary": "免费+功能预",
+      "segment_ids": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "start": 42.4,
+      "end": 82.08,
+      "start_segment_id": 10,
+      "end_segment_id": 13
+    },
+    {
+      "title": "结尾关注",
+      "summary": "关注视频程序",
+      "segment_ids": [
+        14,
+        15
+      ],
+      "start": 82.08,
+      "end": 84.32,
+      "start_segment_id": 14,
+      "end_segment_id": 15
+    }
+  ]
+}
