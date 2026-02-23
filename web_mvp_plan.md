@@ -119,20 +119,23 @@
   - `video_auto_cut/rendering/remotion_renderer.py`
 - 新增 `web_api/` 做适配层，不改动核心算法模块。
 
-## 4.2 前端：Next.js vs React（你的关键问题）
+## 4.2 前端：Next.js（已确定）
 
-### 结论（先给决策）
-- Next.js 不依赖 Vercel，可以正常自部署（Docker/Node 服务器/Nginx 反代都可）。
-- 但你当前 P0 需求是“重交互工作台 + 长任务编排”，SSR 价值不高。
-- P0 更建议：`React + Vite`，部署和运维更轻，迭代更快。
+### 结论（按你的要求）
+- 前端框架确定为 `Next.js`。
+- 不使用 Vercel 也可以部署，采用自托管方案。
+- P0 阶段以工作台为主：上传、任务状态、逐行编辑、章节编辑、渲染进度。
 
-### 何时考虑 Next.js
-- 未来要做内容型页面、SEO、服务端渲染、同构路由时。
-- 需要把营销站点和工作台整合在同一框架时。
+### 技术落地建议（P0）
+- `Next.js + TypeScript + App Router`
+- 交互密集页面优先 `Client Components`，避免不必要 SSR 复杂度。
+- 状态管理可先用 `Zustand` 或 React Context（保持轻量）。
+- 与 Python 后端通过 REST API 通信，任务进度先用轮询，后续可升级 SSE/WebSocket。
 
-### 何时坚持 React（P0/P1）
-- 核心是上传、任务轮询、表格编辑、步骤流控。
-- 更强调开发速度和复杂度可控。
+### 部署建议（不依赖 Vercel）
+- 方案 A：`next build && next start` + `pm2` + `Nginx` 反向代理。
+- 方案 B：Docker 部署 Next.js 服务，再由 `Nginx` 做统一入口。
+- 静态资源和上传资源分离，上传文件由 Python 服务管理，前端只负责交互与展示。
 
 ## 5. API 骨架（建议）
 
@@ -216,7 +219,9 @@
 ## 9. 需要你确认的决策点
 
 1. P0 文件大小上限是否确定为 `2GB`？
-2. 前端是否同意先用 `React + Vite`（后续可迁移 Next.js）？
+2. Next.js 自托管部署方式优先选哪种？
+   - `next start + pm2 + Nginx`
+   - Docker + Nginx（推荐）
 3. Step 2 章节编辑粒度：
    - 仅改标题/摘要
    - 还是允许调整章节覆盖的行范围（推荐）
@@ -226,4 +231,3 @@
 - Next.js 官方部署文档（包含自托管）：https://nextjs.org/docs/app/building-your-application/deploying
 - Next.js 自托管指南：https://nextjs.org/docs/app/guides/self-hosting
 - Next.js 静态导出：https://nextjs.org/docs/app/building-your-application/deploying/static-exports
-
