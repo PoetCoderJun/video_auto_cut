@@ -231,3 +231,7 @@
 - Next.js 官方部署文档（包含自托管）：https://nextjs.org/docs/app/building-your-application/deploying
 - Next.js 自托管指南：https://nextjs.org/docs/app/guides/self-hosting
 - Next.js 静态导出：https://nextjs.org/docs/app/building-your-application/deploying/static-exports
+
+## 11. 接口文档
+
+- 前后端接口规范（P0）：`web_api_interface.md`

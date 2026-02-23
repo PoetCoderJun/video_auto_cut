@@ -39,7 +39,23 @@ python -m pip install -U qwen-asr
 python -m pip install -U qwen-tts
 ```
 
-### 3) 安装 Remotion 依赖
+### 3) 下载模型到 `/model`
+
+运行时可自动拉取模型；如果环境不能联网或希望提前下载，请手动下载到 `./model/`：
+
+```bash
+# 方式 A：ModelScope（国内推荐）
+python -m pip install -U modelscope
+modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir ./model/Qwen3-ASR-0.6B
+modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir ./model/Qwen3-ForcedAligner-0.6B
+
+# 方式 B：Hugging Face
+python -m pip install -U "huggingface_hub[cli]"
+huggingface-cli download Qwen/Qwen3-ASR-0.6B --local-dir ./model/Qwen3-ASR-0.6B
+huggingface-cli download Qwen/Qwen3-ForcedAligner-0.6B --local-dir ./model/Qwen3-ForcedAligner-0.6B
+```
+
+### 4) 安装 Remotion 依赖
 
 ```bash
 cd remotion
@@ -47,13 +63,13 @@ npm install
 cd ..
 ```
 
-### 4) 安装 ffmpeg / ffprobe
+### 5) 安装 ffmpeg / ffprobe
 
 ```bash
 brew install ffmpeg
 ```
 
-### 5) 配置 LLM（自动剪辑优化字幕）
+### 6) 配置 LLM（自动剪辑优化字幕）
 
 项目根目录 `.env` 填写：
 
