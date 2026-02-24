@@ -1,7 +1,7 @@
 # Web 前后端接口文档（精简 MVP）
 
-更新时间：2026-02-23  
-版本：v1-mvp
+更新时间：2026-02-24  
+版本：v1-mvp-auth
 
 ## 1. 目标
 
@@ -12,13 +12,13 @@
 3. Step2 生成并人工确认章节
 4. 渲染并下载成片
 
-不包含：登录、支付、复杂权限、多端同步。
+不包含：支付、复杂权限、多端同步。
 
 ## 2. 全局约定
 
 - Base URL：`/api/v1`
 - 响应格式：`application/json`（下载接口除外）
-- 鉴权：P0 不做
+- 鉴权：Clerk JWT（`Authorization: Bearer <token>`）
 
 统一成功响应：
 
@@ -41,13 +41,18 @@
 }
 ```
 
-MVP 只保留 6 个错误码：
+MVP 只保留 11 个错误码：
 
 - `BAD_REQUEST` (400)
 - `NOT_FOUND` (404)
 - `UPLOAD_TOO_LARGE` (413)
 - `UNSUPPORTED_VIDEO_FORMAT` (422)
 - `INVALID_STEP_STATE` (409)
+- `UNAUTHORIZED` (401)
+- `FORBIDDEN` (403)
+- `INVITE_CODE_INVALID` (422)
+- `INVITE_CODE_EXPIRED` (422)
+- `INVITE_CODE_EXHAUSTED` (422)
 - `INTERNAL_ERROR` (500)
 
 ## 3. 状态与进度（最小集合）
@@ -119,6 +124,8 @@ MVP 只保留 6 个错误码：
 
 | 接口 | 方法 | 说明 |
 |---|---|---|
+| `/me` | `GET` | 获取当前登录用户 |
+| `/auth/invite/activate` | `POST` | 兑换邀请码（可选，成功后发免费额度） |
 | `/jobs` | `POST` | 创建任务 |
 | `/jobs/{job_id}` | `GET` | 查询任务状态与进度 |
 | `/jobs/{job_id}/upload` | `POST` | 上传并校验视频 |
@@ -136,6 +143,12 @@ MVP 只保留 6 个错误码：
 ## 6.1 创建任务
 
 `POST /jobs`
+
+请求头：
+
+```text
+Authorization: Bearer <clerk_session_jwt>
+```
 
 响应：
 
@@ -160,7 +173,7 @@ MVP 只保留 6 个错误码：
 
 校验规则：
 
-- 扩展名：`.mp4 .mov .mkv .avi .webm .flv .f4v`
+- 扩展名：`.mp4 .mov .mkv .webm .m4v .ts .m2ts .mts`
 - 大小上限：`MAX_UPLOAD_MB`（默认 2048）
 - 必须有可读视频流
 
@@ -267,6 +280,7 @@ MVP 只保留 6 个错误码：
 
 2) `GET /jobs/{job_id}/step2`  
 前置状态：`STEP2_READY` 或 `STEP2_CONFIRMED`
+说明：章节 `title` 默认最长 6 字（超出会截断）。
 
 响应：
 
@@ -290,6 +304,7 @@ MVP 只保留 6 个错误码：
 
 3) `PUT /jobs/{job_id}/step2/confirm`  
 前置状态：`STEP2_READY`
+说明：`title` 最长 6 字，超出将返回校验错误。
 
 请求：
 
@@ -339,7 +354,9 @@ MVP 只保留 6 个错误码：
 
 2) `GET /jobs/{job_id}/download`  
 前置状态：`SUCCEEDED`  
-响应：视频文件流（`video/mp4`）
+响应：视频文件流（`video/mp4`）  
+说明：默认会刷新该任务的清理计时（不立即删除文件），由 TTL 清理器异步删除。  
+可选参数：`cleanup=0` 表示本次下载不刷新清理计时。
 
 ## 7. 前端最小联调顺序
 

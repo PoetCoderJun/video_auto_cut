@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable, Optional
 
 
 @dataclass(frozen=True)
@@ -51,8 +52,12 @@ class PipelineOptions:
     topic_output: str | None = None
     topic_strict: bool = False
     topic_max_topics: int = 8
+    topic_title_max_chars: int = 6
     topic_summary_max_chars: int = 6
     topic_generate_summary: bool = True
+
+
+RenderProgressCallback = Callable[[str, Optional[float]], None]
 
 
 def require_llm(options: PipelineOptions, stage_name: str) -> None:
@@ -105,6 +110,7 @@ def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleName
         topic_output=None,
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
+        topic_title_max_chars=int(options.topic_title_max_chars),
         topic_summary_max_chars=int(options.topic_summary_max_chars),
     )
 
@@ -129,6 +135,7 @@ def build_render_args(
         topic_output=options.topic_output,
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
+        topic_title_max_chars=int(options.topic_title_max_chars),
         topic_summary_max_chars=int(options.topic_summary_max_chars),
         llm_base_url=options.llm_base_url,
         llm_model=options.llm_model,
@@ -148,6 +155,7 @@ def build_topic_args(
         topic_output=str(output_path),
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
+        topic_title_max_chars=int(options.topic_title_max_chars),
         topic_summary_max_chars=int(options.topic_summary_max_chars),
         topic_generate_summary=bool(options.topic_generate_summary),
         llm_base_url=options.llm_base_url,
@@ -212,11 +220,35 @@ def run_topic_segmentation_from_optimized_srt(
     return topics_output_path
 
 
-def run_render(video_path: Path, optimized_srt_path: Path, options: PipelineOptions) -> None:
+def run_render(
+    video_path: Path,
+    optimized_srt_path: Path,
+    options: PipelineOptions,
+    *,
+    progress_callback: RenderProgressCallback | None = None,
+) -> None:
     from video_auto_cut.rendering.remotion_renderer import RemotionRenderer
 
     if options.render_topics and not options.render_topics_input:
         require_llm(options, "Render topic segmentation")
     logging.info("Step 3/3: remotion render")
     args = build_render_args(video_path, optimized_srt_path, options)
+    if progress_callback is not None:
+        setattr(args, "render_progress_callback", progress_callback)
     RemotionRenderer(args).run()
+
+
+def warm_render_cut_cache(
+    video_path: Path,
+    optimized_srt_path: Path,
+    options: PipelineOptions,
+    *,
+    progress_callback: RenderProgressCallback | None = None,
+) -> str:
+    from video_auto_cut.rendering.remotion_renderer import RemotionRenderer
+
+    args = build_render_args(video_path, optimized_srt_path, options)
+    if progress_callback is not None:
+        setattr(args, "render_progress_callback", progress_callback)
+    renderer = RemotionRenderer(args)
+    return renderer.warmup_cut_video()

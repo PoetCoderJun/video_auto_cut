@@ -24,3 +24,7 @@ class Step2ConfirmChapter(BaseModel):
 
 class Step2ConfirmRequest(BaseModel):
     chapters: list[Step2ConfirmChapter]
+
+
+class CouponRedeemRequest(BaseModel):
+    code: str = Field(default="", min_length=1)

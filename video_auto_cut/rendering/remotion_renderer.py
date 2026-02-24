@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +18,8 @@ from ..editing.topic_segment import TopicSegmenter
 from ..shared import media as utils
 from .cut import Cutter, resolve_cut_merge_gap
 from .cut_srt import build_cut_srt_from_optimized_srt
+
+_NODE_RENDER_PROGRESS_RE = re.compile(r"RENDER_PROGRESS_PCT=([0-9]+(?:\.[0-9]+)?)")
 
 
 def _find_repo_root() -> Path:
@@ -44,6 +47,7 @@ class RemotionRenderer:
         if not utils.is_video(media_fn):
             raise RuntimeError(f"Remotion render requires a video file, got: {media_fn}")
 
+        self._emit_progress("init", 0.0)
         output_fn = self._resolve_output(media_fn)
         # Render mode should always regenerate final output to stay in sync with
         # the latest optimized SRT and cut timeline.
@@ -53,9 +57,12 @@ class RemotionRenderer:
         remotion_dir = self._resolve_remotion_dir()
         self._ensure_node_ready(remotion_dir)
         self._cleanup_stale_render_artifacts(remotion_dir, media_fn)
-        cut_source = self._prepare_cut_source(remotion_dir, media_fn)
+        self._emit_progress("prepare_source", 0.0)
+        render_source = self._prepare_cut_source(remotion_dir, media_fn)
+        self._emit_progress("prepare_source", 1.0)
 
         merge_gap_s = resolve_cut_merge_gap(self.args)
+        self._emit_progress("cut_timeline", 0.0)
         cut_timeline = build_cut_srt_from_optimized_srt(
             source_srt_path=srt_fn,
             output_srt_path=self._resolve_cut_srt_output(srt_fn),
@@ -66,11 +73,9 @@ class RemotionRenderer:
         kept_subs = list(cut_timeline["kept_subtitles"])
         segments = list(cut_timeline["segments"])
         captions = list(cut_timeline["captions"])
+        self._emit_progress("cut_timeline", 1.0)
 
-        # Cut against standardized source by the original optimized SRT.
-        # Cutter and caption-remap share the same keep/merge logic in cut.py.
-        cut_video = self._run_existing_cut(cut_source, srt_fn, merge_gap_s)
-        render_source = self._retag_bt709(cut_video)
+        self._emit_progress("prepare_props", 0.0)
         manual_topics_input = getattr(self.args, "render_topics_input", None)
         if manual_topics_input:
             topics = self._load_topics(str(manual_topics_input))
@@ -89,13 +94,21 @@ class RemotionRenderer:
         meta = self._load_video_metadata(render_source)
         fps = self._resolve_fps(meta)
         width, height = self._resolve_dimensions(meta)
-        duration_s = float(meta.get("duration") or captions[-1]["end"])
+        cut_duration_s = sum(max(0.0, float(seg["end"]) - float(seg["start"])) for seg in segments)
+        caption_duration_s = float(captions[-1]["end"]) if captions else 0.0
+        topic_duration_s = max((float(item["end"]) for item in topics), default=0.0)
+        duration_s = max(0.0, cut_duration_s, caption_duration_s, topic_duration_s)
+        if duration_s <= 0:
+            duration_s = float(meta.get("duration") or 0.0)
+        if duration_s <= 0:
+            raise RuntimeError("invalid render duration")
         duration_frames = max(1, int(math.ceil(duration_s * fps)))
 
         public_name = self._prepare_public_video(remotion_dir, render_source)
         props = {
             "src": public_name,
             "captions": captions,
+            "segments": segments,
             "topics": topics,
             "fps": fps,
             "width": width,
@@ -103,10 +116,51 @@ class RemotionRenderer:
             "durationInFrames": duration_frames,
         }
         props_path = self._write_props(remotion_dir, media_fn, props)
+        self._emit_progress("prepare_props", 1.0)
 
+        self._emit_progress("node_render", 0.0)
         self._render_with_node(remotion_dir, props_path, output_fn)
+        self._emit_progress("node_render", 1.0)
         output_fn = self._retag_bt709(output_fn)
+        self._emit_progress("finalize", 1.0)
         logging.info(f"Saved remotion video to {output_fn}")
+
+    def warmup_cut_video(self) -> str:
+        media_fn, srt_fn = self._select_inputs(self.args.inputs)
+        media_fn = os.path.abspath(media_fn)
+        srt_fn = os.path.abspath(srt_fn)
+
+        if not utils.is_video(media_fn):
+            raise RuntimeError(f"Remotion render requires a video file, got: {media_fn}")
+
+        remotion_dir = self._resolve_remotion_dir()
+        self._cleanup_stale_render_artifacts(remotion_dir, media_fn)
+        self._emit_progress("prepare_source", 0.0)
+        cut_source = self._prepare_cut_source(remotion_dir, media_fn)
+        self._emit_progress("prepare_source", 1.0)
+        merge_gap_s = resolve_cut_merge_gap(self.args)
+        self._emit_progress("cut_video", 0.0)
+        cut_video = self._run_existing_cut(cut_source, srt_fn, merge_gap_s, force_rebuild=False)
+        cut_video = self._retag_bt709(cut_video)
+        self._emit_progress("cut_video", 1.0)
+        return cut_video
+
+    def _emit_progress(self, stage: str, ratio: Optional[float]) -> None:
+        callback = getattr(self.args, "render_progress_callback", None)
+        if not callable(callback):
+            return
+
+        normalized: Optional[float] = None
+        if ratio is not None:
+            try:
+                normalized = max(0.0, min(1.0, float(ratio)))
+            except (TypeError, ValueError):
+                normalized = None
+
+        try:
+            callback(stage, normalized)
+        except Exception:
+            logging.exception("render progress callback failed at stage=%s", stage)
 
     def _maybe_generate_topics_from_cut_srt(self, cut_srt: str) -> Optional[str]:
         if not bool(getattr(self.args, "render_topics", True)):
@@ -194,22 +248,82 @@ class RemotionRenderer:
             raise RuntimeError("Remotion render requires a video file and an optimized .srt file")
         return media_fn, srt_fn
 
-    def _run_existing_cut(self, media_fn: str, srt_fn: str, merge_gap_s: float) -> str:
+    def _run_existing_cut(
+        self, media_fn: str, srt_fn: str, merge_gap_s: float, *, force_rebuild: bool
+    ) -> str:
+        output_fn = utils.change_ext(utils.add_cut(media_fn), "mp4")
+        cache_manifest = self._cut_cache_manifest_path(output_fn)
+        if (
+            not force_rebuild
+            and os.path.exists(output_fn)
+            and self._is_cut_cache_valid(cache_manifest, media_fn, srt_fn, merge_gap_s)
+        ):
+            logging.info("Reusing prepared cut video: %s", output_fn)
+            return output_fn
+
         cut_args = SimpleNamespace(
             inputs=[media_fn, srt_fn],
             bitrate=self.args.bitrate,
-            # Always rebuild cut clips during render to avoid stale media reuse
-            # when optimized subtitles change.
             force=True,
             encoding=self.args.encoding,
             cut_merge_gap=merge_gap_s,
+            cut_progress_callback=lambda ratio: self._emit_progress("cut_video", ratio),
         )
         Cutter(cut_args).run()
 
-        output_fn = utils.change_ext(utils.add_cut(media_fn), "mp4")
         if not os.path.exists(output_fn):
             raise RuntimeError(f"Failed to generate cut video: {output_fn}")
+        self._write_cut_cache_manifest(cache_manifest, media_fn, srt_fn, merge_gap_s)
         return output_fn
+
+    def _cut_cache_manifest_path(self, output_fn: str) -> Path:
+        return Path(f"{output_fn}.cutmeta.json")
+
+    def _is_cut_cache_valid(
+        self, manifest_path: Path, media_fn: str, srt_fn: str, merge_gap_s: float
+    ) -> bool:
+        if not manifest_path.exists():
+            return False
+
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+
+        if not isinstance(payload, dict):
+            return False
+
+        expected = {
+            "media": self._file_fingerprint(Path(media_fn)),
+            "srt": self._file_fingerprint(Path(srt_fn)),
+            "merge_gap_s": round(float(merge_gap_s), 6),
+            "bitrate": str(self.args.bitrate),
+        }
+        return payload == expected
+
+    def _write_cut_cache_manifest(
+        self, manifest_path: Path, media_fn: str, srt_fn: str, merge_gap_s: float
+    ) -> None:
+        payload = {
+            "media": self._file_fingerprint(Path(media_fn)),
+            "srt": self._file_fingerprint(Path(srt_fn)),
+            "merge_gap_s": round(float(merge_gap_s), 6),
+            "bitrate": str(self.args.bitrate),
+        }
+        try:
+            manifest_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError as exc:
+            logging.warning("Failed to write cut cache manifest %s: %s", manifest_path, exc)
+
+    def _file_fingerprint(self, path: Path) -> Dict[str, object]:
+        stat = path.stat()
+        return {
+            "path": str(path.resolve()),
+            "size": int(stat.st_size),
+            "mtime_ns": int(stat.st_mtime_ns),
+        }
 
     def _write_timeline_debug(
         self,
@@ -331,8 +445,17 @@ class RemotionRenderer:
         src = Path(media_fn).resolve()
         meta = self._load_video_metadata(media_fn)
         is_hdr = self._is_hdr_source(meta)
-        proxy = cache_dir / f"{src.stem}.std_1080p30_sdr709_hable_v2.mp4"
-        if proxy.exists() and proxy.stat().st_mtime >= src.stat().st_mtime:
+        standard_suffix = "std_1080p30_sdr709_hable_v2"
+        source_stamp = self._file_stamp(src)
+        proxy_name = f"{src.stem}_{source_stamp}.{standard_suffix}.mp4"
+        proxy = cache_dir / proxy_name
+        self._cleanup_render_cache_stale_files(
+            cache_dir,
+            src.stem,
+            keep_name=proxy_name,
+            marker=f".{standard_suffix}.",
+        )
+        if proxy.exists():
             return str(proxy)
 
         logging.info("Standardizing source to mp4/h264 SDR Rec.709 1080p30 for render ingest.")
@@ -398,8 +521,76 @@ class RemotionRenderer:
             "bt709",
             str(proxy),
         ]
-        subprocess.run(cmd, check=True)
+        expected_duration = float(meta.get("duration") or 0.0) or None
+        self._run_ffmpeg_with_stage_progress(
+            cmd,
+            stage="prepare_source",
+            expected_duration_s=expected_duration,
+        )
         return str(proxy)
+
+    def _cleanup_render_cache_stale_files(
+        self, cache_dir: Path, stem: str, *, keep_name: str, marker: str
+    ) -> None:
+        prefix = f"{stem}_"
+        for item in cache_dir.iterdir():
+            if not item.is_file():
+                continue
+            if item.name == keep_name:
+                continue
+            if item.name.startswith(prefix) and marker in item.name:
+                try:
+                    item.unlink()
+                except OSError:
+                    logging.warning("Failed to remove stale render cache file: %s", item)
+
+    def _run_ffmpeg_with_stage_progress(
+        self, cmd: List[str], *, stage: str, expected_duration_s: Optional[float] = None
+    ) -> None:
+        cmd_with_progress = list(cmd)
+        if cmd_with_progress and "-progress" not in cmd_with_progress:
+            # The output path is the final argument; inject progress flags before it.
+            cmd_with_progress[-1:-1] = ["-progress", "pipe:1", "-nostats"]
+
+        process = subprocess.Popen(
+            cmd_with_progress,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        last_ratio = -1.0
+        assert process.stdout is not None
+        for raw in process.stdout:
+            line = raw.strip()
+            if not line:
+                continue
+
+            key, sep, value = line.partition("=")
+            if sep != "=":
+                continue
+
+            if key in {"out_time_ms", "out_time_us"}:
+                if expected_duration_s is None or expected_duration_s <= 0:
+                    continue
+                try:
+                    out_time_s = float(value) / 1_000_000.0
+                except ValueError:
+                    continue
+                ratio = max(0.0, min(1.0, out_time_s / expected_duration_s))
+                if ratio - last_ratio >= 0.01:
+                    self._emit_progress(stage, ratio)
+                    last_ratio = ratio
+                continue
+
+            if key == "progress" and value == "end":
+                self._emit_progress(stage, 1.0)
+
+        stderr_text = process.stderr.read() if process.stderr is not None else ""
+        return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(f"ffmpeg failed during {stage}: {(stderr_text or '').strip()}")
 
     def _retag_bt709(self, media_fn: str) -> str:
         path = Path(media_fn)
@@ -660,7 +851,39 @@ class RemotionRenderer:
             cmd += ["--codec", str(codec)]
         if crf is not None:
             cmd += ["--crf", str(crf)]
-        subprocess.run(cmd, cwd=str(remotion_dir), check=True)
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(remotion_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        recent_logs: List[str] = []
+        assert process.stdout is not None
+        for raw in process.stdout:
+            line = raw.strip()
+            if not line:
+                continue
+            recent_logs.append(line)
+            if len(recent_logs) > 40:
+                recent_logs.pop(0)
+            match = _NODE_RENDER_PROGRESS_RE.search(line)
+            if match:
+                try:
+                    ratio = float(match.group(1)) / 100.0
+                except ValueError:
+                    continue
+                self._emit_progress("node_render", ratio)
+                continue
+            logging.info("[remotion] %s", line)
+
+        return_code = process.wait()
+        if return_code != 0:
+            tail = "\n".join(recent_logs[-20:])
+            raise RuntimeError(
+                f"Remotion render failed (exit={return_code}). Recent output:\n{tail}"
+            )
 
     def _resolve_ffmpeg_bin(self) -> str:
         env_ffmpeg = os.environ.get("AUTOCUT_FFMPEG")

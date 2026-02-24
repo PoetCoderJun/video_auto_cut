@@ -14,6 +14,7 @@ DECISION_HEADER_PATTERN = re.compile(r"^\[(KEEP|REMOVE)\b[^\]]*\]\s*$", re.IGNOR
 REMOVE_TOKEN = "<<REMOVE>>"
 SPACE_PATTERN = re.compile(r"\s+")
 TOPIC_SUMMARY_MAX_CHARS_DEFAULT = 6
+TOPIC_TITLE_MAX_CHARS_DEFAULT = 6
 CUE_RULES = [
     ("FIRST", re.compile(r"(第一|首先|先说|先讲|第一点|第1点)")),
     ("SECOND", re.compile(r"(第二|其次|然后|接着|再者|另一方面|另外)")),
@@ -95,10 +96,12 @@ def _load_kept_segments(srt_path: str, encoding: str) -> List[TopicSegment]:
 
 
 def _build_segmentation_prompt(
-    segments: List[TopicSegment], max_topics: int
+    segments: List[TopicSegment], max_topics: int, title_max_chars: int
 ) -> List[Dict[str, str]]:
     max_topics = max(2, int(max_topics))
     min_topics = 1 if len(segments) < 4 else 2
+    normal_title_max_chars = max(1, int(title_max_chars))
+    short_title_max_chars = min(4, normal_title_max_chars)
     lines: List[str] = []
     for seg in segments:
         cue = seg.cue or "NONE"
@@ -112,7 +115,7 @@ def _build_segmentation_prompt(
         "背景：口播通常是总分总结构：开头intro，中间按分点展开，结尾收尾。"
         "显式线索（第一/首先/第二/第三/第四/最后/总结）应优先作为分段边界。"
         "输出严格 JSON，不要 markdown，不要解释。"
-        '格式：{"segments":[{"start_segment_id":1,"end_segment_id":5,"title":"章节标题"}]}。'
+        '格式：{"segments":[{"segment_ids":[1,2,3],"title":"章节标题"}]}。'
         "要求："
         "1) 覆盖全部 segment，不遗漏；"
         "2) 每段连续，不重叠，不跳号；"
@@ -121,7 +124,9 @@ def _build_segmentation_prompt(
         f"{min_topics}"
         " 到 "
         f"{max_topics}"
-        "；5) title 要概括该段核心信息。"
+        f"；5) title 要概括该段核心信息：常规不超过 {normal_title_max_chars} 个字；"
+        f"若该段只包含 1~2 条字幕句子，title 必须不超过 {short_title_max_chars} 个字。"
+        "6) segment_ids 必须直接复用输入中的 S 编号。"
     )
     user = f"字幕输入：\n{payload}\n\n请仅输出分段 JSON："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -177,11 +182,11 @@ def _parse_segment_plan(text: str) -> Tuple[List[List[int]], Dict[int, str]]:
     return plan, titles
 
 
-def _is_contiguous(ids: List[int]) -> bool:
+def _is_strictly_increasing(ids: List[int]) -> bool:
     if not ids:
         return False
     for i in range(1, len(ids)):
-        if ids[i] != ids[i - 1] + 1:
+        if ids[i] <= ids[i - 1]:
             return False
     return True
 
@@ -195,8 +200,8 @@ def _normalize_segment_plan(
 
     for idx, ids in enumerate(plan, start=1):
         ids = [int(v) for v in ids]
-        if ids != sorted(ids) or not _is_contiguous(ids):
-            raise RuntimeError(f"Segment plan {idx} is not contiguous.")
+        if ids != sorted(ids) or not _is_strictly_increasing(ids):
+            raise RuntimeError(f"Segment plan {idx} must be strictly increasing.")
         if cursor >= len(ordered_ids):
             raise RuntimeError("Segment plan exceeds subtitle range.")
 
@@ -251,7 +256,10 @@ def _build_summary_prompt(
     plan: List[List[int]],
     segments: List[TopicSegment],
     summary_max_chars: int,
+    title_max_chars: int,
 ) -> List[Dict[str, str]]:
+    normal_title_max_chars = max(1, int(title_max_chars))
+    short_title_max_chars = min(4, normal_title_max_chars)
     id_to_segment = {seg.segment_id: seg for seg in segments}
     lines: List[str] = []
     for idx, ids in enumerate(plan, start=1):
@@ -261,7 +269,7 @@ def _build_summary_prompt(
         start_id = ids[0]
         end_id = ids[-1]
         lines.append(
-            f"[T{idx:02d}][ROLE={role}][S{start_id:04d}-S{end_id:04d}] {text}"
+            f"[T{idx:02d}][ROLE={role}][N={len(ids)}][S{start_id:04d}-S{end_id:04d}] {text}"
         )
     payload = "\n".join(lines)
 
@@ -272,8 +280,8 @@ def _build_summary_prompt(
         "要求："
         "1) 不要空话、套话；"
         "2) 摘要要具体到该段核心信息；"
-        "3) 标题精炼（建议 4-10 字）；"
-        f"4) 摘要建议 {max(1, summary_max_chars - 2)}-{summary_max_chars} 字；"
+        f"3) 标题精炼：常规不超过 {normal_title_max_chars} 字；若该段 N=1 或 N=2，标题必须不超过 {short_title_max_chars} 字；"
+        f"4) 摘要必须不超过 {max(1, summary_max_chars)} 字；"
         "5) 保持章节顺序和数量一致。"
         "输出严格 JSON，不要 markdown，不要解释。"
         '格式：{"topics":[{"topic_index":1,"title":"...","summary":"..."}]}'
@@ -329,7 +337,7 @@ def _fallback_title_summary(
 
 
 def _fallback_title_only(
-    ids: List[int], segments: List[TopicSegment], index: int, total: int
+    ids: List[int], segments: List[TopicSegment], index: int, total: int, title_max_chars: int
 ) -> str:
     id_to_segment = {seg.segment_id: seg for seg in segments}
     chosen = [id_to_segment[x] for x in ids if x in id_to_segment]
@@ -337,10 +345,15 @@ def _fallback_title_only(
         base = _clean_text(chosen[0].text)
         base = re.sub(r"^[\s\-—,，。！？!?；;：:]+", "", base)
         clause = re.split(r"[，。！？!?；;：:]", base)[0].strip()
-        if clause:
-            return clause[:10]
-    title, _ = _fallback_title_summary(ids, segments, index, total)
-    return title
+        if clause and len(clause) <= title_max_chars:
+            return clause
+    if total == 1:
+        return "总览" if title_max_chars >= 2 else "总"
+    if index == 1:
+        return "开场"
+    if index == total:
+        return "结尾"
+    return f"要点{index}"
 
 
 def _cap_summary(summary: str, max_chars: int) -> str:
@@ -357,6 +370,7 @@ def _compose_topics(
     title_summary_pairs: List[Tuple[str, str]],
     segments: List[TopicSegment],
     summary_max_chars: int,
+    title_max_chars: int,
 ) -> List[Dict[str, Any]]:
     id_to_segment = {seg.segment_id: seg for seg in segments}
     topics: List[Dict[str, Any]] = []
@@ -364,9 +378,15 @@ def _compose_topics(
         chosen = [id_to_segment[x] for x in ids if x in id_to_segment]
         if not chosen:
             continue
-        title, summary = title_summary_pairs[idx - 1]
-        if not summary:
+        raw_title, raw_summary = title_summary_pairs[idx - 1]
+        if not raw_summary:
             _, summary = _fallback_title_summary(ids, segments, idx, len(plan))
+            raw_summary = summary
+        title = _clean_text(raw_title or f"章节{idx}") or f"章节{idx}"
+        summary = _clean_text(raw_summary)
+        # No-summary mode uses summary==title.
+        if not summary or summary == _clean_text(raw_title):
+            summary = title
         if summary != title:
             summary = _cap_summary(summary, summary_max_chars)
         else:
@@ -413,6 +433,15 @@ class TopicSegmenter:
         )
         if self.summary_max_chars < 1:
             raise RuntimeError("--topic-summary-max-chars must be >= 1.")
+        self.title_max_chars = int(
+            getattr(
+                args,
+                "topic_title_max_chars",
+                TOPIC_TITLE_MAX_CHARS_DEFAULT,
+            )
+        )
+        if self.title_max_chars < 1:
+            raise RuntimeError("--topic-title-max-chars must be >= 1.")
         self.strict = bool(getattr(args, "topic_strict", False))
         self.llm_config = llm_utils.build_llm_config(
             base_url=getattr(args, "llm_base_url", None),
@@ -444,7 +473,7 @@ class TopicSegmenter:
         if not segments:
             raise RuntimeError(f"No kept subtitles found for topic segmentation: {srt_path}")
 
-        seg_prompt = _build_segmentation_prompt(segments, self.max_topics)
+        seg_prompt = _build_segmentation_prompt(segments, self.max_topics, self.title_max_chars)
         seg_text = llm_utils.chat_completion(self.llm_config, seg_prompt)
         seg_titles: Dict[int, str] = {}
         try:
@@ -457,7 +486,9 @@ class TopicSegmenter:
             plan = _build_cue_fallback_plan(segments, self.max_topics)
 
         if self.generate_summary:
-            sum_prompt = _build_summary_prompt(plan, segments, self.summary_max_chars)
+            sum_prompt = _build_summary_prompt(
+                plan, segments, self.summary_max_chars, self.title_max_chars
+            )
             sum_text = llm_utils.chat_completion(self.llm_config, sum_prompt)
             try:
                 pairs = _parse_summary_plan(sum_text, topic_count=len(plan))
@@ -472,12 +503,18 @@ class TopicSegmenter:
         else:
             pairs = []
             for idx, ids in enumerate(plan, start=1):
-                title = seg_titles.get(idx) or _fallback_title_only(ids, segments, idx, len(plan))
+                title = seg_titles.get(idx) or _fallback_title_only(
+                    ids, segments, idx, len(plan), self.title_max_chars
+                )
                 pairs.append((title, title))
             summary_max_chars = max(32, self.summary_max_chars)
 
         topics = _compose_topics(
-            plan, pairs, segments, summary_max_chars=summary_max_chars
+            plan,
+            pairs,
+            segments,
+            summary_max_chars=summary_max_chars,
+            title_max_chars=self.title_max_chars,
         )
         output = output_path or _default_output_path(srt_path)
         _write_json(output, {"topics": topics})

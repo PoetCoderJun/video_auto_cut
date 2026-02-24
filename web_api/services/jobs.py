@@ -18,14 +18,14 @@ def new_job_id() -> str:
     return f"job_{uuid.uuid4().hex[:12]}"
 
 
-def create_new_job() -> dict:
+def create_new_job(owner_user_id: str) -> dict:
     job_id = new_job_id()
     ensure_job_dirs(job_id)
-    return create_job(job_id, JOB_STATUS_CREATED)
+    return create_job(job_id, JOB_STATUS_CREATED, owner_user_id)
 
 
-def load_job_or_404(job_id: str) -> dict:
-    job = get_job(job_id)
+def load_job_or_404(job_id: str, owner_user_id: str) -> dict:
+    job = get_job(job_id, owner_user_id=owner_user_id)
     if not job:
         raise not_found("job not found")
     return job

@@ -136,6 +136,7 @@ def _build_pipeline_options(
         topic_output=args.topic_output,
         topic_strict=bool(args.topic_strict),
         topic_max_topics=int(args.topic_max_topics),
+        topic_title_max_chars=int(args.topic_title_max_chars),
         topic_summary_max_chars=int(args.topic_summary_max_chars),
     )
 
@@ -249,6 +250,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--topic-output", type=str, default=None)
     parser.add_argument("--topic-max-topics", type=int, default=8)
+    parser.add_argument("--topic-title-max-chars", type=int, default=6)
     parser.add_argument("--topic-summary-max-chars", type=int, default=6)
     parser.add_argument(
         "--topic-strict",

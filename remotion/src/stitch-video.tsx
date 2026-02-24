@@ -1,5 +1,6 @@
 import React, {useMemo} from 'react';
-import {AbsoluteFill, OffthreadVideo, staticFile, useCurrentFrame} from 'remotion';
+import {Video} from '@remotion/media';
+import {AbsoluteFill, Sequence, staticFile, useCurrentFrame} from 'remotion';
 
 export type Caption = {
   start: number;
@@ -10,6 +11,7 @@ export type Caption = {
 export type StitchVideoProps = {
   src: string;
   captions: Caption[];
+  segments: Segment[];
   topics: Topic[];
   fps: number;
   width: number;
@@ -23,6 +25,17 @@ export type Topic = {
   end: number;
 };
 
+export type Segment = {
+  start: number;
+  end: number;
+};
+
+type TimelineSegment = {
+  from: number;
+  durationInFrames: number;
+  trimBefore: number;
+};
+
 const clamp = (value: number, min = 0, max = 1): number => {
   if (value < min) {
     return min;
@@ -31,6 +44,121 @@ const clamp = (value: number, min = 0, max = 1): number => {
     return max;
   }
   return value;
+};
+
+const SUBTITLE_FONT_SIZE = 44;
+const SUBTITLE_MAX_WIDTH_RATIO = 0.9;
+const SUBTITLE_SAFE_WIDTH_RATIO = 0.86;
+const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
+const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:]/;
+
+const charUnits = (char: string): number => {
+  if (char === ' ' || char === '\t') {
+    return 0.35;
+  }
+  if (BREAK_PUNCT_RE.test(char)) {
+    return 0.6;
+  }
+  if (/[0-9A-Za-z]/.test(char)) {
+    return 0.56;
+  }
+  if (CJK_RE.test(char)) {
+    return 1;
+  }
+  return 0.75;
+};
+
+const measureUnits = (text: string): number => {
+  let total = 0;
+  for (const char of text) {
+    total += charUnits(char);
+  }
+  return total;
+};
+
+const findLastBreakPos = (text: string): number => {
+  for (let i = text.length - 1; i >= 0; i -= 1) {
+    if (BREAK_PUNCT_RE.test(text[i])) {
+      return i + 1;
+    }
+  }
+  return -1;
+};
+
+const wrapSoftLine = (text: string, maxUnits: number): string[] => {
+  if (!text) {
+    return [''];
+  }
+
+  const wrapped: string[] = [];
+  let line = '';
+  let units = 0;
+  let lastBreakPos = -1;
+  const minBreakPrefix = Math.max(4, Math.floor(maxUnits * 0.45));
+
+  for (const char of text) {
+    const nextUnits = charUnits(char);
+    if (line && BREAK_PUNCT_RE.test(char) && units + nextUnits > maxUnits) {
+      line += char;
+      units += nextUnits;
+      lastBreakPos = line.length;
+      wrapped.push(line);
+      line = '';
+      units = 0;
+      lastBreakPos = -1;
+      continue;
+    }
+    while (line && units + nextUnits > maxUnits) {
+      const breakPos = lastBreakPos >= minBreakPrefix ? lastBreakPos : -1;
+      if (breakPos > 0 && breakPos < line.length) {
+        wrapped.push(line.slice(0, breakPos));
+        line = line.slice(breakPos).trimStart();
+      } else {
+        wrapped.push(line);
+        line = '';
+      }
+      units = measureUnits(line);
+      lastBreakPos = findLastBreakPos(line);
+    }
+
+    if (!line && char === ' ') {
+      continue;
+    }
+    line += char;
+    units += nextUnits;
+    if (BREAK_PUNCT_RE.test(char)) {
+      lastBreakPos = line.length;
+    }
+  }
+
+  if (line) {
+    wrapped.push(line);
+  }
+  return wrapped.length > 0 ? wrapped : [''];
+};
+
+const wrapCaptionText = (rawText: string, width: number): string => {
+  const normalized = (rawText || '').replace(/\r\n?/g, '\n').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const usableWidth = Math.max(280, width * SUBTITLE_MAX_WIDTH_RATIO);
+  const maxUnits = Math.max(
+    10,
+    Math.floor((usableWidth * SUBTITLE_SAFE_WIDTH_RATIO) / SUBTITLE_FONT_SIZE)
+  );
+
+  const finalLines: string[] = [];
+  for (const hardLine of normalized.split('\n')) {
+    const trimmed = hardLine.trim();
+    if (!trimmed) {
+      continue;
+    }
+    finalLines.push(...wrapSoftLine(trimmed, maxUnits));
+  }
+
+  return finalLines.join('\n');
 };
 
 const subtitleWrap: React.CSSProperties = {
@@ -47,12 +175,14 @@ const subtitleWrap: React.CSSProperties = {
 
 const subtitleBox: React.CSSProperties = {
   color: '#ffffff',
-  fontSize: 44,
+  fontSize: SUBTITLE_FONT_SIZE,
   fontWeight: 700,
   lineHeight: 1.35,
   textAlign: 'center',
   textShadow: '0 2px 10px rgba(0, 0, 0, 0.8)',
-  whiteSpace: 'pre-wrap',
+  whiteSpace: 'pre',
+  wordBreak: 'keep-all',
+  overflowWrap: 'normal',
   maxWidth: '90%',
 };
 
@@ -154,11 +284,39 @@ const progressSegmentLabel: React.CSSProperties = {
   textShadow: '0 1px 3px rgba(0,0,0,0.45)',
 };
 
-export const StitchVideo: React.FC<StitchVideoProps> = ({src, captions, topics, fps}) => {
+export const StitchVideo: React.FC<StitchVideoProps> = ({src, captions, segments, topics, fps, width}) => {
   const frame = useCurrentFrame();
   const t = frame / fps;
-  const active = captions.find((c) => t >= c.start && t < c.end);
+  const wrappedCaptions = useMemo(
+    () =>
+      captions.map((caption) => ({
+        ...caption,
+        wrappedText: wrapCaptionText(caption.text, width),
+      })),
+    [captions, width]
+  );
+  const active = wrappedCaptions.find((c) => t >= c.start && t < c.end);
   const videoSrc = src ? staticFile(src) : '';
+  const timelineSegments = useMemo((): TimelineSegment[] => {
+    const normalized = (segments || [])
+      .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+      .slice()
+      .sort((a, b) => a.start - b.start);
+
+    let cursor = 0;
+    return normalized.map((segment) => {
+      const trimBefore = Math.max(0, Math.floor(segment.start * fps));
+      const trimAfterFrame = Math.max(trimBefore + 1, Math.ceil(segment.end * fps));
+      const durationInFrames = Math.max(1, trimAfterFrame - trimBefore);
+      const item = {
+        from: cursor,
+        durationInFrames,
+        trimBefore,
+      };
+      cursor += durationInFrames;
+      return item;
+    });
+  }, [segments, fps]);
 
   const normalizedTopics = useMemo(() => {
     return (topics || [])
@@ -202,7 +360,23 @@ export const StitchVideo: React.FC<StitchVideoProps> = ({src, captions, topics, 
   return (
     <AbsoluteFill style={{backgroundColor: 'black'}}>
       {videoSrc ? (
-        <OffthreadVideo src={videoSrc} style={{width: '100%', height: '100%', objectFit: 'contain'}} />
+        timelineSegments.length > 0 ? (
+          timelineSegments.map((segment) => (
+            <Sequence
+              key={`${segment.from}-${segment.trimBefore}`}
+              from={segment.from}
+              durationInFrames={segment.durationInFrames}
+            >
+              <Video
+                src={videoSrc}
+                trimBefore={segment.trimBefore}
+                style={{width: '100%', height: '100%', objectFit: 'contain'}}
+              />
+            </Sequence>
+          ))
+        ) : (
+          <Video src={videoSrc} style={{width: '100%', height: '100%', objectFit: 'contain'}} />
+        )
       ) : null}
       {activeTopic ? (
         <div style={chapterWrap}>
@@ -213,7 +387,7 @@ export const StitchVideo: React.FC<StitchVideoProps> = ({src, captions, topics, 
         </div>
       ) : null}
       <div style={subtitleWrap}>
-        <div style={subtitleBox}>{active ? active.text : ''}</div>
+        <div style={subtitleBox}>{active ? active.wrappedText : ''}</div>
       </div>
       <div style={progressWrap}>
         <div style={progressGlass}>

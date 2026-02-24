@@ -41,7 +41,11 @@ class Transcribe:
             offline=bool(getattr(self.args, "qwen3_offline", False)),
             use_modelscope=bool(getattr(self.args, "qwen3_use_modelscope", False)),
         )
-        logging.info("Done Init Qwen3 model in %.1f sec", time.time() - tic)
+        elapsed = time.time() - tic
+        if getattr(self.model, "last_load_cache_hit", False):
+            logging.info("Reuse cached Qwen3 model in %.1f sec", elapsed)
+        else:
+            logging.info("Done Init Qwen3 model in %.1f sec", elapsed)
 
     def run(self):
         for input_path in self.args.inputs:

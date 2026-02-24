@@ -63,6 +63,7 @@ def build_remapped_captions(
 
         captions.append(
             {
+                "index": int(sub.index),
                 "start": round(out_start, 3),
                 "end": round(out_end, 3),
                 "text": (sub.content or "").strip(),
@@ -85,9 +86,16 @@ def write_cut_srt(captions: List[Dict[str, Any]], output_srt_path: str, encoding
         text = str(cap.get("text") or "").strip()
         if not text:
             continue
+        raw_index = cap.get("index")
+        try:
+            sub_index = int(raw_index)
+        except Exception:
+            sub_index = idx
+        if sub_index <= 0:
+            sub_index = idx
         subs.append(
             srt.Subtitle(
-                index=idx,
+                index=sub_index,
                 start=datetime.timedelta(seconds=start),
                 end=datetime.timedelta(seconds=end),
                 content=text,

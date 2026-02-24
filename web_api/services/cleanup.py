@@ -12,6 +12,8 @@ from ..repository import (
     clear_step_data,
     get_job_files,
     list_expired_succeeded_jobs,
+    list_succeeded_jobs_with_artifacts,
+    touch_job,
     update_job,
     upsert_job_files,
 )
@@ -117,6 +119,19 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
     return removed
 
 
+def mark_job_cleanup_from_now(job_id: str, *, reason: str) -> None:
+    settings = get_settings()
+    if not settings.cleanup_enabled:
+        return
+    touch_job(job_id)
+    logging.info(
+        "[web_api] marked delayed cleanup job=%s reason=%s ttl_seconds=%s",
+        job_id,
+        reason,
+        settings.cleanup_ttl_seconds,
+    )
+
+
 def cleanup_expired_jobs() -> int:
     settings = get_settings()
     if not settings.cleanup_enabled:
@@ -138,3 +153,25 @@ def cleanup_expired_jobs() -> int:
     if cleaned:
         logging.info("[web_api] cleanup sweep completed cleaned_jobs=%s cutoff=%s", cleaned, cutoff_iso)
     return cleaned
+
+
+def cleanup_on_startup() -> int:
+    settings = get_settings()
+    if not settings.cleanup_enabled or not settings.cleanup_on_startup:
+        return 0
+
+    total_cleaned = 0
+    while True:
+        job_ids = list_succeeded_jobs_with_artifacts(limit=settings.cleanup_batch_size)
+        if not job_ids:
+            break
+        for job_id in job_ids:
+            try:
+                cleanup_job_artifacts(job_id, reason="startup")
+                total_cleaned += 1
+            except Exception:
+                logging.exception("[web_api] startup cleanup failed job=%s", job_id)
+
+    if total_cleaned:
+        logging.info("[web_api] startup cleanup completed cleaned_jobs=%s", total_cleaned)
+    return total_cleaned

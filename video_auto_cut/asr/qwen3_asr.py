@@ -1,6 +1,7 @@
 import datetime
 import logging
 import re
+import threading
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -77,6 +78,8 @@ LANGUAGE_ALIASES = {
     "italian": "Italian",
 }
 _SUPPORTED_LANGUAGE_MAP = {item.lower(): item for item in SUPPORTED_LANGUAGES}
+_MODEL_CACHE_LOCK = threading.Lock()
+_MODEL_CACHE: Dict[Tuple[str, str, Optional[str], bool], Tuple[Any, Any]] = {}
 
 
 def _local_model_path(model_dir_name: str) -> Optional[str]:
@@ -188,6 +191,52 @@ def _load_with_fallback(load_fn, model_id: str, device: Optional[str], offline: 
             logging.warning(f"{label} load failed on {dev}: {exc}")
 
     raise RuntimeError(f"Failed to load {label} model: {last_exc}") from last_exc
+
+
+def _load_model_bundle_cached(
+    *,
+    resolved_model: str,
+    resolved_aligner: str,
+    device: Optional[str],
+    offline: bool,
+) -> Tuple[Any, Any, bool]:
+    key = (resolved_model, resolved_aligner, device, bool(offline))
+    with _MODEL_CACHE_LOCK:
+        cached = _MODEL_CACHE.get(key)
+    if cached is not None:
+        return cached[0], cached[1], True
+
+    asr_model, _ = _load_with_fallback(
+        _load_asr_model, resolved_model, device, offline, "Qwen3-ASR"
+    )
+    aligner, _ = _load_with_fallback(
+        _load_aligner, resolved_aligner, device, offline, "Qwen3-ForcedAligner"
+    )
+    with _MODEL_CACHE_LOCK:
+        existing = _MODEL_CACHE.get(key)
+        if existing is not None:
+            return existing[0], existing[1], True
+        _MODEL_CACHE[key] = (asr_model, aligner)
+    return asr_model, aligner, False
+
+
+def prewarm_models(
+    *,
+    model_id: str,
+    aligner_id: str,
+    device: Optional[str] = None,
+    offline: bool = False,
+    use_modelscope: bool = False,
+) -> bool:
+    resolved_model = resolve_model_path(model_id, use_modelscope)
+    resolved_aligner = resolve_model_path(aligner_id, use_modelscope)
+    _, _, cache_hit = _load_model_bundle_cached(
+        resolved_model=resolved_model,
+        resolved_aligner=resolved_aligner,
+        device=device,
+        offline=offline,
+    )
+    return cache_hit
 
 
 def _segment_to_dict(seg) -> Dict[str, Any]:
@@ -440,6 +489,7 @@ class Qwen3Model:
         self.punct_breaks = set(punct_breaks or DEFAULT_PUNCT_BREAKS)
         self.asr_model = None
         self.aligner = None
+        self.last_load_cache_hit = False
 
     def load(
         self,
@@ -451,11 +501,11 @@ class Qwen3Model:
     ):
         resolved_model = resolve_model_path(model_id, use_modelscope)
         resolved_aligner = resolve_model_path(aligner_id, use_modelscope)
-        self.asr_model, _ = _load_with_fallback(
-            _load_asr_model, resolved_model, device, offline, "Qwen3-ASR"
-        )
-        self.aligner, _ = _load_with_fallback(
-            _load_aligner, resolved_aligner, device, offline, "Qwen3-ForcedAligner"
+        self.asr_model, self.aligner, self.last_load_cache_hit = _load_model_bundle_cached(
+            resolved_model=resolved_model,
+            resolved_aligner=resolved_aligner,
+            device=device,
+            offline=offline,
         )
 
     def transcribe(

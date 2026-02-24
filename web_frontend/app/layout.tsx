@@ -1,9 +1,44 @@
 import "./globals.css";
 import type {Metadata} from "next";
 
+const siteName = "AI 视频智能剪辑";
+const siteDescription = "上传口播视频，自动提取字幕、精简内容并生成章节，快速导出可发布成片。";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://127.0.0.1:3000";
+
 export const metadata: Metadata = {
-  title: "Video Auto Cut Web",
-  description: "Web MVP for video_auto_cut"
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: `${siteName} | 一键创作`,
+    template: `%s | ${siteName}`,
+  },
+  description: siteDescription,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: siteUrl,
+    title: `${siteName} | 一键创作`,
+    description: siteDescription,
+    siteName,
+    locale: "zh_CN",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteName} | 一键创作`,
+    description: siteDescription,
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

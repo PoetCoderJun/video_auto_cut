@@ -28,3 +28,23 @@ def unsupported_video_format(message: str) -> ApiError:
 
 def invalid_step_state(message: str) -> ApiError:
     return ApiError(code="INVALID_STEP_STATE", message=message, status_code=409)
+
+
+def unauthorized(message: str) -> ApiError:
+    return ApiError(code="UNAUTHORIZED", message=message, status_code=401)
+
+
+def forbidden(message: str) -> ApiError:
+    return ApiError(code="FORBIDDEN", message=message, status_code=403)
+
+
+def coupon_code_invalid(message: str) -> ApiError:
+    return ApiError(code="COUPON_CODE_INVALID", message=message, status_code=422)
+
+
+def coupon_code_expired(message: str) -> ApiError:
+    return ApiError(code="COUPON_CODE_EXPIRED", message=message, status_code=422)
+
+
+def coupon_code_exhausted(message: str) -> ApiError:
+    return ApiError(code="COUPON_CODE_EXHAUSTED", message=message, status_code=422)

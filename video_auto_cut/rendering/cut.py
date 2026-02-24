@@ -3,7 +3,7 @@ import os
 import re
 import shutil
 import subprocess
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import srt
 
@@ -87,6 +87,9 @@ class Cutter:
         self.args = args
         self._ffmpeg_bin = self._resolve_bin("ffmpeg")
         self._ffprobe_bin = self._resolve_bin("ffprobe")
+        self._cut_progress_callback: Optional[Callable[[float], None]] = getattr(
+            args, "cut_progress_callback", None
+        )
 
     def run(self):
         fns = {"srt": None, "media": None}
@@ -124,12 +127,26 @@ class Cutter:
         else:
             logging.info("Target cut duration: %.1f sec", total_duration)
 
+        self._emit_progress(0.0)
         if is_video_file:
-            self._cut_video_with_ffmpeg(fns["media"], segments, output_fn)
+            self._cut_video_with_ffmpeg(fns["media"], segments, output_fn, total_duration)
         else:
-            self._cut_audio_with_ffmpeg(fns["media"], segments, output_fn)
+            self._cut_audio_with_ffmpeg(fns["media"], segments, output_fn, total_duration)
+        self._emit_progress(1.0)
 
         logging.info("Saved media to %s", output_fn)
+
+    def _emit_progress(self, ratio: float) -> None:
+        if not callable(self._cut_progress_callback):
+            return
+        try:
+            normalized = max(0.0, min(1.0, float(ratio)))
+        except (TypeError, ValueError):
+            return
+        try:
+            self._cut_progress_callback(normalized)
+        except Exception:
+            logging.exception("cut progress callback failed")
 
     @staticmethod
     def _resolve_bin(name: str) -> str:
@@ -179,7 +196,11 @@ class Cutter:
         return bool((result.stdout or "").strip())
 
     def _cut_video_with_ffmpeg(
-        self, media_fn: str, segments: List[Dict[str, float]], output_fn: str
+        self,
+        media_fn: str,
+        segments: List[Dict[str, float]],
+        output_fn: str,
+        expected_duration_s: Optional[float],
     ) -> None:
         has_audio = self._has_audio_stream(media_fn)
         filters: List[str] = []
@@ -239,10 +260,14 @@ class Cutter:
             output_fn,
         ]
 
-        self._run_ffmpeg(cmd, "video cut")
+        self._run_ffmpeg(cmd, "video cut", expected_duration_s=expected_duration_s)
 
     def _cut_audio_with_ffmpeg(
-        self, media_fn: str, segments: List[Dict[str, float]], output_fn: str
+        self,
+        media_fn: str,
+        segments: List[Dict[str, float]],
+        output_fn: str,
+        expected_duration_s: Optional[float],
     ) -> None:
         filters: List[str] = []
         concat_inputs: List[str] = []
@@ -275,11 +300,52 @@ class Cutter:
             self.args.bitrate,
             output_fn,
         ]
-        self._run_ffmpeg(cmd, "audio cut")
+        self._run_ffmpeg(cmd, "audio cut", expected_duration_s=expected_duration_s)
 
-    @staticmethod
-    def _run_ffmpeg(cmd: List[str], stage: str) -> None:
-        try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(f"ffmpeg failed during {stage}: {exc.stderr.strip()}") from exc
+    def _run_ffmpeg(
+        self, cmd: List[str], stage: str, *, expected_duration_s: Optional[float] = None
+    ) -> None:
+        cmd_with_progress = list(cmd)
+        if cmd_with_progress and "-progress" not in cmd_with_progress:
+            # The output path is the final argument; inject progress flags before it.
+            cmd_with_progress[-1:-1] = ["-progress", "pipe:1", "-nostats"]
+
+        process = subprocess.Popen(
+            cmd_with_progress,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        last_ratio = -1.0
+        assert process.stdout is not None
+        for raw in process.stdout:
+            line = raw.strip()
+            if not line:
+                continue
+
+            key, sep, value = line.partition("=")
+            if sep != "=":
+                continue
+
+            if key in {"out_time_ms", "out_time_us"}:
+                if expected_duration_s is None or expected_duration_s <= 0:
+                    continue
+                try:
+                    out_time_s = float(value) / 1_000_000.0
+                except ValueError:
+                    continue
+                ratio = max(0.0, min(1.0, out_time_s / expected_duration_s))
+                if ratio - last_ratio >= 0.01:
+                    self._emit_progress(ratio)
+                    last_ratio = ratio
+                continue
+
+            if key == "progress" and value == "end":
+                self._emit_progress(1.0)
+
+        stderr_text = process.stderr.read() if process.stderr is not None else ""
+        return_code = process.wait()
+        if return_code != 0:
+            raise RuntimeError(f"ffmpeg failed during {stage}: {(stderr_text or '').strip()}")

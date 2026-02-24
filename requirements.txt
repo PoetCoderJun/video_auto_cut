@@ -1,9 +1,11 @@
 ffmpeg-python
 fastapi
+libsql
 moviepy
 numpy
 opencc-python-reimplemented
 python-multipart
+PyJWT[crypto]
 qwen-asr
 srt
 torch

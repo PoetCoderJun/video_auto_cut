@@ -13,6 +13,7 @@ from .api.routes import router
 from .config import ensure_work_dirs, get_settings
 from .db import init_db
 from .errors import ApiError
+from .services.cleanup import cleanup_on_startup
 from .worker.runner import run_worker_loop
 
 
@@ -74,6 +75,10 @@ def create_app() -> FastAPI:
     def startup_event() -> None:
         ensure_work_dirs()
         init_db()
+        try:
+            cleanup_on_startup()
+        except Exception:
+            logging.exception("[web_api] startup cleanup failed")
 
         settings = get_settings()
         if settings.embedded_worker:
