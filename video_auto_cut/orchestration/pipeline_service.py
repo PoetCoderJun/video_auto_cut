@@ -29,6 +29,31 @@ class PipelineOptions:
     qwen3_progress_chunk_s: float = 8.0
     qwen3_correct: bool = True
     qwen3_correct_max_diff_ratio: float = 0.3
+    asr_backend: str = "local_filetrans"
+    asr_dashscope_base_url: str = "https://dashscope.aliyuncs.com"
+    asr_dashscope_model: str = "qwen3-asr-flash-filetrans"
+    asr_dashscope_task: str = ""
+    asr_dashscope_api_key: str | None = None
+    asr_dashscope_poll_seconds: float = 2.0
+    asr_dashscope_timeout_seconds: float = 3600.0
+    asr_dashscope_language_hints: tuple[str, ...] = ()
+    asr_dashscope_context: str = ""
+    asr_dashscope_enable_words: bool = True
+    asr_dashscope_sentence_rule_with_punc: bool = True
+    asr_dashscope_word_split_enabled: bool = True
+    asr_dashscope_word_split_on_comma: bool = True
+    asr_dashscope_word_split_comma_pause_s: float = 0.4
+    asr_dashscope_word_split_min_chars: int = 12
+    asr_dashscope_word_vad_gap_s: float = 1.0
+    asr_dashscope_word_max_segment_s: float = 8.0
+    asr_dashscope_insert_no_speech: bool = True
+    asr_dashscope_insert_head_no_speech: bool = True
+    asr_oss_endpoint: str | None = None
+    asr_oss_bucket: str | None = None
+    asr_oss_access_key_id: str | None = None
+    asr_oss_access_key_secret: str | None = None
+    asr_oss_prefix: str = "video-auto-cut/asr"
+    asr_oss_signed_url_ttl_seconds: int = 86400
 
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -90,6 +115,31 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         qwen3_progress_chunk_s=float(options.qwen3_progress_chunk_s),
         qwen3_correct=bool(options.qwen3_correct),
         qwen3_correct_max_diff_ratio=float(options.qwen3_correct_max_diff_ratio),
+        asr_backend=options.asr_backend,
+        asr_dashscope_base_url=options.asr_dashscope_base_url,
+        asr_dashscope_model=options.asr_dashscope_model,
+        asr_dashscope_task=options.asr_dashscope_task,
+        asr_dashscope_api_key=options.asr_dashscope_api_key,
+        asr_dashscope_poll_seconds=float(options.asr_dashscope_poll_seconds),
+        asr_dashscope_timeout_seconds=float(options.asr_dashscope_timeout_seconds),
+        asr_dashscope_language_hints=list(options.asr_dashscope_language_hints),
+        asr_dashscope_context=options.asr_dashscope_context,
+        asr_dashscope_enable_words=bool(options.asr_dashscope_enable_words),
+        asr_dashscope_sentence_rule_with_punc=bool(options.asr_dashscope_sentence_rule_with_punc),
+        asr_dashscope_word_split_enabled=bool(options.asr_dashscope_word_split_enabled),
+        asr_dashscope_word_split_on_comma=bool(options.asr_dashscope_word_split_on_comma),
+        asr_dashscope_word_split_comma_pause_s=float(options.asr_dashscope_word_split_comma_pause_s),
+        asr_dashscope_word_split_min_chars=int(options.asr_dashscope_word_split_min_chars),
+        asr_dashscope_word_vad_gap_s=float(options.asr_dashscope_word_vad_gap_s),
+        asr_dashscope_word_max_segment_s=float(options.asr_dashscope_word_max_segment_s),
+        asr_dashscope_insert_no_speech=bool(options.asr_dashscope_insert_no_speech),
+        asr_dashscope_insert_head_no_speech=bool(options.asr_dashscope_insert_head_no_speech),
+        asr_oss_endpoint=options.asr_oss_endpoint,
+        asr_oss_bucket=options.asr_oss_bucket,
+        asr_oss_access_key_id=options.asr_oss_access_key_id,
+        asr_oss_access_key_secret=options.asr_oss_access_key_secret,
+        asr_oss_prefix=options.asr_oss_prefix,
+        asr_oss_signed_url_ttl_seconds=int(options.asr_oss_signed_url_ttl_seconds),
         llm_base_url=options.llm_base_url,
         llm_model=options.llm_model,
         llm_api_key=options.llm_api_key,
@@ -188,7 +238,8 @@ def run_transcribe(
 ) -> Path:
     from video_auto_cut.asr.transcribe import Transcribe
 
-    if options.qwen3_correct:
+    asr_backend = (options.asr_backend or "").strip().lower()
+    if asr_backend in {"local_filetrans", "local_qwen3"} and options.qwen3_correct:
         require_llm(options, "ASR LLM correction")
     logging.info("Step 1/3: transcribe -> SRT")
     args = build_transcribe_args(video_path, options)

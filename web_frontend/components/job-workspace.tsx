@@ -5,6 +5,7 @@ import {
   ApiClientError,
   Chapter,
   Job,
+  RenderMeta,
   Step1Line,
   confirmStep1,
   confirmStep2,
@@ -14,10 +15,17 @@ import {
   getStep1,
   getStep2,
   getWebRenderConfig,
+  getWebRenderConfigWithMeta,
   runStep1,
   runStep2,
-  uploadVideo,
+  uploadAudio,
 } from "../lib/api";
+import { extractAudioForAsr } from "../lib/audio-extract";
+import { tryParseFpsWithMediaInfo } from "../lib/media-metadata";
+import {
+  loadCachedJobSourceVideo,
+  saveCachedJobSourceVideo,
+} from "../lib/video-cache";
 import { STATUS } from "../lib/workflow";
 import {
   StitchVideoWeb,
@@ -271,6 +279,19 @@ export default function JobWorkspace({
     setSubtitleTheme("box-white-on-black");
   }, [jobId]);
 
+  useEffect(() => {
+    let active = true;
+    loadCachedJobSourceVideo(jobId)
+      .then((file) => {
+        if (!active || !file) return;
+        setSelectedFile((previous) => previous ?? file);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [jobId]);
+
   const handleUpload = useCallback(
     async (file: File) => {
       setError("");
@@ -286,16 +307,38 @@ export default function JobWorkspace({
       }
       setBusy(true);
       try {
-        const uploadedJob = await uploadVideo(jobId, file);
+        const audioFile = await extractAudioForAsr(file);
+        const uploadedJob = await uploadAudio(jobId, audioFile);
+        void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
         setJob(uploadedJob);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "上传失败，请重试。");
+        setError(err instanceof Error ? err.message : "音频提取或上传失败，请重试。");
       } finally {
         setBusy(false);
       }
     },
     [jobId]
   );
+
+  const onRenderSourceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const lowerName = file.name.toLowerCase();
+    const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
+      lowerName.endsWith(ext)
+    );
+    if (!hasSupportedExt) {
+      setError(
+        "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+      );
+      return;
+    }
+    setError("");
+    setSelectedFile(file);
+    void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
+  };
 
   useEffect(() => {
     if (
@@ -436,9 +479,133 @@ export default function JobWorkspace({
     });
     let sourceObjectUrl: string | null = null;
     try {
-      const config = await getWebRenderConfig(jobId);
-      const sourceBlob = await getRenderSourceBlob(jobId);
-      sourceObjectUrl = URL.createObjectURL(sourceBlob);
+      const resolveMetaFromFile = async (file: File): Promise<RenderMeta> => {
+        const url = URL.createObjectURL(file);
+        try {
+          const meta = await new Promise<{
+            width: number;
+            height: number;
+            duration: number;
+          }>((resolve, reject) => {
+            const video = document.createElement("video");
+            video.preload = "metadata";
+            video.muted = true;
+            video.onloadedmetadata = () => {
+              resolve({
+                width: video.videoWidth,
+                height: video.videoHeight,
+                duration: video.duration,
+              });
+            };
+            video.onerror = () =>
+              reject(new Error("无法读取本地视频元数据，请重新选择文件。"));
+            video.src = url;
+          });
+
+          const estimateFps = async (): Promise<number> => {
+            // Best-effort estimation using requestVideoFrameCallback.
+            // This avoids pulling in heavy parsers (mp4box/mediainfo) and works offline.
+            const probeUrl = URL.createObjectURL(file);
+            const video = document.createElement("video");
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = "auto";
+            video.src = probeUrl;
+
+            try {
+              await video.play();
+            } catch {
+              // If autoplay is blocked or decoding fails, fallback.
+              URL.revokeObjectURL(probeUrl);
+              return 30;
+            }
+
+            return await new Promise<number>((resolve) => {
+              let firstMediaTime: number | null = null;
+              let lastMediaTime: number | null = null;
+              let frames = 0;
+              const maxFrames = 45;
+              const maxMs = 1200;
+              const startAt = performance.now();
+
+              const finish = () => {
+                try {
+                  video.pause();
+                } catch {
+                  // ignore
+                }
+                URL.revokeObjectURL(probeUrl);
+                const dt =
+                  firstMediaTime !== null && lastMediaTime !== null
+                    ? lastMediaTime - firstMediaTime
+                    : 0;
+                const fps = dt > 0 ? frames / dt : 0;
+                if (Number.isFinite(fps) && fps > 1 && fps < 240) {
+                  resolve(Math.round(fps * 1000) / 1000);
+                } else {
+                  resolve(30);
+                }
+              };
+
+              const onFrame = (_now: number, frame: { mediaTime: number }) => {
+                const t = typeof frame?.mediaTime === "number" ? frame.mediaTime : NaN;
+                if (Number.isFinite(t)) {
+                  if (firstMediaTime === null) firstMediaTime = t;
+                  lastMediaTime = t;
+                  frames += 1;
+                }
+
+                if (
+                  frames >= maxFrames ||
+                  performance.now() - startAt >= maxMs
+                ) {
+                  finish();
+                  return;
+                }
+                const requestCb = (video as any).requestVideoFrameCallback;
+                if (typeof requestCb === "function") requestCb.call(video, onFrame);
+                else finish();
+              };
+
+              const requestCb = (video as any).requestVideoFrameCallback;
+              if (typeof requestCb === "function") requestCb.call(video, onFrame);
+              else finish();
+            });
+          };
+
+          const fps = (await tryParseFpsWithMediaInfo(file)) ?? (await estimateFps());
+          return {
+            width: meta.width || 1920,
+            height: meta.height || 1080,
+            duration_sec:
+              typeof meta.duration === "number" && Number.isFinite(meta.duration)
+                ? meta.duration
+                : undefined,
+            fps,
+          };
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+
+      let config;
+      let sourceFile = selectedFile;
+      if (!sourceFile) {
+        sourceFile = await loadCachedJobSourceVideo(jobId);
+        if (sourceFile) setSelectedFile(sourceFile);
+      }
+      if (sourceFile) {
+        const meta = await resolveMetaFromFile(sourceFile);
+        config = await getWebRenderConfigWithMeta(jobId, meta);
+        sourceObjectUrl = URL.createObjectURL(sourceFile);
+      } else {
+        config = await getWebRenderConfig(jobId);
+        if (!config.has_server_source) {
+          throw new Error("当前会话缺少本地原始视频，请先在导出页重新选择原始视频。");
+        }
+        const sourceBlob = await getRenderSourceBlob(jobId);
+        sourceObjectUrl = URL.createObjectURL(sourceBlob);
+      }
       const inputProps = {
         ...config.input_props,
         src: sourceObjectUrl,
@@ -495,7 +662,7 @@ export default function JobWorkspace({
       }
       setRenderBusy(false);
     }
-  }, [jobId, subtitleTheme]);
+  }, [jobId, selectedFile, subtitleTheme]);
 
   const handleDownloadFinalVideo = useCallback(async () => {
     setError("");
@@ -1037,6 +1204,21 @@ export default function JobWorkspace({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <div className="space-y-2 text-left">
+                <label className="text-sm font-medium">本地原始视频（导出源）</label>
+                <Input
+                  type="file"
+                  accept={SUPPORTED_UPLOAD_ACCEPT}
+                  onChange={onRenderSourceChange}
+                  disabled={renderBusy}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {selectedFile
+                    ? `当前文件：${selectedFile.name}`
+                    : "未选择时会自动尝试读取本地缓存，失败再手动选择。"}
+                </p>
               </div>
 
               <div className="rounded-md bg-amber-50 p-3 text-left text-xs text-amber-800 border border-amber-200">

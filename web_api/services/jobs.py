@@ -11,7 +11,7 @@ from ..config import ensure_job_dirs, get_settings
 from ..constants import JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY, PROGRESS_UPLOAD_READY
 from ..errors import invalid_step_state, not_found, upload_too_large
 from ..repository import create_job, get_job, upsert_job_files, update_job
-from ..utils.media import probe_video_stream, validate_video_extension
+from ..utils.media import probe_video_stream, validate_audio_extension, validate_video_extension
 
 
 def new_job_id() -> str:
@@ -96,4 +96,69 @@ async def save_uploaded_video(job_id: str, file: UploadFile) -> dict:
         "duration_sec": media_info.get("duration_sec"),
         "video_codec": media_info.get("video_codec"),
         "audio_codec": None,
+    }
+
+
+async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
+    settings = get_settings()
+    dirs = ensure_job_dirs(job_id)
+
+    raw_name = Path(file.filename or "audio.m4a").name
+    suffix = Path(raw_name).suffix.lower() or ".m4a"
+    target = dirs["input"] / f"audio{suffix}"
+    logging.info(
+        "[web_api] audio upload start job=%s filename=%s content_type=%s target=%s",
+        job_id,
+        raw_name,
+        getattr(file, "content_type", None),
+        target,
+    )
+    validate_audio_extension(target)
+
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    total = 0
+
+    with target.open("wb") as output:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                output.close()
+                try:
+                    target.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                logging.warning(
+                    "[web_api] audio upload too large job=%s filename=%s bytes=%s limit_mb=%s",
+                    job_id,
+                    raw_name,
+                    total,
+                    settings.max_upload_mb,
+                )
+                raise upload_too_large(f"文件超过 {settings.max_upload_mb}MB，请压缩后重试")
+            output.write(chunk)
+
+    if total <= 0:
+        try:
+            target.unlink(missing_ok=True)
+        except OSError:
+            pass
+        logging.warning("[web_api] audio upload empty file job=%s filename=%s", job_id, raw_name)
+        raise invalid_step_state("上传文件为空")
+
+    upsert_job_files(job_id, audio_path=str(target))
+    update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
+    logging.info(
+        "[web_api] audio upload ready job=%s filename=%s stored_as=%s bytes=%s",
+        job_id,
+        raw_name,
+        target.name,
+        total,
+    )
+    return {
+        "filename": raw_name,
+        "stored_as": target.name,
+        "size_bytes": total,
     }

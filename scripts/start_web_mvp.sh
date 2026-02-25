@@ -105,14 +105,20 @@ import sys
 required = ["fastapi", "uvicorn", "multipart", "jwt"]
 required.append("libsql")
 required.append("qwen_asr")
+asr_backend = (os.getenv("ASR_BACKEND") or "").strip().lower()
+if asr_backend == "dashscope_filetrans":
+    required.append("oss2")
 missing = [name for name in required if importlib.util.find_spec(name) is None]
 
 if missing:
+    print(f"[start_web_mvp] missing python deps: {', '.join(missing)}")
     print("[start_web_mvp] installing python deps via requirements.txt ...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
 if importlib.util.find_spec("qwen_asr") is None:
     raise SystemExit("[start_web_mvp] qwen_asr still missing after dependency install.")
+if asr_backend == "dashscope_filetrans" and importlib.util.find_spec("oss2") is None:
+    raise SystemExit("[start_web_mvp] oss2 still missing after dependency install.")
 PY
 
 if [[ ! -d "$ROOT_DIR/web_frontend/node_modules" ]]; then

@@ -7,6 +7,7 @@ from typing import Any
 
 from .config import ensure_job_dirs, get_settings, job_dir
 from .constants import (
+    ALLOWED_VIDEO_EXTENSIONS,
     JOB_STATUS_CREATED,
     JOB_STATUS_FAILED,
     JOB_STATUS_STEP1_CONFIRMED,
@@ -25,6 +26,7 @@ USER_STATUS_ACTIVE = "ACTIVE"
 
 JOB_FILE_FIELDS = (
     "video_path",
+    "audio_path",
     "srt_path",
     "optimized_srt_path",
     "final_step1_srt_path",
@@ -408,11 +410,27 @@ def _existing_video_path(job_id: str) -> str | None:
     input_dir = job_dir(job_id) / "input"
     if not input_dir.exists():
         return None
-    files = [item for item in input_dir.iterdir() if item.is_file() and not item.name.startswith(".")]
+    files = [
+        item
+        for item in input_dir.iterdir()
+        if item.is_file()
+        and not item.name.startswith(".")
+        and item.suffix.lower() in ALLOWED_VIDEO_EXTENSIONS
+    ]
     if not files:
         return None
     files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
     return str(files[0])
+
+def _existing_audio_path(job_id: str) -> str | None:
+    input_dir = job_dir(job_id) / "input"
+    if not input_dir.exists():
+        return None
+    candidates = [item for item in input_dir.iterdir() if item.is_file() and item.name.startswith("audio.")]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return str(candidates[0])
 
 
 def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -427,6 +445,8 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Fallbacks by conventional paths.
     if not result["video_path"]:
         result["video_path"] = _existing_video_path(job_id)
+    if not result["audio_path"]:
+        result["audio_path"] = _existing_audio_path(job_id)
 
     step1_srt = job_dir(job_id) / "step1" / "final_step1.srt"
     if step1_srt.exists():
@@ -461,7 +481,7 @@ def _infer_job_status(job_id: str) -> str:
         return JOB_STATUS_STEP1_CONFIRMED
     if _step1_lines_path(job_id).exists():
         return JOB_STATUS_STEP1_READY
-    if files.get("video_path"):
+    if files.get("video_path") or files.get("audio_path"):
         return JOB_STATUS_UPLOAD_READY
     return JOB_STATUS_CREATED
 

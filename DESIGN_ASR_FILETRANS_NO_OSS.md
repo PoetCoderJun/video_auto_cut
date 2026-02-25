@@ -19,9 +19,10 @@
 3. 浏览器发起 `Create Job`（或复用现有 job 创建逻辑），拿到 `job_id`。
 4. 浏览器上传音频到后端：`POST /api/v1/jobs/{job_id}/audio`（multipart）。
 5. 浏览器触发 Step1：`POST /api/v1/jobs/{job_id}/step1/run`。
+6. 导出渲染：浏览器用本地视频文件导出（Remotion Web Renderer），并在请求 `GET /api/v1/jobs/{job_id}/render/config` 时携带视频元数据（`width/height/fps/duration_sec`），后端不再需要保存/探测视频文件。
 
 ### 2) 后端侧（单台 ECS：FastAPI + worker）
-1. 接收音频上传，存入 `workdir/jobs/{job_id}/input/audio.<ext>`，记录 `audio_path`。
+1. 接收音频上传，存入 `workdir/jobs/{job_id}/input/audio.<ext>`，写入 `job.files.json` 的 `audio_path`，并将 job 标记为 `UPLOAD_READY`（用于允许 Step1）。
 2. Step1（改造后）分两段：
    - Step1-A：提交 Filetrans 任务（保存 `task_id`、`submitted_at`、`filetrans_model`、`source_url_expire_at`）。
    - Step1-B：轮询任务状态 -> 成功后下载结果 -> 转换为内部 token/字幕结构 -> 写 `final_step1.srt/json` -> 扣减 credits -> 进入现有“确认/Step2/渲染配置”流程。
@@ -37,7 +38,8 @@
     - 校验扩展名与 MIME（白名单：`m4a/mp3/wav/mp4/aac` 等）
     - 校验大小（例如 `MAX_UPLOAD_MB`）
     - 落盘到 job input 目录
-    - 在 job_files 表记录 `audio_path`
+    - 在 `job.files.json` 记录 `audio_path`
+    - 更新 job 状态为 `UPLOAD_READY`
   - 返回：`{ ok: true }`
 
 ### 2.2 生成“供 Filetrans 拉取”的公网下载链接（短期签名）
@@ -122,7 +124,7 @@
 
 建议改造点：
 - `web_api/services/step1.py`
-  - 从读取 `video_path` 改为读取 `audio_path`
+  - 从读取 `video_path` 改为读取 `audio_path`（本地开发可保留视频上传用于客户端渲染，但 ASR 只依赖音频）
   - Step1 改为提交/轮询两段
 - `web_api/repository.py`
   - job_files 增加 `audio_path`、`asr_task_id`、`asr_status`、`asr_submitted_at` 等字段（或以 json 存储在现有表结构中）

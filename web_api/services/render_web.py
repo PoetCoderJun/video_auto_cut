@@ -27,19 +27,29 @@ def resolve_render_source_path(job_id: str) -> Path:
     return path
 
 
-def build_web_render_config(job_id: str, *, source_url: str) -> dict[str, Any]:
+def build_web_render_config(
+    job_id: str,
+    *,
+    source_url: str,
+    fps: float | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    duration_sec: float | None = None,
+) -> dict[str, Any]:
     files = get_job_files(job_id)
     if not files:
         raise RuntimeError("job files not found for render")
 
-    video_path = files.get("video_path")
     step1_srt_path = files.get("final_step1_srt_path")
-    if not video_path or not step1_srt_path:
+    if not step1_srt_path:
         raise RuntimeError("render inputs missing")
 
-    source_path = Path(video_path)
-    if not source_path.exists():
-        raise RuntimeError("render source video missing")
+    source_path: Path | None = None
+    video_path = files.get("video_path")
+    if isinstance(video_path, str) and video_path.strip():
+        candidate = Path(video_path)
+        if candidate.exists():
+            source_path = candidate
 
     settings = get_settings()
     dirs = ensure_job_dirs(job_id)
@@ -65,33 +75,36 @@ def build_web_render_config(job_id: str, *, source_url: str) -> dict[str, Any]:
     topics = [item for item in topics if item is not None]
     topics.sort(key=lambda item: float(item["start"]))
 
-    media_info = probe_video_stream(source_path)
-    fps = _resolve_fps(media_info)
-    width, height = _resolve_dimensions(media_info)
-    duration_s = sum(float(item["end"]) - float(item["start"]) for item in segments)
-    if duration_s <= 0:
-        duration_s = float(media_info.get("duration_sec") or captions[-1]["end"])
-    duration_in_frames = max(1, int(math.ceil(duration_s * fps)))
+    media_info: dict[str, str | float | int | None] = {}
+    if source_path is not None and (fps is None or width is None or height is None or duration_sec is None):
+        media_info = probe_video_stream(source_path)
 
-    output_name = f"{source_path.stem}_remotion.mp4"
+    resolved_fps = _resolve_fps(fps, media_info)
+    resolved_width, resolved_height = _resolve_dimensions(width, height, media_info)
+    resolved_duration_s = _resolve_duration(duration_sec, media_info, captions, segments)
+    duration_in_frames = max(1, int(math.ceil(resolved_duration_s * resolved_fps)))
+
+    output_stem = source_path.stem if source_path is not None else job_id
+    output_name = f"{output_stem}_remotion.mp4"
     input_props: dict[str, Any] = {
         "src": source_url,
         "captions": captions,
         "segments": segments,
         "topics": topics,
-        "fps": fps,
-        "width": width,
-        "height": height,
+        "fps": resolved_fps,
+        "width": resolved_width,
+        "height": resolved_height,
     }
 
     return {
         "source_url": source_url,
         "output_name": output_name,
+        "has_server_source": source_path is not None,
         "composition": {
             "id": "StitchVideoWeb",
-            "fps": fps,
-            "width": width,
-            "height": height,
+            "fps": resolved_fps,
+            "width": resolved_width,
+            "height": resolved_height,
             "durationInFrames": duration_in_frames,
         },
         "input_props": input_props,
@@ -163,20 +176,25 @@ def _normalize_topic(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _resolve_fps(media_info: dict[str, str | float | int | None]) -> float:
-    value = media_info.get("fps")
+def _resolve_fps(override: float | None, media_info: dict[str, str | float | int | None]) -> float:
+    value = override if override is not None else media_info.get("fps")
     try:
         fps = float(value) if value is not None else 30.0
     except (TypeError, ValueError):
         fps = 30.0
     if not math.isfinite(fps) or fps <= 0:
         fps = 30.0
-    return min(30.0, fps)
+    # Keep reasonable bounds; allow >30fps for accurate trimming.
+    return max(1.0, min(120.0, fps))
 
 
-def _resolve_dimensions(media_info: dict[str, str | float | int | None]) -> tuple[int, int]:
-    width_raw = media_info.get("width")
-    height_raw = media_info.get("height")
+def _resolve_dimensions(
+    override_width: int | None,
+    override_height: int | None,
+    media_info: dict[str, str | float | int | None],
+) -> tuple[int, int]:
+    width_raw = override_width if override_width is not None else media_info.get("width")
+    height_raw = override_height if override_height is not None else media_info.get("height")
     try:
         width = int(width_raw) if width_raw is not None else 1920
         height = int(height_raw) if height_raw is not None else 1080
@@ -193,6 +211,38 @@ def _resolve_dimensions(media_info: dict[str, str | float | int | None]) -> tupl
         height = max_height
 
     return _ensure_even(width), _ensure_even(height)
+
+def _resolve_duration(
+    override: float | None,
+    media_info: dict[str, str | float | int | None],
+    captions: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> float:
+    duration_s = float(override) if override is not None else 0.0
+    if not math.isfinite(duration_s) or duration_s <= 0:
+        duration_s = 0.0
+
+    if duration_s <= 0:
+        try:
+            duration_s = float(media_info.get("duration_sec") or 0.0)
+        except (TypeError, ValueError):
+            duration_s = 0.0
+
+    if duration_s <= 0:
+        try:
+            duration_s = sum(float(item["end"]) - float(item["start"]) for item in segments)
+        except Exception:
+            duration_s = 0.0
+
+    if duration_s <= 0:
+        try:
+            duration_s = float(captions[-1]["end"])
+        except Exception:
+            duration_s = 1.0
+
+    if not math.isfinite(duration_s) or duration_s <= 0:
+        return 1.0
+    return duration_s
 
 
 def _ensure_even(value: int) -> int:

@@ -20,8 +20,10 @@ import {
   createJob,
   getMe,
   setApiAuthTokenProvider,
-  uploadVideo,
+  uploadAudio,
 } from "../lib/api";
+import { extractAudioForAsr } from "../lib/audio-extract";
+import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
 import {
   ACTIVE_JOB_ID_KEY,
@@ -388,11 +390,13 @@ export default function HomePageClient() {
     setLoading(true);
     try {
       const job = await createJob();
-      await uploadVideo(job.job_id, file);
+      const audioFile = await extractAudioForAsr(file);
+      await uploadAudio(job.job_id, audioFile);
+      void saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
       saveJobId(job.job_id);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "创建视频项目失败，请稍后重试。";
+        err instanceof Error ? err.message : "创建项目失败，请稍后重试。";
       setError(message);
     } finally {
       setLoading(false);

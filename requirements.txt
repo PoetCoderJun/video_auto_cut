@@ -4,6 +4,7 @@ libsql
 moviepy
 numpy
 opencc-python-reimplemented
+oss2
 python-multipart
 PyJWT[crypto]
 qwen-asr

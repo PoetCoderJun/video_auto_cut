@@ -30,7 +30,13 @@ from ..schemas import (
     Step1ConfirmRequest,
     Step2ConfirmRequest,
 )
-from ..services.jobs import create_new_job, load_job_or_404, require_status, save_uploaded_video
+from ..services.jobs import (
+    create_new_job,
+    load_job_or_404,
+    require_status,
+    save_uploaded_audio,
+    save_uploaded_video,
+)
 from ..services.auth import CurrentUser, require_current_user
 from ..services.billing import (
     check_coupon_for_signup,
@@ -100,8 +106,21 @@ async def upload_job_video(
 ) -> dict[str, Any]:
     require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_CREATED})
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
     upload = await save_uploaded_video(job_id, file)
+    job = load_job_or_404(job_id, current_user.user_id)
+    return _ok({"job": job, "upload": upload})
+
+@router.post("/jobs/{job_id}/audio")
+async def upload_job_audio(
+    job_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+    upload = await save_uploaded_audio(job_id, file)
     job = load_job_or_404(job_id, current_user.user_id)
     return _ok({"job": job, "upload": upload})
 
@@ -181,13 +200,29 @@ def step2_confirm(
 def render_config(
     job_id: str,
     request: Request,
+    width: int | None = None,
+    height: int | None = None,
+    fps: float | None = None,
+    duration_sec: float | None = None,
     current_user: CurrentUser = Depends(require_current_user),
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, RENDER_GET_ALLOWED_STATUSES)
-    source_url = str(request.url_for("render_source", job_id=job_id))
+    # For "video stays on client" mode, the frontend will override src with a local blob: URL.
+    # Keep the legacy server source URL for backward compatibility when video_path exists.
     try:
-        render = build_web_render_config(job_id, source_url=source_url)
+        source_url = str(request.url_for("render_source", job_id=job_id))
+    except Exception:
+        source_url = ""
+    try:
+        render = build_web_render_config(
+            job_id,
+            source_url=source_url,
+            width=width,
+            height=height,
+            fps=fps,
+            duration_sec=duration_sec,
+        )
     except RuntimeError as exc:
         raise invalid_step_state(str(exc)) from exc
     return _ok({"render": render})

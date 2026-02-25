@@ -15,6 +15,10 @@ from ..task_queue import claim_next_task, init_task_queue_db
 
 def _prewarm_qwen3_models() -> None:
     settings = get_settings()
+    asr_backend = (settings.asr_backend or "").strip().lower()
+    if asr_backend not in {"local_filetrans", "local_qwen3"}:
+        logging.info("[web-worker] skip qwen3 prewarm (asr_backend=%s)", asr_backend or "unknown")
+        return
     if not settings.qwen3_prewarm_on_startup:
         logging.info("[web-worker] skip qwen3 prewarm (disabled by config)")
         return

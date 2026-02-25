@@ -28,6 +28,31 @@ class Settings:
     qwen3_progress_chunk_s: float
     qwen3_correct: bool
     qwen3_correct_max_diff_ratio: float
+    asr_backend: str
+    asr_dashscope_base_url: str
+    asr_dashscope_model: str
+    asr_dashscope_task: str
+    asr_dashscope_api_key: str | None
+    asr_dashscope_poll_seconds: float
+    asr_dashscope_timeout_seconds: float
+    asr_dashscope_language_hints: tuple[str, ...]
+    asr_dashscope_context: str
+    asr_dashscope_enable_words: bool
+    asr_dashscope_sentence_rule_with_punc: bool
+    asr_dashscope_word_split_enabled: bool
+    asr_dashscope_word_split_on_comma: bool
+    asr_dashscope_word_split_comma_pause_s: float
+    asr_dashscope_word_split_min_chars: int
+    asr_dashscope_word_vad_gap_s: float
+    asr_dashscope_word_max_segment_s: float
+    asr_dashscope_insert_no_speech: bool
+    asr_dashscope_insert_head_no_speech: bool
+    asr_oss_endpoint: str | None
+    asr_oss_bucket: str | None
+    asr_oss_access_key_id: str | None
+    asr_oss_access_key_secret: str | None
+    asr_oss_prefix: str
+    asr_oss_signed_url_ttl_seconds: int
     device: str
     lang: str
     llm_base_url: str | None
@@ -57,6 +82,11 @@ def get_settings() -> Settings:
     turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip() or None
     turso_auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip() or None
     llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+    asr_api_key = os.getenv("ASR_DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+    asr_language_hints_raw = (os.getenv("ASR_DASHSCOPE_LANGUAGE_HINTS") or "").strip()
+    asr_language_hints = tuple(
+        item.strip() for item in asr_language_hints_raw.split(",") if item.strip()
+    )
     auth_base_url = (
         (os.getenv("WEB_AUTH_BASE_URL") or "").strip()
         or (os.getenv("BETTER_AUTH_URL") or "").strip()
@@ -89,6 +119,63 @@ def get_settings() -> Settings:
         qwen3_progress_chunk_s=max(2.0, float(os.getenv("QWEN3_PROGRESS_CHUNK_S", "8.0"))),
         qwen3_correct=os.getenv("QWEN3_CORRECT", "1").strip().lower() in {"1", "true", "yes"},
         qwen3_correct_max_diff_ratio=float(os.getenv("QWEN3_CORRECT_MAX_DIFF_RATIO", "0.3")),
+        asr_backend=(os.getenv("ASR_BACKEND", "dashscope_filetrans").strip().lower() or "dashscope_filetrans"),
+        asr_dashscope_base_url=(
+            os.getenv("ASR_DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com")
+            .strip()
+            .rstrip("/")
+        ),
+        asr_dashscope_model=os.getenv("ASR_DASHSCOPE_MODEL", "qwen3-asr-flash-filetrans").strip(),
+        asr_dashscope_task=os.getenv("ASR_DASHSCOPE_TASK", "").strip(),
+        asr_dashscope_api_key=(asr_api_key or "").strip() or None,
+        asr_dashscope_poll_seconds=max(0.5, float(os.getenv("ASR_DASHSCOPE_POLL_SECONDS", "2.0"))),
+        asr_dashscope_timeout_seconds=max(
+            30.0, float(os.getenv("ASR_DASHSCOPE_TIMEOUT_SECONDS", "3600"))
+        ),
+        asr_dashscope_language_hints=asr_language_hints,
+        asr_dashscope_context=os.getenv("ASR_DASHSCOPE_CONTEXT", "").strip(),
+        asr_dashscope_enable_words=os.getenv("ASR_DASHSCOPE_ENABLE_WORDS", "1").strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_sentence_rule_with_punc=os.getenv(
+            "ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC", "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_word_split_enabled=os.getenv(
+            "ASR_DASHSCOPE_WORD_SPLIT_ENABLED", "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_word_split_on_comma=os.getenv(
+            "ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA", "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_word_split_comma_pause_s=max(
+            0.0, float(os.getenv("ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S", "0.4"))
+        ),
+        asr_dashscope_word_split_min_chars=max(
+            1, int(os.getenv("ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS", "12"))
+        ),
+        asr_dashscope_word_vad_gap_s=max(
+            0.0, float(os.getenv("ASR_DASHSCOPE_WORD_VAD_GAP_S", "1.0"))
+        ),
+        asr_dashscope_word_max_segment_s=max(
+            1.0, float(os.getenv("ASR_DASHSCOPE_WORD_MAX_SEGMENT_S", "8.0"))
+        ),
+        asr_dashscope_insert_no_speech=os.getenv(
+            "ASR_DASHSCOPE_INSERT_NO_SPEECH", "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_insert_head_no_speech=os.getenv(
+            "ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH", "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_oss_endpoint=(os.getenv("OSS_ENDPOINT") or "").strip() or None,
+        asr_oss_bucket=(os.getenv("OSS_BUCKET") or "").strip() or None,
+        asr_oss_access_key_id=(os.getenv("OSS_ACCESS_KEY_ID") or "").strip() or None,
+        asr_oss_access_key_secret=(os.getenv("OSS_ACCESS_KEY_SECRET") or "").strip() or None,
+        asr_oss_prefix=(os.getenv("OSS_AUDIO_PREFIX") or "video-auto-cut/asr").strip().strip("/"),
+        asr_oss_signed_url_ttl_seconds=max(
+            60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
+        ),
         device=os.getenv("WEB_DEVICE", "cpu"),
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,

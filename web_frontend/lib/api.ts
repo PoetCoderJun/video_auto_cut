@@ -83,6 +83,7 @@ export type RenderInputProps = {
 export type WebRenderConfig = {
   source_url: string;
   output_name: string;
+  has_server_source?: boolean;
   composition: RenderComposition;
   input_props: RenderInputProps;
 };
@@ -314,6 +315,16 @@ export async function uploadVideo(jobId: string, file: File): Promise<Job> {
   return data.job;
 }
 
+export async function uploadAudio(jobId: string, file: File): Promise<Job> {
+  const form = new FormData();
+  form.append("file", file);
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio`, {
+    method: "POST",
+    body: form,
+  });
+  return data.job;
+}
+
 export async function runStep1(jobId: string): Promise<QueueAccepted> {
   return requestAuthed<QueueAccepted>(`/jobs/${jobId}/step1/run`, {method: "POST"});
 }
@@ -358,6 +369,26 @@ export async function confirmStep2(jobId: string, chapters: Chapter[]): Promise<
 
 export async function getWebRenderConfig(jobId: string): Promise<WebRenderConfig> {
   const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config`);
+  return data.render;
+}
+
+export type RenderMeta = {
+  width: number;
+  height: number;
+  fps: number;
+  duration_sec?: number;
+};
+
+export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta): Promise<WebRenderConfig> {
+  const params = new URLSearchParams({
+    width: String(meta.width),
+    height: String(meta.height),
+    fps: String(meta.fps),
+  });
+  if (typeof meta.duration_sec === "number" && Number.isFinite(meta.duration_sec) && meta.duration_sec > 0) {
+    params.set("duration_sec", String(meta.duration_sec));
+  }
+  const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config?${params.toString()}`);
   return data.render;
 }
 
