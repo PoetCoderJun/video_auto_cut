@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
 
 from fastapi import FastAPI, Request
@@ -10,11 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes import router
-from .config import ensure_work_dirs, get_settings
+from .config import ensure_work_dirs
 from .db import init_db
 from .errors import ApiError
 from .services.cleanup import cleanup_on_startup
-from .worker.runner import run_worker_loop
+from .task_queue import init_task_queue_db
 
 
 def _request_id() -> str:
@@ -75,16 +74,11 @@ def create_app() -> FastAPI:
     def startup_event() -> None:
         ensure_work_dirs()
         init_db()
+        init_task_queue_db()
         try:
             cleanup_on_startup()
         except Exception:
             logging.exception("[web_api] startup cleanup failed")
-
-        settings = get_settings()
-        if settings.embedded_worker:
-            logging.info("[web_api] embedded worker enabled")
-            thread = threading.Thread(target=run_worker_loop, kwargs={"once": False}, daemon=True)
-            thread.start()
 
     return app
 

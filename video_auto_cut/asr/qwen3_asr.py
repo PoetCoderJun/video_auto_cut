@@ -356,6 +356,67 @@ def _apply_punctuation(tokens: List[Dict[str, Any]], text: str) -> List[Dict[str
 
     return out
 
+
+def _build_segment_correction_prompt(lines: List[str]) -> List[Dict[str, str]]:
+    system = (
+        "You are a transcript correction assistant. "
+        "For each segment, fix obvious ASR mistakes (homophones, wrong words) and restore punctuation. "
+        "Do not add explanations, parentheses, or extra information. "
+        "Do not merge/split segments or change their order. "
+        "Keep the text length close to the original. "
+        "Return JSON only with format: {\"segments\":[{\"id\":1,\"text\":\"...\"}]}."
+    )
+    joined = "\n".join(lines)
+    user = f"Segments:\n{joined}\n\nReturn JSON only."
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def llm_correct_segments(
+    subs: List[srt.Subtitle],
+    llm_config: Dict[str, Any],
+    max_length_diff_ratio: float = 0.3,
+) -> List[srt.Subtitle]:
+    from ..editing import llm_client
+
+    lines: List[str] = []
+    id_to_index: Dict[int, int] = {}
+    originals: Dict[int, str] = {}
+    seg_id = 1
+    for idx, sub in enumerate(subs):
+        content = (sub.content or "").strip()
+        if not content or content == "< No Speech >":
+            continue
+        lines.append(f"{seg_id}|{content}")
+        id_to_index[seg_id] = idx
+        originals[seg_id] = content
+        seg_id += 1
+
+    if not lines:
+        return subs
+
+    messages = _build_segment_correction_prompt(lines)
+    raw = llm_client.chat_completion(llm_config, messages)
+    data = llm_client.extract_json(raw)
+    segments = data.get("segments") or []
+
+    for item in segments:
+        try:
+            sid = int(item.get("id"))
+        except Exception:
+            continue
+        text = (item.get("text") or "").strip()
+        if not text or sid not in id_to_index:
+            continue
+        original = originals.get(sid, "")
+        if original and (
+            abs(len(text) - len(original)) / max(len(original), 1) > max_length_diff_ratio
+        ):
+            continue
+        subs[id_to_index[sid]].content = text
+
+    return subs
+
+
 def _normalize_tokens(tokens: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cleaned: List[Dict[str, Any]] = []
     for t in tokens:
@@ -477,6 +538,9 @@ class Qwen3Model:
         language: Optional[str] = None,
         use_punct: bool = True,
         punct_breaks: Optional[Iterable[str]] = None,
+        correct_with_llm: bool = False,
+        llm_config: Optional[Dict[str, Any]] = None,
+        correct_max_length_diff_ratio: float = 0.3,
     ):
         self.sample_rate = sample_rate
         self.gap_s = gap_s
@@ -487,6 +551,9 @@ class Qwen3Model:
         self.language = language
         self.use_punct = use_punct
         self.punct_breaks = set(punct_breaks or DEFAULT_PUNCT_BREAKS)
+        self.correct_with_llm = bool(correct_with_llm)
+        self.llm_config = dict(llm_config or {})
+        self.correct_max_length_diff_ratio = float(correct_max_length_diff_ratio)
         self.asr_model = None
         self.aligner = None
         self.last_load_cache_hit = False
@@ -578,4 +645,10 @@ class Qwen3Model:
                 )
             )
             prev_end = end
+        if self.correct_with_llm:
+            subs = llm_correct_segments(
+                subs,
+                self.llm_config,
+                max_length_diff_ratio=self.correct_max_length_diff_ratio,
+            )
         return subs

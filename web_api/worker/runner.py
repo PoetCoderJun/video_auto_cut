@@ -8,9 +8,9 @@ from video_auto_cut.asr import qwen3_asr
 
 from ..config import ensure_work_dirs, get_settings
 from ..db import init_db
-from ..repository import claim_next_task
 from ..services.cleanup import cleanup_expired_jobs, cleanup_on_startup
 from ..services.tasks import execute_task
+from ..task_queue import claim_next_task, init_task_queue_db
 
 
 def _prewarm_qwen3_models() -> None:
@@ -94,6 +94,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="[web-worker] %(levelname)s %(message)s")
     ensure_work_dirs()
     init_db()
+    init_task_queue_db()
     try:
         cleanup_on_startup()
     except Exception:

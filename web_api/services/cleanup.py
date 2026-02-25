@@ -90,6 +90,54 @@ def _remove_path(path: Path) -> bool:
     return True
 
 
+def _list_orphan_job_dirs(*, older_than: datetime | None = None) -> list[Path]:
+    settings = get_settings()
+    jobs_root = settings.work_dir / "jobs"
+    if not jobs_root.exists():
+        return []
+
+    result: list[Path] = []
+    for item in jobs_root.iterdir():
+        if not item.is_dir() or not item.name.startswith("job_"):
+            continue
+        if (item / "job.meta.json").exists():
+            continue
+        if older_than is not None:
+            try:
+                mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                continue
+            if mtime > older_than:
+                continue
+        result.append(item)
+    result.sort(key=lambda p: p.name)
+    return result
+
+
+def cleanup_orphan_job_dirs(
+    *,
+    older_than: datetime | None,
+    limit: int | None,
+    reason: str,
+) -> int:
+    candidates = _list_orphan_job_dirs(older_than=older_than)
+    if limit is not None:
+        capped = max(1, int(limit))
+        candidates = candidates[:capped]
+
+    removed = 0
+    for path in candidates:
+        try:
+            if _remove_path(path):
+                removed += 1
+        except Exception:
+            logging.exception("[web_api] orphan cleanup failed path=%s", path)
+
+    if removed:
+        logging.info("[web_api] orphan cleanup completed reason=%s removed_dirs=%s", reason, removed)
+    return removed
+
+
 def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
     files = get_job_files(job_id)
     if not files:
@@ -150,9 +198,20 @@ def cleanup_expired_jobs() -> int:
         except Exception:
             logging.exception("[web_api] cleanup failed job=%s", job_id)
 
-    if cleaned:
-        logging.info("[web_api] cleanup sweep completed cleaned_jobs=%s cutoff=%s", cleaned, cutoff_iso)
-    return cleaned
+    orphan_cleaned = cleanup_orphan_job_dirs(
+        older_than=cutoff,
+        limit=settings.cleanup_batch_size,
+        reason=f"ttl>{ttl_seconds}s",
+    )
+
+    if cleaned or orphan_cleaned:
+        logging.info(
+            "[web_api] cleanup sweep completed cleaned_jobs=%s cleaned_orphans=%s cutoff=%s",
+            cleaned,
+            orphan_cleaned,
+            cutoff_iso,
+        )
+    return cleaned + orphan_cleaned
 
 
 def cleanup_on_startup() -> int:
@@ -161,6 +220,7 @@ def cleanup_on_startup() -> int:
         return 0
 
     total_cleaned = 0
+    orphan_cleaned = cleanup_orphan_job_dirs(older_than=None, limit=None, reason="startup")
     while True:
         job_ids = list_succeeded_jobs_with_artifacts(limit=settings.cleanup_batch_size)
         if not job_ids:
@@ -172,6 +232,10 @@ def cleanup_on_startup() -> int:
             except Exception:
                 logging.exception("[web_api] startup cleanup failed job=%s", job_id)
 
-    if total_cleaned:
-        logging.info("[web_api] startup cleanup completed cleaned_jobs=%s", total_cleaned)
-    return total_cleaned
+    if total_cleaned or orphan_cleaned:
+        logging.info(
+            "[web_api] startup cleanup completed cleaned_jobs=%s cleaned_orphans=%s",
+            total_cleaned,
+            orphan_cleaned,
+        )
+    return total_cleaned + orphan_cleaned

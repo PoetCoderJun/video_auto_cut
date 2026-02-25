@@ -15,7 +15,6 @@ from jwt.algorithms import RSAAlgorithm
 
 from ..config import get_settings
 from ..errors import unauthorized
-from ..repository import ensure_user
 
 _AUTH_BEARER = HTTPBearer(auto_error=False)
 _JWKS_LOCK = threading.Lock()
@@ -36,7 +35,6 @@ def require_current_user(
     settings = get_settings()
     if not settings.auth_enabled:
         user_id = "dev_local_user"
-        ensure_user(user_id, "dev_local_user@example.local")
         return CurrentUser(user_id=user_id, email="dev_local_user@example.local", account="dev_local_user")
 
     token = credentials.credentials.strip() if credentials else ""
@@ -49,7 +47,6 @@ def require_current_user(
         raise unauthorized("登录状态无效，请重新登录")
 
     email = _extract_email(claims)
-    ensure_user(user_id, email)
     account = _extract_account(claims)
     return CurrentUser(user_id=user_id, email=email, account=account)
 

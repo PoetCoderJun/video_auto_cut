@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useMemo, useState} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Chapter,
   Job,
@@ -17,8 +17,41 @@ import {
   runStep2,
   uploadVideo,
 } from "../lib/api";
-import {STATUS} from "../lib/workflow";
-import {StitchVideoWeb, type SubtitleTheme} from "../lib/remotion/stitch-video-web";
+import { STATUS } from "../lib/workflow";
+import {
+  StitchVideoWeb,
+  type SubtitleTheme,
+} from "../lib/remotion/stitch-video-web";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import {
+  Loader2,
+  UploadCloud,
+  CheckCircle2,
+  ArrowRight,
+  Trash2,
+  Download,
+  FileVideo,
+  X,
+} from "lucide-react";
 
 function autoResize(target: HTMLTextAreaElement) {
   target.style.height = "auto";
@@ -26,20 +59,46 @@ function autoResize(target: HTMLTextAreaElement) {
 }
 
 const STEPS = [
-  {id: 1, label: "上传视频"},
-  {id: 2, label: "剪辑字幕"},
-  {id: 3, label: "确认章节"},
-  {id: 4, label: "导出视频"},
+  { id: 1, label: "上传视频" },
+  { id: 2, label: "剪辑字幕" },
+  { id: 3, label: "确认章节" },
+  { id: 4, label: "导出视频" },
 ];
 
-const CHAPTER_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
-const SUPPORTED_UPLOAD_EXTENSIONS = [".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts", ".m2ts", ".mts"];
+const CHAPTER_COLORS = [
+  "border-l-blue-500 bg-blue-50/50",
+  "border-l-emerald-500 bg-emerald-50/50",
+  "border-l-amber-500 bg-amber-50/50",
+  "border-l-red-500 bg-red-50/50",
+  "border-l-violet-500 bg-violet-50/50",
+  "border-l-pink-500 bg-pink-50/50",
+];
+
+const CHAPTER_BADGE_COLORS = [
+  "bg-blue-500",
+  "bg-emerald-500",
+  "bg-amber-500",
+  "bg-red-500",
+  "bg-violet-500",
+  "bg-pink-500",
+];
+
+const SUPPORTED_UPLOAD_EXTENSIONS = [
+  ".mp4",
+  ".mov",
+  ".mkv",
+  ".webm",
+  ".m4v",
+  ".ts",
+  ".m2ts",
+  ".mts",
+];
 const SUPPORTED_UPLOAD_ACCEPT = SUPPORTED_UPLOAD_EXTENSIONS.join(",");
-const SUBTITLE_THEME_OPTIONS: Array<{value: SubtitleTheme; label: string}> = [
-  {value: "box-white-on-black", label: "黑底白字"},
-  {value: "box-black-on-white", label: "白底黑字"},
-  {value: "text-white", label: "白色"},
-  {value: "text-black", label: "黑色"},
+const SUBTITLE_THEME_OPTIONS: Array<{ value: SubtitleTheme; label: string }> = [
+  { value: "box-white-on-black", label: "黑底白字" },
+  { value: "box-black-on-white", label: "白底黑字" },
+  { value: "text-white", label: "白色" },
+  { value: "text-black", label: "黑色" },
 ];
 
 function getActiveStep(status: Job["status"]): number {
@@ -55,7 +114,6 @@ function getActiveStep(status: Job["status"]): number {
     case STATUS.STEP2_READY:
       return 3;
     case STATUS.STEP2_CONFIRMED:
-    case STATUS.RENDER_RUNNING:
     case STATUS.SUCCEEDED:
       return 4;
     default:
@@ -66,72 +124,6 @@ function getActiveStep(status: Job["status"]): number {
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
-}
-
-function ProgressBar({label, value}: {label: string; value: number}) {
-  const safeValue = clampPercent(value);
-  return (
-    <div className="progress-item">
-      <div className="progress-head">
-        <span>{label}</span>
-        <span>{Math.round(safeValue)}%</span>
-      </div>
-      <div className="progress-track">
-        <div className="progress-fill" style={{width: `${safeValue}%`}} />
-      </div>
-    </div>
-  );
-}
-
-function CircularProgress({value}: {value: number}) {
-  const safeValue = clampPercent(value);
-  const size = 180;
-  const stroke = 12;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference * (1 - safeValue / 100);
-
-  return (
-    <div style={{position: "relative", width: size, height: size}}>
-      <svg width={size} height={size}>
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#e2e8f0"
-          strokeWidth={stroke}
-        />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#0f172a"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={dashOffset}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{transition: "stroke-dashoffset 0.2s ease"}}
-        />
-      </svg>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 34,
-          fontWeight: 700,
-          color: "#0f172a",
-        }}
-      >
-        {Math.round(safeValue)}%
-      </div>
-    </div>
-  );
 }
 
 function formatDuration(seconds: number): string {
@@ -156,11 +148,17 @@ export default function JobWorkspace({
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
-  const [renderDownloadUrl, setRenderDownloadUrl] = useState<string | null>(null);
+  const [renderDownloadUrl, setRenderDownloadUrl] = useState<string | null>(
+    null
+  );
   const [renderFileName, setRenderFileName] = useState("output.mp4");
-  const [subtitleTheme, setSubtitleTheme] = useState<SubtitleTheme>("box-white-on-black");
+  const [subtitleTheme, setSubtitleTheme] = useState<SubtitleTheme>(
+    "box-white-on-black"
+  );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
+  const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
+  const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
 
   const lineToChapterIndex = useMemo(() => {
     const map: Record<number, number> = {};
@@ -172,38 +170,53 @@ export default function JobWorkspace({
     return map;
   }, [chapters]);
 
-  const keptLines = useMemo(() => lines.filter((l) => !l.user_final_remove), [lines]);
+  const keptLines = useMemo(
+    () => lines.filter((l) => !l.user_final_remove),
+    [lines]
+  );
 
   const refreshJob = useCallback(async () => {
-    const next = await getJob(jobId);
-    setJob(next);
-    return next;
-  }, [jobId]);
+    try {
+      const next = await getJob(jobId);
+      setJob(next);
+      return next;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isJobMissing = message.includes("job not found");
+      const isAuthError =
+        message.includes("请先登录") || message.includes("登录状态无效");
+
+      if (isJobMissing || isAuthError) {
+        onBackHome?.();
+      }
+      throw err;
+    }
+  }, [jobId, onBackHome]);
 
   useEffect(() => {
     let active = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
-
-    const tick = async () => {
-      try {
-        const latest = await getJob(jobId);
+    refreshJob()
+      .then(() => {
         if (!active) return;
-        setJob(latest);
         setError((prev) => (prev.startsWith("无法连接 API") ? "" : prev));
-      } catch {
+      })
+      .catch((err) => {
         if (!active) return;
-        setError("无法连接 API，请确认后端服务正在运行。");
-      }
-    };
-
-    tick();
-    timer = setInterval(tick, 2000);
-
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("job not found")) {
+          setError("项目不存在或已被清理，已返回首页。");
+          return;
+        }
+        if (message.includes("请先登录") || message.includes("登录状态无效")) {
+          setError("登录状态已失效，请重新登录。");
+          return;
+        }
+        setError(message.includes("无法连接 API") ? message : "无法连接 API，请确认后端服务正在运行。");
+      });
     return () => {
       active = false;
-      if (timer) clearInterval(timer);
     };
-  }, [jobId]);
+  }, [refreshJob]);
 
   useEffect(() => {
     if (!job) return;
@@ -236,6 +249,8 @@ export default function JobWorkspace({
     setRenderBusy(false);
     setDownloadBusy(false);
     setRenderProgress(0);
+    setAutoStep1Triggered(false);
+    setAutoStep2Triggered(false);
     setRenderDownloadUrl((previous) => {
       if (previous) URL.revokeObjectURL(previous);
       return null;
@@ -244,27 +259,110 @@ export default function JobWorkspace({
     setSubtitleTheme("box-white-on-black");
   }, [jobId]);
 
-  const handleUpload = async (file: File) => {
-    setError("");
-    const lowerName = file.name.toLowerCase();
-    const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
-    if (!hasSupportedExt) {
-      setError("这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。");
-      return;
-    }
-    setBusy(true);
-    try {
-      const nextJob = await uploadVideo(jobId, file);
-      if (nextJob.status === STATUS.UPLOAD_READY) {
-        await runStep1(jobId);
+  const handleUpload = useCallback(
+    async (file: File) => {
+      setError("");
+      const lowerName = file.name.toLowerCase();
+      const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
+        lowerName.endsWith(ext)
+      );
+      if (!hasSupportedExt) {
+        setError(
+          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+        );
+        return;
       }
-      await refreshJob();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "上传失败，请重试。");
-    } finally {
-      setBusy(false);
-    }
-  };
+      setBusy(true);
+      try {
+        const uploadedJob = await uploadVideo(jobId, file);
+        setJob(uploadedJob);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "上传失败，请重试。");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [jobId]
+  );
+
+  useEffect(() => {
+    if (
+      !job ||
+      job.status !== STATUS.UPLOAD_READY ||
+      autoStep1Triggered ||
+      busy
+    )
+      return;
+
+    let cancelled = false;
+    setAutoStep1Triggered(true);
+    setError("");
+    setBusy(true);
+    runStep1(jobId)
+      .then((step1Result) => {
+        if (cancelled) return;
+        setJob(step1Result.job);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "字幕提取失败，请重试。");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job, autoStep1Triggered, jobId, busy]);
+
+  useEffect(() => {
+    if (
+      !job ||
+      job.status !== STATUS.STEP1_CONFIRMED ||
+      autoStep2Triggered ||
+      busy
+    )
+      return;
+
+    let cancelled = false;
+    setAutoStep2Triggered(true);
+    setError("");
+    setBusy(true);
+    runStep2(jobId)
+      .then((step2Result) => {
+        if (cancelled) return;
+        setJob(step2Result.job);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "章节生成失败，请重试。");
+      })
+      .finally(() => {
+        setBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job, autoStep2Triggered, jobId, busy]);
+
+  useEffect(() => {
+    if (!job) return;
+    const isTransitional =
+      job.status === STATUS.UPLOAD_READY ||
+      job.status === STATUS.STEP1_RUNNING ||
+      job.status === STATUS.STEP1_CONFIRMED ||
+      job.status === STATUS.STEP2_RUNNING;
+    if (!isTransitional) return;
+
+    const timer = setInterval(() => {
+      refreshJob().catch(() => undefined);
+    }, 2500);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [job?.status, refreshJob]);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -278,9 +376,10 @@ export default function JobWorkspace({
     setError("");
     setBusy(true);
     try {
-      await confirmStep1(jobId, lines);
-      await runStep2(jobId);
-      await refreshJob();
+      const status = await confirmStep1(jobId, lines);
+      setJob((previous) => (previous ? { ...previous, status } : previous));
+      const step2Result = await runStep2(jobId);
+      setJob(step2Result.job);
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败，请重试。");
     } finally {
@@ -292,8 +391,8 @@ export default function JobWorkspace({
     setError("");
     setBusy(true);
     try {
-      await confirmStep2(jobId, chapters);
-      await refreshJob();
+      const status = await confirmStep2(jobId, chapters);
+      setJob((previous) => (previous ? { ...previous, status } : previous));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败，请重试。");
     } finally {
@@ -325,18 +424,24 @@ export default function JobWorkspace({
         defaultProps: inputProps,
       };
 
-      const {renderMediaOnWeb} = await import("@remotion/web-renderer");
+      const { renderMediaOnWeb } = await import("@remotion/web-renderer");
       const result = await renderMediaOnWeb({
         composition,
         inputProps,
         videoCodec: "h264",
         onProgress: (progress) => {
-          const totalFrames = Math.max(1, Number(config.composition.durationInFrames) || 1);
+          const totalFrames = Math.max(
+            1,
+            Number(config.composition.durationInFrames) || 1
+          );
           const doneFrames =
-            typeof progress.encodedFrames === "number" && Number.isFinite(progress.encodedFrames)
+            typeof progress.encodedFrames === "number" &&
+            Number.isFinite(progress.encodedFrames)
               ? progress.encodedFrames
               : progress.renderedFrames;
-          setRenderProgress((previous) => Math.max(previous, clampPercent((doneFrames / totalFrames) * 100)));
+          setRenderProgress((previous) =>
+            Math.max(previous, clampPercent((doneFrames / totalFrames) * 100))
+          );
         },
       });
 
@@ -398,12 +503,16 @@ export default function JobWorkspace({
   }, [subtitleTheme]);
 
   const updateLine = (lineId: number, patch: Partial<Step1Line>) => {
-    setLines((prev) => prev.map((line) => (line.line_id === lineId ? {...line, ...patch} : line)));
+    setLines((prev) =>
+      prev.map((line) => (line.line_id === lineId ? { ...line, ...patch } : line))
+    );
   };
 
   const updateChapter = (chapterId: number, patch: Partial<Chapter>) => {
     setChapters((prev) =>
-      prev.map((chapter) => (chapter.chapter_id === chapterId ? {...chapter, ...patch} : chapter)),
+      prev.map((chapter) =>
+        chapter.chapter_id === chapterId ? { ...chapter, ...patch } : chapter
+      )
     );
   };
 
@@ -435,14 +544,14 @@ export default function JobWorkspace({
         const filtered = ch.line_ids.filter((id) => id !== draggedId);
         if (ch.chapter_id === targetChapter.chapter_id) {
           const newIds = [...filtered, draggedId].sort((a, b) => a - b);
-          return {...ch, line_ids: newIds};
+          return { ...ch, line_ids: newIds };
         }
-        return {...ch, line_ids: filtered};
-      }),
+        return { ...ch, line_ids: filtered };
+      })
     );
   };
 
-  const {originalDuration, estimatedDuration} = useMemo(() => {
+  const { originalDuration, estimatedDuration } = useMemo(() => {
     let original = 0;
     let estimated = 0;
     if (lines.length > 0) {
@@ -452,263 +561,316 @@ export default function JobWorkspace({
         return acc;
       }, 0);
     }
-    return {originalDuration: original, estimatedDuration: estimated};
+    return { originalDuration: original, estimatedDuration: estimated };
   }, [lines]);
 
   if (!job) {
     return (
-      <main>
-        <div className="loading-view">
-          <div className="spinner"></div>
-          <p>正在加载项目数据...</p>
-        </div>
+      <main className="container mx-auto flex h-[50vh] flex-col items-center justify-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-muted-foreground">正在加载项目数据...</p>
       </main>
     );
   }
 
   const activeStep = getActiveStep(job.status);
-  const renderComposeProgress = clampPercent(job.progress);
-
   return (
-    <main className="fade-in">
-      <header className="page-header" style={{borderBottom: "none", paddingBottom: 0, marginBottom: 48}}>
-        <div style={{display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap"}}>
-          {STEPS.map((step, idx) => {
-            const isCompleted = step.id < activeStep || (step.id === 4 && job.status === STATUS.SUCCEEDED);
-            const isActive = step.id === activeStep && job.status !== STATUS.SUCCEEDED;
-            return (
-              <div key={step.id} style={{display: "flex", alignItems: "center", gap: 12}}>
-                <div style={{display: "flex", alignItems: "center", gap: 8, opacity: isActive ? 1 : isCompleted ? 0.7 : 0.4}}>
-                  <div
-                    style={{
-                      width: 22,
-                      height: 22,
-                      borderRadius: "50%",
-                      background: isActive ? "#0f172a" : isCompleted ? "#e2e8f0" : "transparent",
-                      border: `1px solid ${isActive ? "#0f172a" : "#cbd5e1"}`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: isActive ? "#fff" : "#64748b",
-                      fontSize: 12,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {isCompleted ? "✓" : step.id}
-                  </div>
-                  <span style={{fontSize: 15, fontWeight: isActive ? 600 : 500, color: "#0f172a"}}>{step.label}</span>
-                </div>
-                {idx < STEPS.length - 1 && <div style={{color: "#cbd5e1"}}>›</div>}
-              </div>
-            );
-          })}
-        </div>
-        {onBackHome ? (
-          <button className="ghost" onClick={onBackHome} disabled={busy}>
-            重新上传视频
-          </button>
-        ) : null}
-      </header>
-
-      {(job.error || error) && <div className="error">{job.error?.message || error}</div>}
-
-      {job.status === STATUS.CREATED && (
-        <div className="fade-in">
-          <h2 style={{fontSize: 20}}>上传原始视频</h2>
-          <p className="muted" style={{marginBottom: 32}}>
-            请选择您要剪辑的视频文件。支持 MP4、MOV、MKV、WebM、M4V、TS、M2TS、MTS。上传完成后 AI 会自动开始处理。
-          </p>
-          <div className={`file-upload-wrapper ${selectedFile ? "has-file" : ""}`} style={{width: "100%"}}>
-            <div className="file-upload-btn">
-              {busy ? "正在上传，请勿关闭页面..." : selectedFile ? selectedFile.name : "点击此处选择视频文件，或将文件拖拽至此"}
-            </div>
-            <input type="file" accept={SUPPORTED_UPLOAD_ACCEPT} onChange={onFileChange} disabled={busy} />
-          </div>
-        </div>
-      )}
-
-      {(job.status === STATUS.UPLOAD_READY || job.status === STATUS.STEP1_RUNNING) && (
-        <div className="loading-view fade-in">
-          <div className="spinner"></div>
-          <h2>正在提取字幕</h2>
-          <p className="muted" style={{marginTop: 8}}>AI 正在解析视频语音，这可能需要几分钟...</p>
-        </div>
-      )}
-
-      {(job.status === STATUS.STEP1_CONFIRMED || job.status === STATUS.STEP2_RUNNING) && (
-        <div className="loading-view fade-in">
-          <div className="spinner"></div>
-          <h2>正在生成章节</h2>
-          <p className="muted" style={{marginTop: 8}}>请等待，处理完成后将自动进入导出步骤。</p>
-        </div>
-      )}
-
-      {job.status === STATUS.RENDER_RUNNING && (
-        <div className="loading-view fade-in">
-          <div className="spinner"></div>
-          <h2>正在后台合成视频</h2>
-          <p className="muted" style={{marginTop: 8}}>请等待，合成完成后即可下载。</p>
-          <div className="loading-progress">
-            <ProgressBar label="视频合成" value={renderComposeProgress} />
-          </div>
-        </div>
-      )}
-
-      {job.status === STATUS.STEP1_READY && (
-        <div className="fade-in">
-          <div style={{marginBottom: 32}}>
-            <h2 style={{fontSize: 22, color: "#0f172a"}}>用字幕编辑视频</h2>
-            <p className="muted" style={{marginTop: 8, lineHeight: 1.6}}>直接修改字幕，点击句尾“×”可剔除该句。</p>
-          </div>
-
-          <div className="modern-list">
-            {lines.map((line) => {
-              const isRemoved = line.user_final_remove;
+    <main className="container mx-auto animate-in fade-in zoom-in-95 duration-500 max-w-4xl px-4 py-8">
+      {/* Stepper */}
+      <div className="mb-12 border-b pb-8">
+        <div className="flex flex-wrap items-center justify-center gap-4 md:justify-between">
+          <div className="flex flex-wrap items-center gap-2 md:gap-4">
+            {STEPS.map((step, idx) => {
+              const isCompleted =
+                step.id < activeStep ||
+                (step.id === 4 && job.status === STATUS.SUCCEEDED);
+              const isActive =
+                step.id === activeStep && job.status !== STATUS.SUCCEEDED;
               return (
-                <div
-                  key={line.line_id}
-                  className={`modern-line ${isRemoved ? "removed" : ""}`}
-                  onClick={() => {
-                    if (isRemoved) updateLine(line.line_id, {user_final_remove: false});
-                  }}
-                >
-                  <div className="modern-line-content">
-                    {!isRemoved ? (
-                      <textarea
-                        className="modern-input"
-                        value={line.optimized_text}
-                        onChange={(e) => updateLine(line.line_id, {optimized_text: e.target.value})}
-                        onClick={(e) => e.stopPropagation()}
-                        rows={1}
-                        onInput={(e) => autoResize(e.target as HTMLTextAreaElement)}
-                        ref={(el) => {
-                          if (el) autoResize(el);
-                        }}
-                      />
-                    ) : (
-                      <span className="removed-text">{line.optimized_text}</span>
+                <div key={step.id} className="flex items-center gap-2 md:gap-4">
+                  <div
+                    className={cn(
+                      "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : isCompleted
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground opacity-50"
                     )}
-                  </div>
-                  {!isRemoved && (
-                    <span
-                      className="remove-icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateLine(line.line_id, {user_final_remove: true});
-                      }}
-                      title="剔除此行"
+                  >
+                    <div
+                      className={cn(
+                        "flex h-5 w-5 items-center justify-center rounded-full border text-[10px]",
+                        isActive
+                          ? "border-primary-foreground"
+                          : "border-current"
+                      )}
                     >
-                      ×
-                    </span>
+                      {isCompleted ? <CheckCircle2 className="h-3 w-3" /> : step.id}
+                    </div>
+                    <span className="hidden sm:inline">{step.label}</span>
+                  </div>
+                  {idx < STEPS.length - 1 && (
+                    <div className="text-muted-foreground/30">›</div>
                   )}
                 </div>
               );
             })}
           </div>
+          {onBackHome && (
+            <Button type="button" variant="ghost" size="sm" onClick={onBackHome}>
+              重新上传
+            </Button>
+          )}
+        </div>
+      </div>
 
-          <div className="action-bar" style={{flexDirection: "column", alignItems: "center", gap: 32}}>
+      {(job.error || error) && (
+        <div className="mb-6 rounded-md bg-destructive/10 p-4 text-sm font-medium text-destructive border border-destructive/20">
+          {job.error?.message || error}
+        </div>
+      )}
+
+      {/* Step 1: Upload */}
+      {job.status === STATUS.CREATED && (
+        <Card className="mx-auto max-w-xl text-center">
+          <CardHeader>
+            <CardTitle>上传原始视频</CardTitle>
+            <CardDescription>
+              请选择您要剪辑的视频文件。支持 MP4, MOV, MKV 等格式。
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 48,
-                padding: "24px 40px",
-                background: "#f8fafc",
-                border: "1px solid #e2e8f0",
-                borderRadius: 16,
-                width: "100%",
-              }}
+              className={cn(
+                "relative group w-full cursor-pointer rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/50 p-10 transition-all hover:border-primary/50 hover:bg-muted",
+                selectedFile && "border-primary bg-primary/5",
+                busy && "opacity-70 cursor-not-allowed"
+              )}
             >
-              <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 8}}>
-                <span style={{fontSize: 15, color: "#64748b", fontWeight: 500}}>原始时长</span>
-                <span style={{fontSize: 36, color: "#0f172a", fontWeight: 700}}>{formatDuration(originalDuration)}</span>
-              </div>
-              <div style={{color: "#cbd5e1", fontSize: 24}}>→</div>
-              <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 8}}>
-                <span style={{fontSize: 15, color: "#64748b", fontWeight: 500}}>预计剪辑后</span>
-                <span style={{fontSize: 36, color: "#059669", fontWeight: 700}}>{formatDuration(estimatedDuration)}</span>
+              <input
+                type="file"
+                accept={SUPPORTED_UPLOAD_ACCEPT}
+                onChange={onFileChange}
+                disabled={busy}
+                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              />
+              <div className="flex flex-col items-center justify-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-background shadow-sm">
+                  {busy ? (
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  ) : (
+                    <UploadCloud className="h-8 w-8 text-primary" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-semibold text-lg text-foreground">
+                    {busy
+                      ? "正在上传..."
+                      : selectedFile
+                      ? selectedFile.name
+                      : "点击或拖拽上传视频"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    AI 将自动提取字幕并进行智能分析
+                  </p>
+                </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <button className="primary large-btn" onClick={handleConfirmStep1} disabled={lines.length === 0 || busy}>
-              {busy ? "正在保存..." : "确认无误，下一步"}
-            </button>
+      {/* Loading States */}
+      {(job.status === STATUS.UPLOAD_READY ||
+        job.status === STATUS.STEP1_RUNNING) && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
+          <h2 className="text-xl font-semibold">正在提取字幕</h2>
+          <p className="text-muted-foreground">AI 正在解析视频语音，这可能需要几分钟...</p>
+        </div>
+      )}
+
+      {(job.status === STATUS.STEP1_CONFIRMED ||
+        job.status === STATUS.STEP2_RUNNING) && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
+          <h2 className="text-xl font-semibold">正在生成章节</h2>
+          <p className="text-muted-foreground">
+            请等待，处理完成后将自动进入导出步骤。
+          </p>
+        </div>
+      )}
+
+      {/* Step 2: Edit Subtitles */}
+      {job.status === STATUS.STEP1_READY && (
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight">用字幕编辑视频</h2>
+              <p className="text-muted-foreground">
+                直接修改字幕，点击句尾“×”可剔除该句。
+              </p>
+            </div>
+            <div className="hidden md:block">
+              <Badge variant="outline" className="text-sm">
+                共 {lines.length} 行字幕
+              </Badge>
+            </div>
+          </div>
+
+          <div className="relative min-h-[500px] w-full rounded-md bg-white border border-[#e2e8f0] shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6">
+            <div className="max-w-3xl mx-auto flex flex-col gap-[6px]">
+              {lines.map((line) => {
+                const isRemoved = line.user_final_remove;
+                const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
+                
+                return (
+                  <div 
+                    key={line.line_id} 
+                    className="group relative flex items-start"
+                  >
+                    <div className="flex-1 min-w-0">
+                      {isRemoved ? (
+                        <div
+                          className="text-[15px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
+                          onClick={() => updateLine(line.line_id, { user_final_remove: false })}
+                          title="点击恢复此行"
+                        >
+                          {isNoSpeech ? "<No Speech>" : line.optimized_text}
+                        </div>
+                      ) : (
+                        <Textarea
+                          value={line.optimized_text}
+                          onChange={(e) =>
+                            updateLine(line.line_id, {
+                              optimized_text: e.target.value,
+                            })
+                          }
+                          rows={1}
+                          onInput={(e) =>
+                            autoResize(e.target as HTMLTextAreaElement)
+                          }
+                          ref={(el) => {
+                            if (el) autoResize(el);
+                          }}
+                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                          placeholder={isNoSpeech ? "<No Speech>" : ""}
+                        />
+                      )}
+                    </div>
+                    {!isRemoved && (
+                      <div
+                        className="opacity-0 group-hover:opacity-100 shrink-0 ml-2 text-[#cbd5e1] hover:text-[#ef4444] cursor-pointer flex items-center h-6 px-1 transition-opacity"
+                        onClick={() => updateLine(line.line_id, { user_final_remove: true })}
+                        title="剔除此行"
+                      >
+                        <X className="h-4 w-4" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="sticky bottom-6 z-10 mx-auto max-w-2xl">
+            <Card className="border-t-4 border-t-primary shadow-xl">
+              <CardContent className="flex items-center justify-between p-6">
+                <div className="flex items-center gap-8">
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground">
+                      原始时长
+                    </div>
+                    <div className="text-2xl font-bold font-mono">
+                      {formatDuration(originalDuration)}
+                    </div>
+                  </div>
+                  <ArrowRight className="h-6 w-6 text-muted-foreground/50" />
+                  <div>
+                    <div className="text-sm font-medium text-muted-foreground">
+                      预计时长
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-emerald-600">
+                      {formatDuration(estimatedDuration)}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  size="lg"
+                  onClick={handleConfirmStep1}
+                  disabled={lines.length === 0 || busy}
+                >
+                  {busy ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      正在保存...
+                    </>
+                  ) : (
+                    "确认无误，下一步"
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </div>
       )}
 
+      {/* Step 3: Chapters */}
       {job.status === STATUS.STEP2_READY && (
-        <div className="fade-in">
-          <div style={{marginBottom: 32}}>
-            <h2 style={{fontSize: 20}}>确认视频章节</h2>
-            <p className="muted" style={{marginTop: 8, lineHeight: 1.6}}>拖拽字幕行可调整章节归属，点击标题可编辑。</p>
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">确认视频章节</h2>
+            <p className="text-muted-foreground">
+              拖拽字幕行可调整章节归属，点击标题可编辑。
+            </p>
           </div>
 
-          <div style={{display: "flex", flexDirection: "column", gap: 0}}>
+          <div className="space-y-6">
             {chapters.map((chapter, chapterIdx) => {
-              const color = CHAPTER_COLORS[chapterIdx % CHAPTER_COLORS.length];
-              const chapterLines = keptLines.filter((l) => chapter.line_ids.includes(l.line_id));
-              const isFirst = chapterIdx === 0;
-              const isLast = chapterIdx === chapters.length - 1;
+              const badgeColorClass =
+                CHAPTER_BADGE_COLORS[chapterIdx % CHAPTER_BADGE_COLORS.length];
+              const borderClass =
+                CHAPTER_COLORS[chapterIdx % CHAPTER_COLORS.length];
+              const chapterLines = keptLines.filter((l) =>
+                chapter.line_ids.includes(l.line_id)
+              );
 
               return (
-                <div key={chapter.chapter_id} style={{display: "flex", flexDirection: "column"}}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "16px 20px",
-                      background: `${color}08`,
-                      borderTop: isFirst ? `2px solid ${color}` : "1px dashed #e2e8f0",
-                      borderLeft: `3px solid ${color}`,
-                      borderRight: "1px solid #e2e8f0",
-                      borderTopLeftRadius: isFirst ? 12 : 0,
-                      borderTopRightRadius: isFirst ? 12 : 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        background: color,
-                        color: "#fff",
-                        padding: "2px 10px",
-                        borderRadius: 10,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        whiteSpace: "nowrap",
-                      }}
+                <div
+                  key={chapter.chapter_id}
+                  className={cn(
+                    "relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all",
+                    borderClass
+                  )}
+                >
+                  <div className="flex items-center gap-4 border-b bg-muted/30 p-4">
+                    <Badge
+                      className={cn(
+                        "h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-white hover:bg-opacity-90",
+                        badgeColorClass
+                      )}
                     >
                       {chapterIdx + 1}
-                    </div>
+                    </Badge>
                     <input
                       type="text"
                       value={chapter.title}
                       placeholder="章节标题"
-                      onChange={(e) => updateChapter(chapter.chapter_id, {title: e.target.value})}
-                      style={{
-                        flex: 1,
-                        border: "none",
-                        background: "transparent",
-                        fontSize: 15,
-                        fontWeight: 600,
-                        color: "#0f172a",
-                        outline: "none",
-                        padding: "4px 0",
-                      }}
+                      onChange={(e) =>
+                        updateChapter(chapter.chapter_id, {
+                          title: e.target.value,
+                        })
+                      }
+                      className="flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground"
                     />
-                    <span style={{fontSize: 12, color: "#94a3b8", whiteSpace: "nowrap"}}>{chapterLines.length} 句</span>
+                    <Badge variant="outline" className="ml-auto">
+                      {chapterLines.length} 句
+                    </Badge>
                   </div>
 
                   <div
-                    style={{
-                      borderLeft: `3px solid ${color}`,
-                      borderRight: "1px solid #e2e8f0",
-                      borderBottom: isLast ? "1px solid #e2e8f0" : "none",
-                      borderBottomLeftRadius: isLast ? 12 : 0,
-                      borderBottomRightRadius: isLast ? 12 : 0,
-                      minHeight: 24,
-                    }}
+                    className="min-h-[60px] divide-y divide-border/50"
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "move";
@@ -716,21 +878,27 @@ export default function JobWorkspace({
                     onDrop={(e) => {
                       e.preventDefault();
                       setDraggedLineId(null);
-                      const lid = parseInt(e.dataTransfer.getData("text/plain"), 10);
+                      const lid = parseInt(
+                        e.dataTransfer.getData("text/plain"),
+                        10
+                      );
                       if (Number.isNaN(lid)) return;
                       if (chapter.line_ids.includes(lid)) return;
                       setChapters((prev) =>
                         prev.map((ch) => {
                           const filtered = ch.line_ids.filter((id) => id !== lid);
                           if (ch.chapter_id === chapter.chapter_id) {
-                            return {...ch, line_ids: [...filtered, lid].sort((a, b) => a - b)};
+                            return {
+                              ...ch,
+                              line_ids: [...filtered, lid].sort((a, b) => a - b),
+                            };
                           }
-                          return {...ch, line_ids: filtered};
-                        }),
+                          return { ...ch, line_ids: filtered };
+                        })
                       );
                     }}
                   >
-                    {chapterLines.map((l, lineIdx) => {
+                    {chapterLines.map((l) => {
                       const isDragged = draggedLineId === l.line_id;
                       return (
                         <div
@@ -743,24 +911,26 @@ export default function JobWorkspace({
                             e.dataTransfer.dropEffect = "move";
                           }}
                           onDrop={(e) => handleDropOnLine(e, l.line_id)}
-                          style={{
-                            fontSize: 13,
-                            color: isDragged ? "#94a3b8" : "#475569",
-                            lineHeight: 1.7,
-                            padding: "6px 20px 6px 36px",
-                            cursor: "grab",
-                            opacity: isDragged ? 0.4 : 1,
-                            background: isDragged ? `${color}06` : lineIdx % 2 === 0 ? "transparent" : "#fafbfc",
-                            transition: "opacity 0.15s, background 0.15s",
-                            borderTop: lineIdx > 0 ? "1px solid #f1f5f9" : "none",
-                          }}
+                          className={cn(
+                            "flex cursor-grab items-start gap-3 p-3 text-sm transition-colors active:cursor-grabbing",
+                            isDragged
+                              ? "bg-muted opacity-40"
+                              : "hover:bg-muted/40"
+                          )}
                         >
-                          {l.optimized_text}
+                          <span className="mt-0.5 select-none font-mono text-xs text-muted-foreground">
+                            {formatDuration(l.start)}
+                          </span>
+                          <span className="flex-1 leading-relaxed">
+                            {l.optimized_text}
+                          </span>
                         </div>
                       );
                     })}
                     {chapterLines.length === 0 && (
-                      <div style={{padding: "12px 20px 12px 36px", fontSize: 13, color: "#cbd5e1"}}>拖拽字幕行到此章节</div>
+                      <div className="flex h-20 items-center justify-center text-sm text-muted-foreground border-2 border-dashed border-muted m-4 rounded-md">
+                        拖拽字幕行到此章节
+                      </div>
                     )}
                   </div>
                 </div>
@@ -768,103 +938,144 @@ export default function JobWorkspace({
             })}
           </div>
 
-          <div className="action-bar">
-            <button className="primary large-btn" onClick={handleConfirmStep2} disabled={chapters.length === 0 || busy}>
-              {busy ? "正在保存..." : "确认章节，进入导出"}
-            </button>
+          <div className="flex justify-center pt-8">
+            <Button
+              size="lg"
+              className="w-full max-w-sm"
+              onClick={handleConfirmStep2}
+              disabled={chapters.length === 0 || busy}
+            >
+              {busy ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  正在保存...
+                </>
+              ) : (
+                "确认章节，进入导出"
+              )}
+            </Button>
           </div>
         </div>
       )}
 
+      {/* Step 4: Export */}
       {job.status === STATUS.STEP2_CONFIRMED && (
-        <div className="fade-in" style={{textAlign: "center", padding: "80px 0"}}>
-          <h2 style={{fontSize: 24, marginBottom: 8}}>导出视频</h2>
-          <p className="muted" style={{marginBottom: 16}}>请选择字幕样式后，手动点击“开始导出”。</p>
-          <div style={{display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 16}}>
-            <label htmlFor="subtitle-theme" style={{fontSize: 14, color: "#334155", fontWeight: 600}}>
-              字幕颜色
-            </label>
-            <select
-              id="subtitle-theme"
-              value={subtitleTheme}
-              onChange={(e) => setSubtitleTheme(e.target.value as SubtitleTheme)}
-              disabled={renderBusy}
-              style={{
-                height: 36,
-                padding: "0 12px",
-                borderRadius: 8,
-                border: "1px solid #cbd5e1",
-                background: "#ffffff",
-                color: "#0f172a",
-                fontSize: 14,
-                fontFamily: "inherit",
-              }}
-            >
-              {SUBTITLE_THEME_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+        <div className="mx-auto max-w-lg text-center animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight mb-2">导出视频</h2>
+            <p className="text-muted-foreground">
+              请选择字幕样式后，点击“开始导出”。
+            </p>
           </div>
-          <div
-            style={{
-              margin: "0 auto 24px",
-              maxWidth: 520,
-              textAlign: "left",
-              padding: "12px 14px",
-              borderRadius: 10,
-              border: "1px solid #fcd34d",
-              background: "#fffbeb",
-              color: "#7c2d12",
-              fontSize: 13,
-              lineHeight: 1.7,
-            }}
-          >
-            <div>优先使用 Chrome 浏览器导出。</div>
-            <div>导出期间请保持当前页面前台运行。</div>
-          </div>
-          <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 20}}>
-            {renderBusy && <CircularProgress value={renderProgress} />}
-            {renderBusy && <p className="muted">导出中，请保持本页面在前台。</p>}
+
+          <Card>
+            <CardHeader className="text-left">
+              <CardTitle className="text-base">导出设置</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <label className="text-sm font-medium">字幕样式</label>
+                <Select
+                  value={subtitleTheme}
+                  onValueChange={(v) => setSubtitleTheme(v as SubtitleTheme)}
+                  disabled={renderBusy}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBTITLE_THEME_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="rounded-md bg-amber-50 p-3 text-left text-xs text-amber-800 border border-amber-200">
+                <p>• 优先使用 Chrome 浏览器导出。</p>
+                <p>• 导出期间请保持当前页面前台运行。</p>
+              </div>
+
+              {renderBusy && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>导出进度</span>
+                    <span>{Math.round(renderProgress)}%</span>
+                  </div>
+                  <Progress value={renderProgress} className="h-2" />
+                  <p className="text-xs text-muted-foreground animate-pulse">
+                    正在处理视频，请勿关闭页面...
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="flex flex-col gap-3">
             {!renderBusy && (
-              <button
-                className="primary large-btn"
-                style={{padding: "0 40px"}}
-                onClick={() => {
-                  void handleStartRender();
-                }}
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => void handleStartRender()}
                 disabled={busy}
               >
-                {renderDownloadUrl ? "重新导出" : "开始导出"}
-              </button>
+                {renderDownloadUrl ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4" /> 重新导出
+                  </>
+                ) : (
+                  <>
+                    <FileVideo className="mr-2 h-4 w-4" /> 开始导出
+                  </>
+                )}
+              </Button>
             )}
+
             {!renderBusy && renderDownloadUrl && (
-              <a href={renderDownloadUrl} download={renderFileName}>
-                <button className="primary large-btn" style={{padding: "0 40px"}}>
-                  下载视频成品
-                </button>
+              <a
+                href={renderDownloadUrl}
+                download={renderFileName}
+                className="w-full"
+              >
+                <Button variant="secondary" size="lg" className="w-full">
+                  <Download className="mr-2 h-4 w-4" /> 下载视频成品
+                </Button>
               </a>
             )}
           </div>
         </div>
       )}
 
+      {/* Success */}
       {job.status === STATUS.SUCCEEDED && (
-        <div className="fade-in" style={{textAlign: "center", padding: "80px 0"}}>
-          <div style={{fontSize: 48, marginBottom: 24}}>🎉</div>
-          <h2 style={{fontSize: 24, marginBottom: 8}}>处理完成</h2>
-          <p className="muted" style={{marginBottom: 32}}>您的视频已经成功剪辑并渲染完毕。</p>
-          <button
-            className="primary large-btn"
-            style={{padding: "0 40px"}}
-            onClick={() => {
-              void handleDownloadFinalVideo();
-            }}
+        <div className="mx-auto max-w-md text-center animate-in fade-in zoom-in-95 duration-500 py-12">
+          <div className="mb-6 flex h-24 w-24 mx-auto items-center justify-center rounded-full bg-emerald-100">
+            <CheckCircle2 className="h-12 w-12 text-emerald-600" />
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight mb-2">处理完成</h2>
+          <p className="text-muted-foreground mb-8">
+            您的视频已经成功剪辑并渲染完毕。
+          </p>
+          <Button
+            size="lg"
+            className="w-full"
+            onClick={() => void handleDownloadFinalVideo()}
             disabled={downloadBusy}
           >
-            {downloadBusy ? "正在下载..." : "下载视频成品"}
-          </button>
+            {downloadBusy ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在下载...
+              </>
+            ) : (
+              <>
+                <Download className="mr-2 h-4 w-4" />
+                下载视频成品
+              </>
+            )}
+          </Button>
         </div>
       )}
     </main>

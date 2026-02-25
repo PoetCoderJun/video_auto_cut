@@ -1,26 +1,66 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from .config import ensure_job_dirs, get_settings, job_dir
 from .constants import (
+    JOB_STATUS_CREATED,
+    JOB_STATUS_FAILED,
+    JOB_STATUS_STEP1_CONFIRMED,
+    JOB_STATUS_STEP1_RUNNING,
+    JOB_STATUS_STEP1_READY,
+    JOB_STATUS_STEP2_CONFIRMED,
+    JOB_STATUS_STEP2_RUNNING,
+    JOB_STATUS_STEP2_READY,
     JOB_STATUS_SUCCEEDED,
-    TASK_STATUS_QUEUED,
-    TASK_STATUS_RUNNING,
-    TASK_STATUS_SUCCEEDED,
-    TASK_STATUS_FAILED,
+    JOB_STATUS_UPLOAD_READY,
 )
 from .db import get_conn
-from .services.code_sheet import SheetCode, get_sheet_code
 
-USER_STATUS_PENDING_INVITE = "PENDING_INVITE"
+USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
 USER_STATUS_ACTIVE = "ACTIVE"
+
+JOB_FILE_FIELDS = (
+    "video_path",
+    "srt_path",
+    "optimized_srt_path",
+    "final_step1_srt_path",
+    "topics_path",
+    "final_topics_path",
+    "final_video_path",
+)
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _row_get(row: Any, key: str, index: int) -> Any:
+    if row is None:
+        return None
+    if isinstance(row, (tuple, list)):
+        if 0 <= index < len(row):
+            return row[index]
+        return None
+    try:
+        return row[key]
+    except Exception:
+        return None
+
+
+def _parse_iso(value: str | None) -> datetime:
+    if not value:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.fromtimestamp(0, tz=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def ensure_user(user_id: str, email: str | None) -> None:
@@ -28,16 +68,16 @@ def ensure_user(user_id: str, email: str | None) -> None:
     normalized_email = (email or "").strip().lower() or None
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT user_id, email, status, invite_activated_at FROM users WHERE user_id = ?",
+            "SELECT user_id, email, status, activated_at FROM users WHERE user_id = ?",
             (user_id,),
         ).fetchone()
         if not row:
             conn.execute(
                 """
-                INSERT INTO users(user_id, email, status, invite_activated_at, created_at, updated_at)
+                INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
                 VALUES(?, ?, ?, NULL, ?, ?)
                 """,
-                (user_id, normalized_email, USER_STATUS_PENDING_INVITE, now, now),
+                (user_id, normalized_email, USER_STATUS_PENDING_COUPON, now, now),
             )
             conn.commit()
             return
@@ -45,7 +85,7 @@ def ensure_user(user_id: str, email: str | None) -> None:
         if normalized_email is None:
             return
 
-        previous_email = row["email"]
+        previous_email = _row_get(row, "email", 1)
         if previous_email != normalized_email:
             conn.execute(
                 "UPDATE users SET email = ?, updated_at = ? WHERE user_id = ?",
@@ -57,16 +97,16 @@ def ensure_user(user_id: str, email: str | None) -> None:
 def get_user(user_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT user_id, email, status, invite_activated_at FROM users WHERE user_id = ?",
+            "SELECT user_id, email, status, activated_at FROM users WHERE user_id = ?",
             (user_id,),
         ).fetchone()
     if not row:
         return None
     return {
-        "user_id": str(row["user_id"]),
-        "email": row["email"],
-        "status": row["status"] or USER_STATUS_PENDING_INVITE,
-        "invite_activated_at": row["invite_activated_at"],
+        "user_id": str(_row_get(row, "user_id", 0)),
+        "email": _row_get(row, "email", 1),
+        "status": _row_get(row, "status", 2) or USER_STATUS_PENDING_COUPON,
+        "activated_at": _row_get(row, "activated_at", 3),
     }
 
 
@@ -74,16 +114,15 @@ def normalize_code(raw: str) -> str:
     return raw.strip().upper()
 
 
-def hash_code(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
 def get_credit_balance(user_id: str) -> int:
     with get_conn() as conn:
-        row = conn.execute("SELECT balance FROM credit_wallets WHERE user_id = ?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
     if not row:
         return 0
-    return int(row["balance"])
+    return int(_row_get(row, "balance", 0) or 0)
 
 
 def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
@@ -100,84 +139,53 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
         ).fetchall()
     return [
         {
-            "entry_id": int(row["entry_id"]),
-            "delta": int(row["delta"]),
-            "reason": str(row["reason"]),
-            "job_id": row["job_id"],
-            "idempotency_key": str(row["idempotency_key"]),
-            "created_at": str(row["created_at"]),
+            "entry_id": int(_row_get(row, "entry_id", 0)),
+            "delta": int(_row_get(row, "delta", 1)),
+            "reason": str(_row_get(row, "reason", 2)),
+            "job_id": _row_get(row, "job_id", 3),
+            "idempotency_key": str(_row_get(row, "idempotency_key", 4)),
+            "created_at": str(_row_get(row, "created_at", 5)),
         }
         for row in rows
     ]
 
 
-def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
-    normalized = normalize_code(code)
-    if not normalized:
-        raise ValueError("coupon code cannot be empty")
+def consume_step1_credit(user_id: str, job_id: str) -> dict[str, Any]:
+    idempotency_key = f"job:{job_id}:step1_success"
     now = now_iso()
-    sheet_code = get_sheet_code(normalized)
-    if sheet_code is None:
-        raise LookupError("COUPON_CODE_INVALID")
 
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
 
-        user = conn.execute(
-            "SELECT user_id, status, invite_activated_at FROM users WHERE user_id = ?",
-            (user_id,),
+        existing = conn.execute(
+            "SELECT entry_id FROM credit_ledger WHERE idempotency_key = ? LIMIT 1",
+            (idempotency_key,),
         ).fetchone()
-        if not user:
-            conn.execute(
-                """
-                INSERT INTO users(user_id, email, status, invite_activated_at, created_at, updated_at)
-                VALUES(?, NULL, ?, NULL, ?, ?)
-                """,
-                (user_id, USER_STATUS_PENDING_INVITE, now, now),
-            )
-        else:
-            user_status = str(user["status"] or "").upper()
-            if user_status == USER_STATUS_ACTIVE or user["invite_activated_at"]:
-                balance = _get_balance_in_tx(conn, user_id)
-                conn.commit()
-                return {
-                    "already_activated": True,
-                    "coupon_redeemed": True,
-                    "granted_credits": 0,
-                    "balance": balance,
-                }
+        if existing:
+            balance = _get_balance_in_tx(conn, user_id)
+            conn.commit()
+            return {"consumed": False, "balance": balance}
 
-        try:
-            _assert_sheet_code_usable_in_tx(conn, sheet_code)
-        except LookupError:
+        balance = _get_balance_in_tx(conn, user_id)
+        if balance < 1:
             conn.rollback()
-            raise
+            raise LookupError("INSUFFICIENT_CREDITS")
 
-        conn.execute(
+        inserted = conn.execute(
             """
-            INSERT OR IGNORE INTO activation_code_redemptions(code, user_id, credits, redeemed_at)
-            VALUES(?, ?, ?, ?)
+            INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
+            VALUES(?, -1, 'JOB_STEP1_SUCCESS', ?, ?, ?)
             """,
-            (sheet_code.code, user_id, int(sheet_code.credits), now),
+            (user_id, job_id, idempotency_key, now),
         )
-        _activate_user_in_tx(conn, user_id, now)
-        granted = _grant_credits_in_tx(
-            conn,
-            user_id,
-            int(sheet_code.credits),
-            reason="COUPON_REDEEM",
-            job_id=None,
-            idempotency_key=f"sheetcode:{sheet_code.code}:user:{user_id}",
-            created_at=now,
-        )
+        if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
+            balance = _get_balance_in_tx(conn, user_id)
+            conn.commit()
+            return {"consumed": False, "balance": balance}
+
         balance = _get_balance_in_tx(conn, user_id)
         conn.commit()
-        return {
-            "already_activated": False,
-            "coupon_redeemed": True,
-            "granted_credits": granted,
-            "balance": balance,
-        }
+        return {"consumed": True, "balance": balance}
 
 
 def _assert_not_expired_or_invalid(expires_at: Any) -> None:
@@ -193,126 +201,388 @@ def _assert_not_expired_or_invalid(expires_at: Any) -> None:
     except LookupError:
         raise
     except Exception:
-        # invalid expires_at format should fail closed for safety.
         raise LookupError("COUPON_CODE_INVALID")
+
+
+def _assert_coupon_usable_in_tx(coupon: Any) -> None:
+    used_count = int(_row_get(coupon, "used_count", 2) or 0)
+    if used_count >= 1:
+        raise LookupError("COUPON_CODE_EXHAUSTED")
+
+    status = str(_row_get(coupon, "status", 4) or "").upper()
+    if status != "ACTIVE":
+        raise LookupError("COUPON_CODE_INVALID")
+
+    _assert_not_expired_or_invalid(_row_get(coupon, "expires_at", 3))
+
+
+def preview_coupon_code(code: str) -> dict[str, Any]:
+    normalized = normalize_code(code)
+    if not normalized:
+        raise ValueError("coupon code cannot be empty")
+
+    with get_conn() as conn:
+        coupon = conn.execute(
+            """
+            SELECT code, credits, used_count, expires_at, status
+            FROM coupon_codes
+            WHERE code = ?
+            """,
+            (normalized,),
+        ).fetchone()
+    if not coupon:
+        raise LookupError("COUPON_CODE_INVALID")
+
+    _assert_coupon_usable_in_tx(coupon)
+    credits = int(_row_get(coupon, "credits", 1) or 0)
+    if credits <= 0:
+        raise LookupError("COUPON_CODE_INVALID")
+    return {"code": normalized, "credits": credits}
 
 
 def _activate_user_in_tx(conn: Any, user_id: str, now: str) -> None:
     conn.execute(
         """
         UPDATE users
-        SET status = ?, invite_activated_at = ?, updated_at = ?
+        SET status = ?, activated_at = ?, updated_at = ?
         WHERE user_id = ?
         """,
         (USER_STATUS_ACTIVE, now, now, user_id),
     )
 
 
-def _assert_sheet_code_usable_in_tx(conn: Any, sheet_code: SheetCode) -> None:
-    status = str(sheet_code.status or "").upper()
-    if status != "ACTIVE":
-        raise LookupError("COUPON_CODE_INVALID")
+def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
+    normalized = normalize_code(code)
+    if not normalized:
+        raise ValueError("coupon code cannot be empty")
 
-    _assert_not_expired_or_invalid(sheet_code.expires_at)
+    idempotency_key = f"coupon:{normalized}"
+    now = now_iso()
 
-    max_uses = sheet_code.max_uses
-    if max_uses is None:
-        return
-    row = conn.execute(
-        "SELECT COUNT(1) AS c FROM activation_code_redemptions WHERE code = ?",
-        (sheet_code.code,),
-    ).fetchone()
-    used_count = int(row["c"]) if row else 0
-    if used_count >= int(max_uses):
-        raise LookupError("COUPON_CODE_EXHAUSTED")
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+
+        user = conn.execute(
+            "SELECT user_id, status, activated_at FROM users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not user:
+            conn.execute(
+                """
+                INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
+                VALUES(?, NULL, ?, NULL, ?, ?)
+                """,
+                (user_id, USER_STATUS_PENDING_COUPON, now, now),
+            )
+            already_activated = False
+        else:
+            user_status = str(_row_get(user, "status", 1) or "").upper()
+            already_activated = user_status == USER_STATUS_ACTIVE or bool(_row_get(user, "activated_at", 2))
+
+        coupon = conn.execute(
+            """
+            SELECT code, credits, used_count, expires_at, status
+            FROM coupon_codes
+            WHERE code = ?
+            """,
+            (normalized,),
+        ).fetchone()
+        if not coupon:
+            conn.rollback()
+            raise LookupError("COUPON_CODE_INVALID")
+
+        try:
+            _assert_coupon_usable_in_tx(coupon)
+        except LookupError:
+            conn.rollback()
+            raise
+
+        credits = int(_row_get(coupon, "credits", 1) or 0)
+        if credits <= 0:
+            conn.rollback()
+            raise LookupError("COUPON_CODE_INVALID")
+
+        reserved = conn.execute(
+            """
+            UPDATE coupon_codes
+            SET used_count = 1, status = 'DISABLED', updated_at = ?
+            WHERE code = ? AND status = 'ACTIVE' AND COALESCE(used_count, 0) = 0
+            """,
+            (now, normalized),
+        )
+        if int(getattr(reserved, "rowcount", 0) or 0) <= 0:
+            conn.rollback()
+            raise LookupError("COUPON_CODE_EXHAUSTED")
+
+        inserted = conn.execute(
+            """
+            INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
+            VALUES(?, ?, 'COUPON_REDEEM', NULL, ?, ?)
+            """,
+            (user_id, credits, idempotency_key, now),
+        )
+        if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
+            conn.rollback()
+            raise LookupError("COUPON_CODE_EXHAUSTED")
+
+        _activate_user_in_tx(conn, user_id, now)
+        balance = _get_balance_in_tx(conn, user_id)
+        conn.commit()
+        return {
+            "already_activated": already_activated,
+            "coupon_redeemed": True,
+            "granted_credits": credits,
+            "balance": balance,
+        }
 
 
 def _get_balance_in_tx(conn: Any, user_id: str) -> int:
-    row = conn.execute("SELECT balance FROM credit_wallets WHERE user_id = ?", (user_id,)).fetchone()
-    return int(row["balance"]) if row else 0
-
-
-def _grant_credits_in_tx(
-    conn: Any,
-    user_id: str,
-    delta: int,
-    *,
-    reason: str,
-    job_id: str | None,
-    idempotency_key: str,
-    created_at: str,
-) -> int:
-    if delta <= 0:
-        raise ValueError("delta must be > 0")
-    existing = conn.execute(
-        "SELECT delta FROM credit_ledger WHERE idempotency_key = ?",
-        (idempotency_key,),
+    row = conn.execute(
+        "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
+        (user_id,),
     ).fetchone()
-    if existing:
-        return 0
+    return int(_row_get(row, "balance", 0) or 0)
 
-    conn.execute(
-        "INSERT OR IGNORE INTO credit_wallets(user_id, balance, updated_at) VALUES(?, 0, ?)",
-        (user_id, created_at),
-    )
-    conn.execute(
-        "UPDATE credit_wallets SET balance = balance + ?, updated_at = ? WHERE user_id = ?",
-        (int(delta), created_at, user_id),
-    )
-    conn.execute(
-        """
-        INSERT INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-        VALUES(?, ?, ?, ?, ?, ?)
-        """,
-        (user_id, int(delta), reason, job_id, idempotency_key, created_at),
-    )
-    return int(delta)
+
+def _meta_path(job_id: str) -> Path:
+    return job_dir(job_id) / "job.meta.json"
+
+
+def _files_path(job_id: str) -> Path:
+    return job_dir(job_id) / "job.files.json"
+
+
+def _error_path(job_id: str) -> Path:
+    return job_dir(job_id) / "job.error.json"
+
+
+def _step1_confirmed_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step1" / ".confirmed"
+
+
+def _step2_confirmed_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step2" / ".confirmed"
+
+
+def _step1_lines_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step1" / "final_step1.json"
+
+
+def _step2_topics_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step2" / "final_topics.json"
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_meta(job_id: str) -> dict[str, Any] | None:
+    meta = _read_json(_meta_path(job_id))
+    if isinstance(meta, dict):
+        return meta
+    return None
+
+
+def _read_files_manifest(job_id: str) -> dict[str, Any]:
+    payload = _read_json(_files_path(job_id))
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def _write_files_manifest(job_id: str, payload: dict[str, Any]) -> None:
+    _write_json(_files_path(job_id), payload)
+
+
+def _existing_video_path(job_id: str) -> str | None:
+    input_dir = job_dir(job_id) / "input"
+    if not input_dir.exists():
+        return None
+    files = [item for item in input_dir.iterdir() if item.is_file() and not item.name.startswith(".")]
+    if not files:
+        return None
+    files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    return str(files[0])
+
+
+def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {"job_id": job_id}
+    for field in JOB_FILE_FIELDS:
+        raw = payload.get(field)
+        if isinstance(raw, str) and raw.strip() and Path(raw).exists():
+            result[field] = raw
+        else:
+            result[field] = None
+
+    # Fallbacks by conventional paths.
+    if not result["video_path"]:
+        result["video_path"] = _existing_video_path(job_id)
+
+    step1_srt = job_dir(job_id) / "step1" / "final_step1.srt"
+    if step1_srt.exists():
+        result["final_step1_srt_path"] = str(step1_srt)
+
+    topics_path = job_dir(job_id) / "step2" / "topics.json"
+    if topics_path.exists():
+        result["topics_path"] = str(topics_path)
+
+    final_topics = _step2_topics_path(job_id)
+    if final_topics.exists():
+        result["final_topics_path"] = str(final_topics)
+
+    final_video = job_dir(job_id) / "render" / "output.mp4"
+    if final_video.exists():
+        result["final_video_path"] = str(final_video)
+
+    return result
+
+
+def _infer_job_status(job_id: str) -> str:
+    files = _normalize_files(job_id, _read_files_manifest(job_id))
+    if _error_path(job_id).exists():
+        return JOB_STATUS_FAILED
+    if files.get("final_video_path"):
+        return JOB_STATUS_SUCCEEDED
+    if _step2_confirmed_path(job_id).exists():
+        return JOB_STATUS_STEP2_CONFIRMED
+    if files.get("final_topics_path"):
+        return JOB_STATUS_STEP2_READY
+    if _step1_confirmed_path(job_id).exists():
+        return JOB_STATUS_STEP1_CONFIRMED
+    if _step1_lines_path(job_id).exists():
+        return JOB_STATUS_STEP1_READY
+    if files.get("video_path"):
+        return JOB_STATUS_UPLOAD_READY
+    return JOB_STATUS_CREATED
+
+
+def _progress_for_status(status: str) -> int:
+    mapping = {
+        JOB_STATUS_CREATED: 0,
+        JOB_STATUS_UPLOAD_READY: 10,
+        JOB_STATUS_STEP1_RUNNING: 30,
+        JOB_STATUS_STEP1_READY: 35,
+        JOB_STATUS_STEP1_CONFIRMED: 45,
+        JOB_STATUS_STEP2_RUNNING: 60,
+        JOB_STATUS_STEP2_READY: 75,
+        JOB_STATUS_STEP2_CONFIRMED: 80,
+        JOB_STATUS_SUCCEEDED: 100,
+        JOB_STATUS_FAILED: 0,
+    }
+    return int(mapping.get(status, 0))
+
+
+def _normalize_meta_status(value: object) -> str | None:
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return None
+    allowed = {
+        JOB_STATUS_CREATED,
+        JOB_STATUS_UPLOAD_READY,
+        JOB_STATUS_STEP1_RUNNING,
+        JOB_STATUS_STEP1_READY,
+        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_STEP2_RUNNING,
+        JOB_STATUS_STEP2_READY,
+        JOB_STATUS_STEP2_CONFIRMED,
+        JOB_STATUS_SUCCEEDED,
+        JOB_STATUS_FAILED,
+    }
+    return raw if raw in allowed else None
+
+
+def _effective_status(meta_status: str | None, inferred_status: str) -> str:
+    if meta_status == JOB_STATUS_STEP1_RUNNING and inferred_status in {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY}:
+        return JOB_STATUS_STEP1_RUNNING
+    if meta_status == JOB_STATUS_STEP2_RUNNING and inferred_status in {JOB_STATUS_STEP1_CONFIRMED}:
+        return JOB_STATUS_STEP2_RUNNING
+    if meta_status == JOB_STATUS_FAILED and inferred_status in {
+        JOB_STATUS_CREATED,
+        JOB_STATUS_UPLOAD_READY,
+        JOB_STATUS_STEP1_RUNNING,
+        JOB_STATUS_STEP2_RUNNING,
+    }:
+        return JOB_STATUS_FAILED
+    return inferred_status
 
 
 def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
+    normalized_status = _normalize_meta_status(status) or JOB_STATUS_CREATED
     now = now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT INTO jobs(job_id, owner_user_id, status, progress, error_code, error_message, created_at, updated_at)
-            VALUES(?, ?, ?, 0, NULL, NULL, ?, ?)
-            """,
-            (job_id, owner_user_id, status, now, now),
-        )
-        conn.execute(
-            """
-            INSERT INTO job_files(
-                job_id, video_path, srt_path, optimized_srt_path, final_step1_srt_path,
-                topics_path, final_topics_path, final_video_path, updated_at
-            ) VALUES(?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?)
-            """,
-            (job_id, now),
-        )
-        conn.commit()
-    return get_job(job_id, owner_user_id=owner_user_id)
+    ensure_job_dirs(job_id)
+    _write_json(
+        _meta_path(job_id),
+        {
+            "job_id": job_id,
+            "owner_user_id": owner_user_id,
+            "status": normalized_status,
+            "progress": _progress_for_status(normalized_status),
+            "created_at": now,
+            "updated_at": now,
+        },
+    )
+    _write_files_manifest(job_id, {})
+    _error_path(job_id).unlink(missing_ok=True)
+    _step1_confirmed_path(job_id).unlink(missing_ok=True)
+    _step2_confirmed_path(job_id).unlink(missing_ok=True)
+    return get_job(job_id, owner_user_id=owner_user_id) or {
+        "job_id": job_id,
+        "status": JOB_STATUS_CREATED,
+        "progress": 0,
+        "error": None,
+    }
 
 
 def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] | None:
-    with get_conn() as conn:
-        if owner_user_id:
-            row = conn.execute(
-                "SELECT * FROM jobs WHERE job_id = ? AND owner_user_id = ?",
-                (job_id, owner_user_id),
-            ).fetchone()
-        else:
-            row = conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
-    if not row:
+    meta = _read_meta(job_id)
+    if not meta:
         return None
+    if owner_user_id and str(meta.get("owner_user_id") or "") != owner_user_id:
+        return None
+
+    inferred_status = _infer_job_status(job_id)
+    meta_status = _normalize_meta_status(meta.get("status"))
+    status = _effective_status(meta_status, inferred_status)
+    meta_progress = meta.get("progress")
+    try:
+        progress_from_meta = int(meta_progress) if meta_progress is not None else None
+    except Exception:
+        progress_from_meta = None
+    progress = _progress_for_status(status)
+    if meta_status == status and progress_from_meta is not None:
+        progress = max(0, min(100, progress_from_meta))
+    error_payload = _read_json(_error_path(job_id))
+    error: dict[str, str] | None = None
+    if isinstance(error_payload, dict):
+        code = str(error_payload.get("code") or "").strip()
+        message = str(error_payload.get("message") or "").strip()
+        if code:
+            error = {"code": code, "message": message}
+
     return {
-        "job_id": row["job_id"],
-        "status": row["status"],
-        "progress": int(row["progress"]),
-        "error": (
-            None
-            if not row["error_code"]
-            else {"code": row["error_code"], "message": row["error_message"] or ""}
-        ),
+        "job_id": job_id,
+        "status": status,
+        "progress": progress,
+        "error": error,
     }
+
+
+def get_job_owner_user_id(job_id: str) -> str | None:
+    meta = _read_meta(job_id)
+    if not isinstance(meta, dict):
+        return None
+    owner_user_id = str(meta.get("owner_user_id") or "").strip()
+    return owner_user_id or None
 
 
 def update_job(
@@ -323,306 +593,218 @@ def update_job(
     error_code: str | None = None,
     error_message: str | None = None,
 ) -> None:
-    now = now_iso()
-    fields: list[str] = ["updated_at = ?"]
-    values: list[Any] = [now]
+    meta = _read_meta(job_id)
+    if not meta:
+        return
 
-    if status is not None:
-        fields.append("status = ?")
-        values.append(status)
+    normalized_status = _normalize_meta_status(status)
+    if normalized_status:
+        meta["status"] = normalized_status
     if progress is not None:
-        fields.append("progress = ?")
-        values.append(int(progress))
+        try:
+            meta["progress"] = max(0, min(100, int(progress)))
+        except Exception:
+            pass
+    meta["updated_at"] = now_iso()
+    _write_json(_meta_path(job_id), meta)
 
-    if error_code is None and error_message is None:
-        fields.append("error_code = NULL")
-        fields.append("error_message = NULL")
-    else:
-        fields.append("error_code = ?")
-        fields.append("error_message = ?")
-        values.append(error_code)
-        values.append(error_message)
-
-    values.append(job_id)
-    query = f"UPDATE jobs SET {', '.join(fields)} WHERE job_id = ?"
-
-    with get_conn() as conn:
-        conn.execute(query, tuple(values))
-        conn.commit()
+    if normalized_status == JOB_STATUS_STEP1_CONFIRMED:
+        _step1_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
+        _step1_confirmed_path(job_id).touch()
+    elif normalized_status == JOB_STATUS_STEP2_CONFIRMED:
+        _step2_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
+        _step2_confirmed_path(job_id).touch()
+    elif normalized_status == JOB_STATUS_FAILED and error_code:
+        _write_json(
+            _error_path(job_id),
+            {
+                "code": str(error_code),
+                "message": str(error_message or ""),
+            },
+        )
+    elif normalized_status in {
+        JOB_STATUS_CREATED,
+        JOB_STATUS_UPLOAD_READY,
+        JOB_STATUS_STEP1_RUNNING,
+        JOB_STATUS_STEP1_READY,
+        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_STEP2_RUNNING,
+        JOB_STATUS_STEP2_READY,
+        JOB_STATUS_STEP2_CONFIRMED,
+        JOB_STATUS_SUCCEEDED,
+    }:
+        _error_path(job_id).unlink(missing_ok=True)
 
 
 def touch_job(job_id: str) -> None:
-    now = now_iso()
-    with get_conn() as conn:
-        conn.execute("UPDATE jobs SET updated_at = ? WHERE job_id = ?", (now, job_id))
-        conn.commit()
+    meta = _read_meta(job_id)
+    if not meta:
+        return
+    meta["updated_at"] = now_iso()
+    _write_json(_meta_path(job_id), meta)
 
 
 def get_job_files(job_id: str) -> dict[str, Any] | None:
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM job_files WHERE job_id = ?", (job_id,)).fetchone()
-    if not row:
+    if not _meta_path(job_id).exists():
         return None
-    return dict(row)
+    return _normalize_files(job_id, _read_files_manifest(job_id))
 
 
 def upsert_job_files(job_id: str, **kwargs: Any) -> None:
     if not kwargs:
         return
-    now = now_iso()
-    allowed = {
-        "video_path",
-        "srt_path",
-        "optimized_srt_path",
-        "final_step1_srt_path",
-        "topics_path",
-        "final_topics_path",
-        "final_video_path",
-    }
-    fields = [key for key in kwargs if key in allowed]
-    if not fields:
+    if not _meta_path(job_id).exists():
         return
-
-    set_clause = ", ".join([f"{name} = ?" for name in fields] + ["updated_at = ?"])
-    values = [kwargs[name] for name in fields] + [now, job_id]
-
-    with get_conn() as conn:
-        conn.execute(f"UPDATE job_files SET {set_clause} WHERE job_id = ?", tuple(values))
-        conn.commit()
+    payload = _read_files_manifest(job_id)
+    for field in JOB_FILE_FIELDS:
+        if field in kwargs:
+            value = kwargs[field]
+            payload[field] = str(value) if isinstance(value, Path) else value
+    _write_files_manifest(job_id, payload)
+    touch_job(job_id)
 
 
 def clear_step_data(job_id: str) -> None:
-    with get_conn() as conn:
-        conn.execute("DELETE FROM job_step1_lines WHERE job_id = ?", (job_id,))
-        conn.execute("DELETE FROM job_step2_chapters WHERE job_id = ?", (job_id,))
-        conn.commit()
+    _step1_lines_path(job_id).unlink(missing_ok=True)
+    _step2_topics_path(job_id).unlink(missing_ok=True)
+
+
+def _has_artifacts(files: dict[str, Any]) -> bool:
+    for field in JOB_FILE_FIELDS:
+        value = files.get(field)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT j.job_id
-            FROM jobs j
-            JOIN job_files f ON f.job_id = j.job_id
-            WHERE j.status = ?
-              AND j.updated_at <= ?
-              AND (
-                f.video_path IS NOT NULL
-                OR f.srt_path IS NOT NULL
-                OR f.optimized_srt_path IS NOT NULL
-                OR f.final_step1_srt_path IS NOT NULL
-                OR f.topics_path IS NOT NULL
-                OR f.final_topics_path IS NOT NULL
-                OR f.final_video_path IS NOT NULL
-              )
-            ORDER BY j.updated_at ASC
-            LIMIT ?
-            """,
-            (JOB_STATUS_SUCCEEDED, cutoff_updated_at, int(limit)),
-        ).fetchall()
-    return [str(row["job_id"]) for row in rows]
+    settings = get_settings()
+    jobs_root = settings.work_dir / "jobs"
+    if not jobs_root.exists():
+        return []
+
+    cutoff = _parse_iso(cutoff_updated_at)
+    pairs: list[tuple[datetime, str]] = []
+    for item in jobs_root.iterdir():
+        if not item.is_dir():
+            continue
+        job_id = item.name
+        meta = _read_meta(job_id)
+        if not meta:
+            continue
+        status = _normalize_meta_status(meta.get("status"))
+        if status != JOB_STATUS_SUCCEEDED:
+            continue
+        files = get_job_files(job_id) or {}
+        if not _has_artifacts(files):
+            continue
+        updated_at = _parse_iso(str(meta.get("updated_at") or meta.get("created_at") or ""))
+        if updated_at <= cutoff:
+            pairs.append((updated_at, job_id))
+
+    pairs.sort(key=lambda pair: pair[0])
+    return [job_id for _, job_id in pairs[: int(max(1, limit))]]
 
 
 def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT j.job_id
-            FROM jobs j
-            JOIN job_files f ON f.job_id = j.job_id
-            WHERE j.status = ?
-              AND (
-                f.video_path IS NOT NULL
-                OR f.srt_path IS NOT NULL
-                OR f.optimized_srt_path IS NOT NULL
-                OR f.final_step1_srt_path IS NOT NULL
-                OR f.topics_path IS NOT NULL
-                OR f.final_topics_path IS NOT NULL
-                OR f.final_video_path IS NOT NULL
-              )
-            ORDER BY j.updated_at ASC
-            LIMIT ?
-            """,
-            (JOB_STATUS_SUCCEEDED, int(limit)),
-        ).fetchall()
-    return [str(row["job_id"]) for row in rows]
+    settings = get_settings()
+    jobs_root = settings.work_dir / "jobs"
+    if not jobs_root.exists():
+        return []
+
+    pairs: list[tuple[datetime, str]] = []
+    for item in jobs_root.iterdir():
+        if not item.is_dir():
+            continue
+        job_id = item.name
+        meta = _read_meta(job_id)
+        if not meta:
+            continue
+        status = _normalize_meta_status(meta.get("status"))
+        if status != JOB_STATUS_SUCCEEDED:
+            continue
+        files = get_job_files(job_id) or {}
+        if not _has_artifacts(files):
+            continue
+        updated_at = _parse_iso(str(meta.get("updated_at") or meta.get("created_at") or ""))
+        pairs.append((updated_at, job_id))
+
+    pairs.sort(key=lambda pair: pair[0])
+    return [job_id for _, job_id in pairs[: int(max(1, limit))]]
 
 
 def replace_step1_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
-    with get_conn() as conn:
-        conn.execute("DELETE FROM job_step1_lines WHERE job_id = ?", (job_id,))
-        conn.executemany(
-            """
-            INSERT INTO job_step1_lines(
-                job_id, line_id, start_sec, end_sec, original_text, optimized_text,
-                ai_suggest_remove, user_final_remove
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    job_id,
-                    int(line["line_id"]),
-                    float(line["start"]),
-                    float(line["end"]),
-                    str(line["original_text"]),
-                    str(line["optimized_text"]),
-                    1 if bool(line["ai_suggest_remove"]) else 0,
-                    1 if bool(line["user_final_remove"]) else 0,
-                )
-                for line in lines
-            ],
-        )
-        conn.commit()
+    _write_json(_step1_lines_path(job_id), {"lines": lines})
 
 
 def list_step1_lines(job_id: str) -> list[dict[str, Any]]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM job_step1_lines WHERE job_id = ? ORDER BY line_id ASC", (job_id,)
-        ).fetchall()
-    return [
-        {
-            "line_id": int(row["line_id"]),
-            "start": float(row["start_sec"]),
-            "end": float(row["end_sec"]),
-            "original_text": row["original_text"],
-            "optimized_text": row["optimized_text"],
-            "ai_suggest_remove": bool(row["ai_suggest_remove"]),
-            "user_final_remove": bool(row["user_final_remove"]),
-        }
-        for row in rows
-    ]
+    payload = _read_json(_step1_lines_path(job_id))
+    if isinstance(payload, dict) and isinstance(payload.get("lines"), list):
+        lines = payload["lines"]
+    elif isinstance(payload, list):
+        lines = payload
+    else:
+        lines = []
+
+    normalized: list[dict[str, Any]] = []
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+        try:
+            normalized.append(
+                {
+                    "line_id": int(row["line_id"]),
+                    "start": float(row["start"]),
+                    "end": float(row["end"]),
+                    "original_text": str(row.get("original_text") or ""),
+                    "optimized_text": str(row.get("optimized_text") or ""),
+                    "ai_suggest_remove": bool(row.get("ai_suggest_remove", False)),
+                    "user_final_remove": bool(row.get("user_final_remove", False)),
+                }
+            )
+        except Exception:
+            continue
+    normalized.sort(key=lambda item: int(item["line_id"]))
+    return normalized
 
 
 def replace_step2_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
-    with get_conn() as conn:
-        conn.execute("DELETE FROM job_step2_chapters WHERE job_id = ?", (job_id,))
-        conn.executemany(
-            """
-            INSERT INTO job_step2_chapters(
-                job_id, chapter_id, title, summary, start_sec, end_sec, line_ids_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    job_id,
-                    int(chapter["chapter_id"]),
-                    str(chapter.get("title", "")).strip() or f"章节{int(chapter['chapter_id'])}",
-                    str(chapter.get("summary", "")).strip(),
-                    float(chapter["start"]),
-                    float(chapter["end"]),
-                    json.dumps(chapter.get("line_ids", []), ensure_ascii=False),
-                )
-                for chapter in chapters
-            ],
-        )
-        conn.commit()
+    _write_json(_step2_topics_path(job_id), {"topics": chapters})
 
 
 def list_step2_chapters(job_id: str) -> list[dict[str, Any]]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM job_step2_chapters WHERE job_id = ? ORDER BY chapter_id ASC", (job_id,)
-        ).fetchall()
+    payload = _read_json(_step2_topics_path(job_id))
+    if isinstance(payload, dict) and isinstance(payload.get("topics"), list):
+        topics = payload["topics"]
+    elif isinstance(payload, list):
+        topics = payload
+    else:
+        topics = []
+
     result: list[dict[str, Any]] = []
-    for row in rows:
+    for row in topics:
+        if not isinstance(row, dict):
+            continue
         try:
-            line_ids = json.loads(row["line_ids_json"] or "[]")
-        except json.JSONDecodeError:
-            line_ids = []
+            chapter_id = int(row.get("chapter_id", len(result) + 1))
+            start = float(row.get("start", 0.0))
+            end = float(row.get("end", 0.0))
+            if end <= start:
+                continue
+        except Exception:
+            continue
+
+        line_ids_raw = row.get("line_ids")
+        line_ids = [int(item) for item in line_ids_raw if isinstance(item, (int, float))] if isinstance(line_ids_raw, list) else []
         result.append(
             {
-                "chapter_id": int(row["chapter_id"]),
-                "title": row["title"],
-                "summary": row["summary"],
-                "start": float(row["start_sec"]),
-                "end": float(row["end_sec"]),
-                "line_ids": line_ids if isinstance(line_ids, list) else [],
+                "chapter_id": chapter_id,
+                "title": str(row.get("title") or f"章节{chapter_id}"),
+                "summary": str(row.get("summary") or ""),
+                "start": start,
+                "end": end,
+                "line_ids": line_ids,
             }
         )
+    result.sort(key=lambda item: int(item["chapter_id"]))
     return result
-
-
-def has_pending_task(job_id: str) -> bool:
-    with get_conn() as conn:
-        row = conn.execute(
-            """
-            SELECT COUNT(1) AS c
-            FROM job_tasks
-            WHERE job_id = ? AND status IN (?, ?)
-            """,
-            (job_id, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING),
-        ).fetchone()
-    return bool(row and int(row["c"]) > 0)
-
-
-def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = None) -> int:
-    now = now_iso()
-    payload_json = json.dumps(payload or {}, ensure_ascii=False)
-    with get_conn() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO job_tasks(job_id, task_type, payload_json, status, error_message, created_at, updated_at)
-            VALUES(?, ?, ?, ?, NULL, ?, ?)
-            """,
-            (job_id, task_type, payload_json, TASK_STATUS_QUEUED, now, now),
-        )
-        conn.commit()
-        return int(cursor.lastrowid)
-
-
-def claim_next_task() -> dict[str, Any] | None:
-    now = now_iso()
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            """
-            SELECT * FROM job_tasks
-            WHERE status = ?
-            ORDER BY task_id ASC
-            LIMIT 1
-            """,
-            (TASK_STATUS_QUEUED,),
-        ).fetchone()
-        if not row:
-            conn.commit()
-            return None
-
-        conn.execute(
-            "UPDATE job_tasks SET status = ?, updated_at = ? WHERE task_id = ?",
-            (TASK_STATUS_RUNNING, now, int(row["task_id"])),
-        )
-        conn.commit()
-
-    payload: dict[str, Any]
-    try:
-        payload = json.loads(row["payload_json"] or "{}")
-    except json.JSONDecodeError:
-        payload = {}
-    return {
-        "task_id": int(row["task_id"]),
-        "job_id": row["job_id"],
-        "task_type": row["task_type"],
-        "payload": payload,
-    }
-
-
-def set_task_succeeded(task_id: int) -> None:
-    now = now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE job_tasks SET status = ?, error_message = NULL, updated_at = ? WHERE task_id = ?",
-            (TASK_STATUS_SUCCEEDED, now, task_id),
-        )
-        conn.commit()
-
-
-def set_task_failed(task_id: int, error_message: str) -> None:
-    now = now_iso()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE job_tasks SET status = ?, error_message = ?, updated_at = ? WHERE task_id = ?",
-            (TASK_STATUS_FAILED, error_message, now, task_id),
-        )
-        conn.commit()

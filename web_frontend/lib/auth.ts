@@ -4,6 +4,10 @@ import {LibsqlDialect} from "@libsql/kysely-libsql";
 import {jwt} from "better-auth/plugins";
 
 const baseURL = process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || "http://127.0.0.1:3000";
+const apiBaseURL = (process.env.WEB_API_BASE || process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api/v1").replace(
+  /\/$/,
+  "",
+);
 const secret = process.env.BETTER_AUTH_SECRET || "video-auto-cut-dev-better-auth-secret-change-me";
 const tursoUrl = (process.env.TURSO_DATABASE_URL || "").trim();
 const tursoAuthToken = (process.env.TURSO_AUTH_TOKEN || "").trim();
@@ -68,6 +72,32 @@ export const auth = betterAuth({
       if (!inviteCode) {
         throw new APIError("BAD_REQUEST", {
           message: "邀请码不能为空",
+        });
+      }
+      try {
+        const verifyResp = await fetch(`${apiBaseURL}/public/coupons/verify`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({code: inviteCode.toUpperCase()}),
+          cache: "no-store",
+        });
+        if (!verifyResp.ok) {
+          const text = await verifyResp.text();
+          let message = "邀请码无效，请检查后重试";
+          try {
+            const payload = JSON.parse(text) as {error?: {message?: string}};
+            message = payload?.error?.message || message;
+          } catch {
+            // Ignore parse failures and fallback to generic message.
+          }
+          throw new APIError("BAD_REQUEST", {message});
+        }
+      } catch (err) {
+        if (err instanceof APIError) {
+          throw err;
+        }
+        throw new APIError("BAD_REQUEST", {
+          message: "邀请码校验失败，请稍后重试",
         });
       }
     }),

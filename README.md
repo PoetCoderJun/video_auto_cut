@@ -15,75 +15,64 @@ cd web_frontend && npm install && cd ..
 
 ## 单一 Coupon 码体系
 
-现在只有一套码：`coupon code`。
+只有一套码：`coupon code`。
 
-- 前端输入框文案可能仍显示“邀请码”
-- 但输入和验证的就是 coupon code
-- 不再维护 invite 和 coupon 两套数据源
-
-## 本地 CSV（唯一码源）
-
-默认文件：`./workdir/activation_codes.csv`
-
-CSV 列固定为：
-
-```text
-code,credits,max_uses,expires_at,status,source
-```
-
-字段说明：
-- `code`: coupon 码（唯一）
-- `credits`: 发放额度（正整数）
-- `max_uses`: 最大可用次数（空=不限）
-- `expires_at`: 过期时间（ISO，如 `2026-12-31T23:59:59Z`，空=不过期）
-- `status`: `ACTIVE` / `DISABLED`
-- `source`: 渠道标记（如 `xhs`）
+- 前端文案可显示“邀请码”
+- 实际兑换和校验是 coupon
+- 线上来源是 Turso 的 `coupon_codes` 表
 
 ## `.env` 关键配置
 
 ```env
-# 本地 coupon CSV 路径（默认就是这个）
-COUPON_CODE_SHEET_LOCAL_CSV=./workdir/activation_codes.csv
-
-# API 读取该 CSV。建议用 file:// 绝对路径
-COUPON_CODE_SHEET_CSV_URL=file:///Users/huzujun/Desktop/video_auto_cut/workdir/activation_codes.csv
-COUPON_CODE_SHEET_CACHE_SECONDS=60
+TURSO_DATABASE_URL=libsql://<your-db>-<org>.turso.io
+TURSO_AUTH_TOKEN=<your-token>
+TURSO_LOCAL_REPLICA_PATH=./workdir/web_api_turso_replica.db
 ```
 
-如果不配 `COUPON_CODE_SHEET_CSV_URL`，系统会自动回退到 `COUPON_CODE_SHEET_LOCAL_CSV`。
+## 管理 Coupon（直接写线上库）
 
-## 创建 Coupon（会直接写入 CSV）
-
-创建一条：
+创建：
 
 ```bash
-python scripts/coupon_admin.py create --credits 20 --max-uses 100 --source xhs
+python scripts/coupon_admin.py create --credits 20 --source xhs
+```
+
+批量创建（一次创建 n 个）：
+
+```bash
+python scripts/coupon_admin.py create --count 20 --credits 20 --source xhs
 ```
 
 查看：
 
 ```bash
-python scripts/coupon_admin.py list
+python scripts/coupon_admin.py list --limit 50
 ```
 
-初始化空 CSV（只写表头）：
+禁用：
 
 ```bash
-python scripts/coupon_admin.py template
+python scripts/coupon_admin.py disable --code CPN-XXXX
 ```
 
-兼容命令（等价）：
+字段说明：
+- `code`: coupon 码（唯一）
+- `credits`: 发放额度
+- `used_count`: 是否已兑换（`0` 未兑换，`1` 已兑换）
+- `expires_at`: 过期时间（ISO，空=不过期）
+- `status`: `ACTIVE` / `DISABLED`
+- `source`: 渠道来源
 
-```bash
-python scripts/invite_admin.py create --credits 20 --max-uses 100 --source xhs
-```
+## 线上校验逻辑
 
-## 验证逻辑在哪
+用户提交码时，后端直接查 `coupon_codes`，并校验：
+- 码存在且 `status=ACTIVE`
+- 未过期
+- `used_count = 0`
 
-系统验证 coupon 时，读的是本地 CSV（经缓存）。
+通过后写入：
+- `credit_ledger`（额度流水）
+- `coupon_codes.used_count` 置为 `1`
+- `coupon_codes.status` 置为 `DISABLED`
 
-数据库里只维护：
-- `activation_code_redemptions`（记录某码被哪些用户用过，用于次数限制）
-- `credit_wallets` / `credit_ledger`（额度余额和流水）
-
-也就是说：**coupon 内容本身不在数据库维护，数据库只记录“使用结果”**。
+所以现在是：**coupon 定义和兑换结果都在线上库**。

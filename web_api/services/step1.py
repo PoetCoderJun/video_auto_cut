@@ -13,13 +13,19 @@ from ..constants import (
     PROGRESS_STEP1_CONFIRMED,
     PROGRESS_STEP1_READY,
 )
-from ..repository import replace_step1_lines, update_job, upsert_job_files
-from .pipeline_options import build_pipeline_options
+from ..repository import (
+    consume_step1_credit,
+    get_job_owner_user_id,
+    replace_step1_lines,
+    update_job,
+    upsert_job_files,
+)
 from ..utils.srt_utils import (
     build_step1_lines_from_srts,
     write_final_step1_srt,
     write_step1_json,
 )
+from .pipeline_options import build_pipeline_options
 
 
 def run_step1(job_id: str) -> None:
@@ -50,6 +56,17 @@ def run_step1(job_id: str) -> None:
         optimized_srt_path=str(optimized_srt_path),
         final_step1_srt_path=str(final_step1_srt),
     )
+
+    owner_user_id = get_job_owner_user_id(job_id)
+    if not owner_user_id:
+        raise RuntimeError("job owner not found")
+    try:
+        consume_step1_credit(owner_user_id, job_id)
+    except LookupError as exc:
+        if str(exc) == "INSUFFICIENT_CREDITS":
+            raise RuntimeError("额度不足，请先兑换邀请码后重试") from exc
+        raise
+
     update_job(job_id, status=JOB_STATUS_STEP1_READY, progress=PROGRESS_STEP1_READY)
 
 

@@ -26,6 +26,9 @@ class PipelineOptions:
     qwen3_max_chars: int = 0
     qwen3_no_speech_gap: float = 1.0
     qwen3_use_punct: bool = True
+    qwen3_progress_chunk_s: float = 8.0
+    qwen3_correct: bool = True
+    qwen3_correct_max_diff_ratio: float = 0.3
 
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -58,6 +61,7 @@ class PipelineOptions:
 
 
 RenderProgressCallback = Callable[[str, Optional[float]], None]
+ASRProgressCallback = Callable[[float], None]
 
 
 def require_llm(options: PipelineOptions, stage_name: str) -> None:
@@ -83,6 +87,15 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         qwen3_max_chars=int(options.qwen3_max_chars),
         qwen3_no_speech_gap=float(options.qwen3_no_speech_gap),
         qwen3_use_punct=bool(options.qwen3_use_punct),
+        qwen3_progress_chunk_s=float(options.qwen3_progress_chunk_s),
+        qwen3_correct=bool(options.qwen3_correct),
+        qwen3_correct_max_diff_ratio=float(options.qwen3_correct_max_diff_ratio),
+        llm_base_url=options.llm_base_url,
+        llm_model=options.llm_model,
+        llm_api_key=options.llm_api_key,
+        llm_timeout=int(options.llm_timeout),
+        llm_temperature=float(options.llm_temperature),
+        llm_max_tokens=int(options.llm_max_tokens),
         device=options.device,
         lang=options.lang,
         prompt=options.prompt,
@@ -167,11 +180,20 @@ def build_topic_args(
     )
 
 
-def run_transcribe(video_path: Path, options: PipelineOptions) -> Path:
+def run_transcribe(
+    video_path: Path,
+    options: PipelineOptions,
+    *,
+    progress_callback: ASRProgressCallback | None = None,
+) -> Path:
     from video_auto_cut.asr.transcribe import Transcribe
 
+    if options.qwen3_correct:
+        require_llm(options, "ASR LLM correction")
     logging.info("Step 1/3: transcribe -> SRT")
     args = build_transcribe_args(video_path, options)
+    if progress_callback is not None:
+        setattr(args, "asr_progress_callback", progress_callback)
     Transcribe(args).run()
 
     srt_path = video_path.with_suffix(".srt")

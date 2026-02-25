@@ -25,6 +25,9 @@ class Settings:
     qwen3_prewarm_on_startup: bool
     qwen3_model: str
     qwen3_aligner: str
+    qwen3_progress_chunk_s: float
+    qwen3_correct: bool
+    qwen3_correct_max_diff_ratio: float
     device: str
     lang: str
     llm_base_url: str | None
@@ -43,9 +46,6 @@ class Settings:
     auth_issuer: str | None
     auth_audience: str | None
     auth_jwt_leeway_seconds: int
-    coupon_code_sheet_local_csv_path: Path
-    coupon_code_sheet_csv_url: str | None
-    coupon_code_sheet_cache_seconds: int
 
 
 @lru_cache(maxsize=1)
@@ -66,12 +66,6 @@ def get_settings() -> Settings:
     auth_jwks_url = (os.getenv("WEB_AUTH_JWKS_URL") or "").strip() or f"{auth_base_url.rstrip('/')}/api/auth/jwks"
     auth_issuer = (os.getenv("WEB_AUTH_ISSUER") or "").strip() or auth_base_url
     auth_audience = (os.getenv("WEB_AUTH_AUDIENCE") or "").strip() or auth_base_url
-    coupon_code_sheet_local_csv_path = Path(
-        os.getenv("COUPON_CODE_SHEET_LOCAL_CSV", str(work_dir / "activation_codes.csv"))
-    ).expanduser().resolve()
-    coupon_code_sheet_csv_url = (os.getenv("COUPON_CODE_SHEET_CSV_URL") or "").strip() or None
-    if not coupon_code_sheet_csv_url:
-        coupon_code_sheet_csv_url = coupon_code_sheet_local_csv_path.as_uri()
 
     return Settings(
         work_dir=work_dir,
@@ -92,6 +86,9 @@ def get_settings() -> Settings:
         in {"1", "true", "yes"},
         qwen3_model=os.getenv("QWEN3_MODEL", "./model/Qwen3-ASR-0.6B"),
         qwen3_aligner=os.getenv("QWEN3_ALIGNER", "./model/Qwen3-ForcedAligner-0.6B"),
+        qwen3_progress_chunk_s=max(2.0, float(os.getenv("QWEN3_PROGRESS_CHUNK_S", "8.0"))),
+        qwen3_correct=os.getenv("QWEN3_CORRECT", "1").strip().lower() in {"1", "true", "yes"},
+        qwen3_correct_max_diff_ratio=float(os.getenv("QWEN3_CORRECT_MAX_DIFF_RATIO", "0.3")),
         device=os.getenv("WEB_DEVICE", "cpu"),
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
@@ -110,9 +107,6 @@ def get_settings() -> Settings:
         auth_issuer=auth_issuer,
         auth_audience=auth_audience,
         auth_jwt_leeway_seconds=max(0, int(os.getenv("WEB_AUTH_JWT_LEEWAY_SECONDS", "10"))),
-        coupon_code_sheet_local_csv_path=coupon_code_sheet_local_csv_path,
-        coupon_code_sheet_csv_url=coupon_code_sheet_csv_url,
-        coupon_code_sheet_cache_seconds=max(5, int(os.getenv("COUPON_CODE_SHEET_CACHE_SECONDS", "60"))),
     )
 
 
@@ -120,7 +114,6 @@ def ensure_work_dirs() -> None:
     settings = get_settings()
     settings.work_dir.mkdir(parents=True, exist_ok=True)
     settings.turso_local_replica_path.parent.mkdir(parents=True, exist_ok=True)
-    settings.coupon_code_sheet_local_csv_path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def job_dir(job_id: str) -> Path:

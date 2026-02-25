@@ -4,18 +4,15 @@ import logging
 
 from ..constants import (
     JOB_STATUS_FAILED,
-    JOB_STATUS_RENDER_RUNNING,
     JOB_STATUS_STEP1_RUNNING,
     JOB_STATUS_STEP2_RUNNING,
     PROGRESS_STEP2_RUNNING,
-    PROGRESS_RENDER_RUNNING,
     PROGRESS_STEP1_RUNNING,
-    TASK_TYPE_RENDER,
     TASK_TYPE_STEP1,
     TASK_TYPE_STEP2,
 )
-from ..repository import enqueue_task, has_pending_task, set_task_failed, set_task_succeeded, update_job
-from .render import run_render
+from ..repository import update_job
+from ..task_queue import enqueue_task, set_task_failed, set_task_succeeded
 from .step1 import run_step1
 from .step2 import run_step2
 
@@ -23,24 +20,22 @@ from .step2 import run_step2
 TASK_DISPATCH = {
     TASK_TYPE_STEP1: run_step1,
     TASK_TYPE_STEP2: run_step2,
-    TASK_TYPE_RENDER: run_render,
 }
 
 
 def queue_job_task(job_id: str, task_type: str) -> int:
-    if has_pending_task(job_id):
-        raise RuntimeError("task already running")
-
     if task_type == TASK_TYPE_STEP1:
-        update_job(job_id, status=JOB_STATUS_STEP1_RUNNING, progress=PROGRESS_STEP1_RUNNING)
+        status = JOB_STATUS_STEP1_RUNNING
+        progress = PROGRESS_STEP1_RUNNING
     elif task_type == TASK_TYPE_STEP2:
-        update_job(job_id, status=JOB_STATUS_STEP2_RUNNING, progress=PROGRESS_STEP2_RUNNING)
-    elif task_type == TASK_TYPE_RENDER:
-        update_job(job_id, status=JOB_STATUS_RENDER_RUNNING, progress=PROGRESS_RENDER_RUNNING)
+        status = JOB_STATUS_STEP2_RUNNING
+        progress = PROGRESS_STEP2_RUNNING
     else:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
-    return enqueue_task(job_id, task_type, payload={})
+    task_id = enqueue_task(job_id, task_type, payload={})
+    update_job(job_id, status=status, progress=progress)
+    return task_id
 
 
 def execute_task(task: dict[str, object]) -> None:

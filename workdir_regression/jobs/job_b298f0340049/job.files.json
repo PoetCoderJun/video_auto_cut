@@ -1,0 +1,8 @@
+{
+  "video_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/input/1.MOV",
+  "srt_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/input/1.srt",
+  "optimized_srt_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/input/1.optimized.srt",
+  "final_step1_srt_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/step1/final_step1.srt",
+  "topics_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/step2/topics.json",
+  "final_topics_path": "/Users/huzujun/Desktop/video_auto_cut/workdir_regression/jobs/job_b298f0340049/step2/final_topics.json"
+}

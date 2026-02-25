@@ -114,6 +114,8 @@ def _build_pipeline_options(
         qwen3_max_chars=int(args.qwen3_max_chars),
         qwen3_no_speech_gap=float(args.qwen3_no_speech_gap),
         qwen3_use_punct=bool(args.qwen3_use_punct),
+        qwen3_correct=bool(args.qwen3_correct),
+        qwen3_correct_max_diff_ratio=float(args.qwen3_correct_max_diff_ratio),
         llm_base_url=_resolve_llm_base_url(args),
         llm_model=_resolve_llm_model(args),
         llm_api_key=_resolve_llm_api_key(args),
@@ -218,6 +220,18 @@ def _parse_args() -> argparse.Namespace:
         "--qwen3-use-punct",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--qwen3-correct",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use LLM to correct ASR subtitles right after transcription.",
+    )
+    parser.add_argument(
+        "--qwen3-correct-max-diff-ratio",
+        type=float,
+        default=0.3,
+        help="Reject corrected subtitle text if length deviates too much from original.",
     )
 
     parser.add_argument("--llm-base-url", type=str, default=None)

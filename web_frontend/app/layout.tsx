@@ -1,8 +1,17 @@
 import "./globals.css";
-import type {Metadata} from "next";
+import type { Metadata } from "next";
+import { Inter as FontSans } from "next/font/google";
+import { cn } from "@/lib/utils";
+import { Toaster } from "@/components/ui/sonner";
+
+const fontSans = FontSans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
 
 const siteName = "AI 视频智能剪辑";
-const siteDescription = "上传口播视频，自动提取字幕、精简内容并生成章节，快速导出可发布成片。";
+const siteDescription =
+  "上传口播视频，自动提取字幕、精简内容并生成章节，快速导出可发布成片。";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://127.0.0.1:3000";
 
 export const metadata: Metadata = {
@@ -41,10 +50,22 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({children}: {children: React.ReactNode}) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body
+        className={cn(
+          "min-h-screen bg-background font-sans antialiased",
+          fontSans.variable
+        )}
+      >
+        {children}
+        <Toaster />
+      </body>
     </html>
   );
 }
