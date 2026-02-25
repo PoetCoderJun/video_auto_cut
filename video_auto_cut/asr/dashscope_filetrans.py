@@ -210,11 +210,15 @@ class DashScopeFiletransClient:
             return []
 
         strong_punc = {"。", "！", "？", "!", "?", "；", ";"}
-        comma_punc = {"，", ",", "、"}
+        # Treat list separator "、" as weaker than comma for subtitle boundary.
+        comma_punc = {"，", ","}
         min_chars = max(1, int(self._config.word_split_min_chars))
-        vad_gap_ms = max(0.0, float(self._config.word_vad_gap_s) * 1000.0)
-        comma_pause_ms = max(0.0, float(self._config.word_split_comma_pause_s) * 1000.0)
+        # Tune split behavior toward local baseline: many boundaries are comma + short pause.
+        vad_gap_ms = max(800.0, float(self._config.word_vad_gap_s) * 1000.0)
+        comma_pause_ms = max(300.0, float(self._config.word_split_comma_pause_s) * 1000.0)
         max_seg_ms = max(1000.0, float(self._config.word_max_segment_s) * 1000.0)
+        min_seg_ms_for_comma = 1200.0
+        min_seg_ms_for_vad = 1600.0
 
         out: list[FiletransSegment] = []
         current: list[dict[str, Any]] = []
@@ -227,7 +231,7 @@ class DashScopeFiletransClient:
             if end_ms <= start_ms:
                 current.clear()
                 return
-            text = "".join(f"{item['text']}{item['punct']}" for item in current).strip()
+            text = self._compose_word_text(current)
             current.clear()
             if not text:
                 return
@@ -256,11 +260,20 @@ class DashScopeFiletransClient:
             elif (
                 bool(self._config.word_split_on_comma)
                 and punct in comma_punc
-                and seg_chars >= min_chars
-                and gap_ms >= comma_pause_ms
+                and (
+                    (
+                        (gap_ms >= 800.0 and seg_ms >= 1100.0)
+                        or (
+                            gap_ms >= comma_pause_ms
+                            and seg_ms >= 2600.0
+                            and (seg_ms <= 9000.0 or gap_ms >= 600.0)
+                        )
+                    )
+                    or (seg_chars >= min_chars and seg_ms >= 15000.0)
+                )
             ):
                 split = True
-            elif gap_ms >= vad_gap_ms and seg_chars >= min_chars:
+            elif gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad:
                 split = True
             elif seg_ms >= max_seg_ms and punct in strong_punc:
                 split = True
@@ -269,28 +282,46 @@ class DashScopeFiletransClient:
                 _flush()
 
         _flush()
-        return out
+        return self._merge_fragments(out)
+
+    @staticmethod
+    def _compose_word_text(items: list[dict[str, Any]]) -> str:
+        output = ""
+        for item in items:
+            token = str(item.get("text") or "").strip()
+            punct = str(item.get("punct") or "")
+            if token:
+                if output and _need_space_between(output[-1], token[0]):
+                    output += " "
+                output += token
+            if punct:
+                output += punct
+        return output.strip()
+
+    @staticmethod
+    def _merge_fragments(segments: list[FiletransSegment]) -> list[FiletransSegment]:
+        if not segments:
+            return []
+        return sorted(segments, key=lambda item: (item.start, item.end))
 
     @staticmethod
     def _cleanup_segments(segments: list[FiletransSegment]) -> list[FiletransSegment]:
         if not segments:
             return []
 
-        # 1) Drop tiny overlap artifacts like "甚。" that duplicate next sentence prefix.
+        # 1) Drop tiny overlapping artifacts by timing only.
         pruned: list[FiletransSegment] = []
         for idx, seg in enumerate(segments):
-            text = (seg.text or "").strip()
             duration = float(seg.end - seg.start)
             if idx + 1 < len(segments):
-                next_text = (segments[idx + 1].text or "").strip()
+                next_start = float(segments[idx + 1].start)
             else:
-                next_text = ""
-            plain = text.rstrip("，。！？!?；;、")
+                next_start = None
             if (
-                len(plain) <= 2
-                and duration <= 0.6
-                and plain
-                and next_text.startswith(plain)
+                duration <= 0.35
+                and next_start is not None
+                and float(seg.end) > float(next_start) + 0.02
+                and abs(float(seg.start) - float(next_start)) <= 0.02
             ):
                 continue
             pruned.append(seg)
@@ -487,3 +518,14 @@ def _map_lang_hint(lang: str) -> str:
         "yue": "yue",
     }
     return mapping.get(lowered, "")
+
+
+def _need_space_between(left_char: str, right_char: str) -> bool:
+    return (
+        bool(left_char)
+        and bool(right_char)
+        and left_char.isascii()
+        and right_char.isascii()
+        and left_char.isalnum()
+        and right_char.isalnum()
+    )
