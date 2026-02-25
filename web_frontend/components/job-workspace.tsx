@@ -32,7 +32,6 @@ import {
   type SubtitleTheme,
 } from "../lib/remotion/stitch-video-web";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -140,6 +139,53 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+function getOriginalDurationFromLines(lines: Step1Line[]): number {
+  return lines.reduce((max, line) => {
+    const end = Number(line.end);
+    if (!Number.isFinite(end) || end <= max) return max;
+    return end;
+  }, 0);
+}
+
+function getEstimatedDurationFromLines(lines: Step1Line[]): number {
+  const intervals = lines
+    .filter((line) => !line.user_final_remove)
+    .filter((line) => String(line.optimized_text || "").trim().length > 0)
+    .map((line) => ({
+      start: Number(line.start),
+      end: Number(line.end),
+    }))
+    .filter(
+      (line) =>
+        Number.isFinite(line.start) &&
+        Number.isFinite(line.end) &&
+        line.end > line.start
+    )
+    .sort((a, b) => a.start - b.start);
+
+  if (intervals.length === 0) {
+    return 0;
+  }
+
+  let total = 0;
+  let currentStart = intervals[0].start;
+  let currentEnd = intervals[0].end;
+
+  for (let idx = 1; idx < intervals.length; idx += 1) {
+    const item = intervals[idx];
+    if (item.start <= currentEnd) {
+      currentEnd = Math.max(currentEnd, item.end);
+      continue;
+    }
+    total += currentEnd - currentStart;
+    currentStart = item.start;
+    currentEnd = item.end;
+  }
+
+  total += currentEnd - currentStart;
+  return Math.max(0, total);
 }
 
 export default function JobWorkspace({
@@ -319,26 +365,6 @@ export default function JobWorkspace({
     },
     [jobId]
   );
-
-  const onRenderSourceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const input = e.currentTarget;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    const lowerName = file.name.toLowerCase();
-    const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
-      lowerName.endsWith(ext)
-    );
-    if (!hasSupportedExt) {
-      setError(
-        "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
-      );
-      return;
-    }
-    setError("");
-    setSelectedFile(file);
-    void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
-  };
 
   useEffect(() => {
     if (
@@ -622,6 +648,7 @@ export default function JobWorkspace({
         composition,
         inputProps,
         videoCodec: "h264",
+        videoBitrate: "high",
         onProgress: (progress) => {
           const totalFrames = Math.max(
             1,
@@ -745,16 +772,10 @@ export default function JobWorkspace({
   };
 
   const { originalDuration, estimatedDuration } = useMemo(() => {
-    let original = 0;
-    let estimated = 0;
-    if (lines.length > 0) {
-      original = lines[lines.length - 1].end;
-      estimated = lines.reduce((acc, line) => {
-        if (!line.user_final_remove) return acc + (line.end - line.start);
-        return acc;
-      }, 0);
-    }
-    return { originalDuration: original, estimatedDuration: estimated };
+    return {
+      originalDuration: getOriginalDurationFromLines(lines),
+      estimatedDuration: getEstimatedDurationFromLines(lines),
+    };
   }, [lines]);
 
   if (!job) {
@@ -946,7 +967,7 @@ export default function JobWorkspace({
                     <div className="flex-1 min-w-0">
                       {isRemoved ? (
                         <div
-                          className="text-[15px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
+                          className="text-[13px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
                           onClick={() => updateLine(line.line_id, { user_final_remove: false })}
                           title="点击恢复此行"
                         >
@@ -1204,21 +1225,6 @@ export default function JobWorkspace({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2 text-left">
-                <label className="text-sm font-medium">本地原始视频（导出源）</label>
-                <Input
-                  type="file"
-                  accept={SUPPORTED_UPLOAD_ACCEPT}
-                  onChange={onRenderSourceChange}
-                  disabled={renderBusy}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {selectedFile
-                    ? `当前文件：${selectedFile.name}`
-                    : "未选择时会自动尝试读取本地缓存，失败再手动选择。"}
-                </p>
               </div>
 
               <div className="rounded-md bg-amber-50 p-3 text-left text-xs text-amber-800 border border-amber-200">

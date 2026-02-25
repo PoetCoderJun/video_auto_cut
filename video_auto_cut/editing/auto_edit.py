@@ -15,10 +15,6 @@ from .topic_segment import TopicSegmenter
 
 REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
-MAX_OPTIMIZE_LENGTH_DIFF_RATIO = 0.3
-NO_SPEECH_NORMALIZED = {"<nospeech>", "nospeech"}
-FILLER_ONLY_CHARS = {"嗯", "哦", "啊", "呃", "额", "唉"}
-LEADING_FILLER_RE = re.compile(r"^[\s,，.。!！?？:：;；、]*(?:嗯+|哦+|啊+|呃+|额+|唉+)[\s,，.。!！?？:：;；、]*")
 
 
 @dataclass
@@ -41,8 +37,6 @@ def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
         "你是口播文案删减助手。输入是完整asr转写文案，每行对应一个字幕句子。"
         "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多语义。"
         "任务：只判断每行是否删除，不做改写。"
-        "硬规则：凡是 < No Speech >（或纯静音占位）必须删除。"
-        "硬规则：纯语气词/口癖行（如“嗯”“哦”“啊”“呃”）必须删除。"
         "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的重复/试错内容一并删除。"
         f"删除行输出 {REMOVE_TOKEN}。保留行必须原样回填，不允许改字、改词、改标点。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
@@ -56,11 +50,9 @@ def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
 def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
         "你是口播视频的文案优化助手。输入是第一步删减结果，每行对应一个字幕句子。"
-        "第二步任务：只优化未删除行的用词和标点，降低 ASR 错误并提升可读性。"
-        "重点修正明显 ASR 错误（同音字、错词）并恢复标点。"
-        "优化规则：默认删除句首语气词/口癖（如“嗯”“哦”“啊”“呃”），除非删除后会改变实义。"
-        "不要新增或删减语义，不要改写句意。"
-        "每行文本长度应尽量接近原句。"
+        "对每一条未删除行做审阅与润色，结合上下文修正 ASR 错字、错词、断句和不自然表达，提升可读性与连贯性，同时删除哦 嗯 啊 之类的语气词"
+        "重点修正明显 ASR 错误（同音字、错词）、口语断裂和标点。"
+        "在不改变核心语义的前提下，允许必要改写，使句子自然流畅。"
         f"对于标记为 {REMOVE_TOKEN} 的行，必须原样输出 {REMOVE_TOKEN}，禁止恢复内容。"
         "禁止新增删除，不要把保留行改成删除。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
@@ -116,48 +108,7 @@ def _is_remove_line(content: str) -> bool:
         return True
     if value.startswith(REMOVE_TOKEN):
         return True
-    if _is_no_speech_line(value):
-        return True
     return False
-
-
-def _normalize_for_compare(text: str) -> str:
-    return re.sub(r"\s+", "", (text or "").strip()).lower()
-
-
-def _is_no_speech_line(content: str) -> bool:
-    value = _normalize_for_compare(content)
-    return value in NO_SPEECH_NORMALIZED
-
-
-def _is_filler_only_line(content: str) -> bool:
-    raw = (content or "").strip()
-    if not raw:
-        return True
-    stripped = re.sub(r"[\s,，.。!！?？:：;；、~～\-—]+", "", raw)
-    if not stripped:
-        return True
-    return all(ch in FILLER_ONLY_CHARS for ch in stripped)
-
-
-def _strip_leading_fillers(content: str) -> str:
-    text = (content or "").strip()
-    if not text:
-        return text
-    while True:
-        updated = LEADING_FILLER_RE.sub("", text, count=1).strip()
-        if updated == text:
-            break
-        text = updated
-    return text
-
-
-def _length_diff_too_large(candidate: str, original: str, ratio: float) -> bool:
-    c = (candidate or "").strip()
-    o = (original or "").strip()
-    if not c or not o:
-        return False
-    return abs(len(c) - len(o)) / max(len(o), 1) > ratio
 
 
 def _segments_to_edl(
@@ -338,8 +289,6 @@ class AutoEdit:
             raw_text = (remove_mapped.get(idx) or "").strip()
             orig_text = (seg.get("text") or "").strip()
             remove = _is_remove_line(raw_text)
-            if _is_no_speech_line(orig_text) or _is_filler_only_line(orig_text):
-                remove = True
             remove_flags.append(remove)
             if remove:
                 remove_stage_lines.append(f"[L{idx:04d}] {REMOVE_TOKEN}")
@@ -396,17 +345,6 @@ class AutoEdit:
                     new_text = orig_text
                 else:
                     new_text = raw_text or orig_text
-                    new_text = _strip_leading_fillers(new_text)
-                    if not new_text and _is_filler_only_line(orig_text):
-                        new_text = REMOVE_TOKEN
-                    if _length_diff_too_large(
-                        new_text, orig_text, MAX_OPTIMIZE_LENGTH_DIFF_RATIO
-                    ):
-                        logging.warning(
-                            "LLM optimize pass changed kept line [L%04d] too much; using original text.",
-                            idx,
-                        )
-                        new_text = orig_text
 
             sub = srt.Subtitle(
                 index=int(seg.get("id") or idx),
@@ -446,7 +384,6 @@ class AutoEdit:
                     "raw_output": optimize_cleaned,
                     "missing_tags": optimize_missing,
                     "duplicate_tags": optimize_duplicates,
-                    "max_length_diff_ratio": MAX_OPTIMIZE_LENGTH_DIFF_RATIO,
                 },
             },
         }

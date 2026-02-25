@@ -81,8 +81,13 @@ def build_web_render_config(
 
     resolved_fps = _resolve_fps(fps, media_info)
     resolved_width, resolved_height = _resolve_dimensions(width, height, media_info)
-    resolved_duration_s = _resolve_duration(duration_sec, media_info, captions, segments)
-    duration_in_frames = max(1, int(math.ceil(resolved_duration_s * resolved_fps)))
+    segment_duration_in_frames = _duration_frames_from_segments(segments, resolved_fps)
+    if segment_duration_in_frames > 0:
+        # Keep composition length strictly aligned with stitched segment frames.
+        duration_in_frames = segment_duration_in_frames
+    else:
+        resolved_duration_s = _resolve_duration(duration_sec, media_info, captions, segments)
+        duration_in_frames = max(1, int(math.ceil(resolved_duration_s * resolved_fps)))
 
     output_stem = source_path.stem if source_path is not None else job_id
     output_name = f"{output_stem}_remotion.mp4"
@@ -204,12 +209,8 @@ def _resolve_dimensions(
     if width <= 0 or height <= 0:
         return 1920, 1080
 
-    max_height = 1080
-    if height > max_height:
-        scale = max_height / float(height)
-        width = int(round(width * scale))
-        height = max_height
-
+    # Keep original upload resolution (no forced 1080p downscale),
+    # so subtitle edges stay sharp in browser-side render output.
     return _ensure_even(width), _ensure_even(height)
 
 def _resolve_duration(
@@ -243,6 +244,19 @@ def _resolve_duration(
     if not math.isfinite(duration_s) or duration_s <= 0:
         return 1.0
     return duration_s
+
+
+def _duration_frames_from_segments(segments: list[dict[str, Any]], fps: float) -> int:
+    total = 0
+    for item in sorted(segments, key=lambda seg: float(seg["start"])):
+        start = float(item["start"])
+        end = float(item["end"])
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            continue
+        trim_before = max(0, int(math.floor(start * fps)))
+        trim_after = max(trim_before + 1, int(math.ceil(end * fps)))
+        total += max(1, trim_after - trim_before)
+    return max(0, total)
 
 
 def _ensure_even(value: int) -> int:
