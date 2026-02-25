@@ -70,6 +70,8 @@ pip-wheel-metadata/
 .ruff_cache/
 .cache/
 workdir/
+workdir_regression/
+workdir_regression2/
 htmlcov/
 .coverage
 .coverage.*
