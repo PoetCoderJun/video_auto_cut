@@ -25,6 +25,9 @@ def upload_too_large(message: str) -> ApiError:
 def unsupported_video_format(message: str) -> ApiError:
     return ApiError(code="UNSUPPORTED_VIDEO_FORMAT", message=message, status_code=422)
 
+def unsupported_audio_format(message: str) -> ApiError:
+    return ApiError(code="UNSUPPORTED_AUDIO_FORMAT", message=message, status_code=422)
+
 
 def invalid_step_state(message: str) -> ApiError:
     return ApiError(code="INVALID_STEP_STATE", message=message, status_code=409)

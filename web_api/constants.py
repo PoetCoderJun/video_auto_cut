@@ -13,6 +13,17 @@ ALLOWED_VIDEO_EXTENSIONS = {
     ".mts",
 }
 
+ALLOWED_AUDIO_EXTENSIONS = {
+    ".m4a",
+    ".mp3",
+    ".wav",
+    ".aac",
+    ".flac",
+    ".ogg",
+    ".opus",
+    ".mp4",
+}
+
 JOB_STATUS_CREATED = "CREATED"
 JOB_STATUS_UPLOAD_READY = "UPLOAD_READY"
 JOB_STATUS_STEP1_RUNNING = "STEP1_RUNNING"

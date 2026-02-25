@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from ..errors import coupon_code_exhausted, coupon_code_expired, coupon_code_invalid
+from ..errors import (
+    coupon_code_exhausted,
+    coupon_code_expired,
+    coupon_code_invalid,
+    forbidden,
+)
 from ..repository import (
     ensure_user,
     get_credit_balance,
@@ -14,6 +19,14 @@ from ..repository import (
 def has_available_credits(user_id: str, required: int = 1) -> bool:
     needed = max(1, int(required))
     return get_credit_balance(user_id) >= needed
+
+
+def require_active_user(user_id: str, email: str | None = None) -> None:
+    ensure_user(user_id, email)
+    user = get_user(user_id)
+    status = str((user or {}).get("status") or "PENDING_COUPON").upper()
+    if status != "ACTIVE":
+        raise forbidden("账号尚未完成邀请码激活，请先激活后再继续")
 
 
 def get_user_profile(user_id: str, email: str | None = None) -> dict[str, object]:

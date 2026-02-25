@@ -36,6 +36,7 @@ from ..services.billing import (
     check_coupon_for_signup,
     get_user_profile,
     has_available_credits,
+    require_active_user,
     redeem_coupon_for_user,
 )
 from ..services.cleanup import mark_job_cleanup_from_now
@@ -97,6 +98,7 @@ async def upload_job_video(
     file: UploadFile = File(...),
     current_user: CurrentUser = Depends(require_current_user),
 ) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_CREATED})
     upload = await save_uploaded_video(job_id, file)
@@ -106,6 +108,7 @@ async def upload_job_video(
 
 @router.post("/jobs/{job_id}/step1/run")
 def step1_run(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_UPLOAD_READY})
     if not has_available_credits(current_user.user_id, required=1):

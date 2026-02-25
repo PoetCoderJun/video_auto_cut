@@ -25,6 +25,7 @@ from ..utils.srt_utils import (
     write_final_step1_srt,
     write_step1_json,
 )
+from .billing import has_available_credits
 from .pipeline_options import build_pipeline_options
 
 
@@ -33,6 +34,11 @@ def run_step1(job_id: str) -> None:
     files = _load_required_paths(job_id)
     video_path = Path(files["video_path"])
     options = build_pipeline_options()
+    owner_user_id = get_job_owner_user_id(job_id)
+    if not owner_user_id:
+        raise RuntimeError("job owner not found")
+    if not has_available_credits(owner_user_id, required=1):
+        raise RuntimeError("额度不足，请先兑换邀请码后重试")
 
     logging.info("[web_api] step1 transcribe start: %s", video_path)
     srt_path = run_transcribe(video_path, options)
@@ -57,9 +63,6 @@ def run_step1(job_id: str) -> None:
         final_step1_srt_path=str(final_step1_srt),
     )
 
-    owner_user_id = get_job_owner_user_id(job_id)
-    if not owner_user_id:
-        raise RuntimeError("job owner not found")
     try:
         consume_step1_credit(owner_user_id, job_id)
     except LookupError as exc:

@@ -6,6 +6,8 @@ from ..constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_STEP1_RUNNING,
     JOB_STATUS_STEP2_RUNNING,
+    JOB_STATUS_UPLOAD_READY,
+    PROGRESS_UPLOAD_READY,
     PROGRESS_STEP2_RUNNING,
     PROGRESS_STEP1_RUNNING,
     TASK_TYPE_STEP1,
@@ -21,6 +23,18 @@ TASK_DISPATCH = {
     TASK_TYPE_STEP1: run_step1,
     TASK_TYPE_STEP2: run_step2,
 }
+
+
+def _is_insufficient_credit_error(exc: Exception) -> bool:
+    message = str(exc or "").strip()
+    return "额度不足" in message
+
+
+def _public_task_error_message(exc: Exception) -> str:
+    message = str(exc or "").strip()
+    if _is_insufficient_credit_error(exc):
+        return message or "额度不足，请先兑换邀请码后重试"
+    return "任务执行失败，请重试。"
 
 
 def queue_job_task(job_id: str, task_type: str) -> int:
@@ -60,11 +74,20 @@ def execute_task(task: dict[str, object]) -> None:
     except Exception as exc:  # pragma: no cover - runtime behavior
         logging.exception("[web_api] task failed task=%s job=%s", task_type, job_id)
         set_task_failed(task_id, str(exc))
+        if task_type == TASK_TYPE_STEP1 and _is_insufficient_credit_error(exc):
+            update_job(
+                job_id,
+                status=JOB_STATUS_UPLOAD_READY,
+                progress=PROGRESS_UPLOAD_READY,
+                error_code="INVALID_STEP_STATE",
+                error_message=_public_task_error_message(exc),
+            )
+            return
         update_job(
             job_id,
             status=JOB_STATUS_FAILED,
             error_code="INTERNAL_ERROR",
-            error_message=str(exc),
+            error_message=_public_task_error_message(exc),
         )
         return
 

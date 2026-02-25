@@ -127,9 +127,19 @@ def _get_jwk_by_kid(jwks_url: str, kid: str) -> dict[str, Any] | None:
     with _JWKS_LOCK:
         global _JWKS_CACHE_EXPIRES_AT
         if now >= _JWKS_CACHE_EXPIRES_AT:
+            refreshed = _fetch_jwks(jwks_url)
             _JWKS_CACHE_BY_KID.clear()
-            _JWKS_CACHE_BY_KID.update(_fetch_jwks(jwks_url))
+            _JWKS_CACHE_BY_KID.update(refreshed)
             _JWKS_CACHE_EXPIRES_AT = now + 300
+        cached = _JWKS_CACHE_BY_KID.get(kid)
+        if cached is not None:
+            return cached
+
+        # Refresh once immediately on kid miss so key rotation doesn't fail until TTL expiry.
+        refreshed = _fetch_jwks(jwks_url)
+        _JWKS_CACHE_BY_KID.clear()
+        _JWKS_CACHE_BY_KID.update(refreshed)
+        _JWKS_CACHE_EXPIRES_AT = time.time() + 300
         return _JWKS_CACHE_BY_KID.get(kid)
 
 

@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
             status_code=500,
             content={
                 "request_id": _request_id(),
-                "error": {"code": "INTERNAL_ERROR", "message": str(exc)},
+                "error": {"code": "INTERNAL_ERROR", "message": "服务内部错误，请稍后重试"},
             },
         )
 

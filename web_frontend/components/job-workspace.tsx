@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ApiClientError,
   Chapter,
   Job,
   Step1Line,
@@ -182,9 +183,13 @@ export default function JobWorkspace({
       return next;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const isJobMissing = message.includes("job not found");
+      const isJobMissing =
+        (err instanceof ApiClientError && err.code === "NOT_FOUND") ||
+        message.includes("job not found");
       const isAuthError =
-        message.includes("请先登录") || message.includes("登录状态无效");
+        (err instanceof ApiClientError && err.code === "UNAUTHORIZED") ||
+        message.includes("请先登录") ||
+        message.includes("登录状态无效");
 
       if (isJobMissing || isAuthError) {
         onBackHome?.();
@@ -203,11 +208,18 @@ export default function JobWorkspace({
       .catch((err) => {
         if (!active) return;
         const message = err instanceof Error ? err.message : String(err);
-        if (message.includes("job not found")) {
+        if (
+          (err instanceof ApiClientError && err.code === "NOT_FOUND") ||
+          message.includes("job not found")
+        ) {
           setError("项目不存在或已被清理，已返回首页。");
           return;
         }
-        if (message.includes("请先登录") || message.includes("登录状态无效")) {
+        if (
+          (err instanceof ApiClientError && err.code === "UNAUTHORIZED") ||
+          message.includes("请先登录") ||
+          message.includes("登录状态无效")
+        ) {
           setError("登录状态已失效，请重新登录。");
           return;
         }
@@ -316,6 +328,12 @@ export default function JobWorkspace({
     };
   }, [job, autoStep1Triggered, jobId, busy]);
 
+  const handleRetryStep1AutoRun = useCallback(() => {
+    if (!job || job.status !== STATUS.UPLOAD_READY || busy) return;
+    setError("");
+    setAutoStep1Triggered(false);
+  }, [job, busy]);
+
   useEffect(() => {
     if (
       !job ||
@@ -347,6 +365,12 @@ export default function JobWorkspace({
     };
   }, [job, autoStep2Triggered, jobId, busy]);
 
+  const handleRetryStep2AutoRun = useCallback(() => {
+    if (!job || job.status !== STATUS.STEP1_CONFIRMED || busy) return;
+    setError("");
+    setAutoStep2Triggered(false);
+  }, [job, busy]);
+
   useEffect(() => {
     if (!job) return;
     const isTransitional =
@@ -365,7 +389,9 @@ export default function JobWorkspace({
   }, [job?.status, refreshJob]);
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
     if (file) {
       setSelectedFile(file);
       void handleUpload(file);
@@ -688,6 +714,16 @@ export default function JobWorkspace({
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
           <h2 className="text-xl font-semibold">正在提取字幕</h2>
           <p className="text-muted-foreground">AI 正在解析视频语音，这可能需要几分钟...</p>
+          {job.status === STATUS.UPLOAD_READY && !busy && autoStep1Triggered && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4"
+              onClick={handleRetryStep1AutoRun}
+            >
+              重新尝试启动字幕任务
+            </Button>
+          )}
         </div>
       )}
 
@@ -699,6 +735,16 @@ export default function JobWorkspace({
           <p className="text-muted-foreground">
             请等待，处理完成后将自动进入导出步骤。
           </p>
+          {job.status === STATUS.STEP1_CONFIRMED && !busy && autoStep2Triggered && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4"
+              onClick={handleRetryStep2AutoRun}
+            >
+              重新尝试启动章节任务
+            </Button>
+          )}
         </div>
       )}
 

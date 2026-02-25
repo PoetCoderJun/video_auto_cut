@@ -5,14 +5,20 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from ..constants import ALLOWED_VIDEO_EXTENSIONS
-from ..errors import unsupported_video_format
+from ..constants import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
+from ..errors import unsupported_audio_format, unsupported_video_format
 
 
 def validate_video_extension(path: Path) -> None:
     if path.suffix.lower() not in ALLOWED_VIDEO_EXTENSIONS:
         raise unsupported_video_format(
             "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+        )
+
+def validate_audio_extension(path: Path) -> None:
+    if path.suffix.lower() not in ALLOWED_AUDIO_EXTENSIONS:
+        raise unsupported_audio_format(
+            "这个音频格式暂不支持。请上传 M4A、MP3、WAV、AAC、FLAC、OGG/OPUS 或 MP4 音频。"
         )
 
 

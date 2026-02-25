@@ -132,6 +132,49 @@ type RequestOptions = {
 
 const base = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api/v1").replace(/\/$/, "");
 
+export class ApiClientError extends Error {
+  code: string;
+  status: number;
+
+  constructor(message: string, code = "UNKNOWN_ERROR", status = 0) {
+    super(message);
+    this.name = "ApiClientError";
+    this.code = String(code || "UNKNOWN_ERROR");
+    this.status = Number.isFinite(status) ? intOrZero(status) : 0;
+  }
+}
+
+function intOrZero(value: number): number {
+  const normalized = Math.trunc(value);
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function toMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function parseApiErrorText(text: string, fallbackStatus: number): ApiClientError {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) {
+    return new ApiClientError(`HTTP ${fallbackStatus}`, "HTTP_ERROR", fallbackStatus);
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as ApiErrorResponse;
+    const code = String(parsed?.error?.code || "HTTP_ERROR");
+    const message = String(parsed?.error?.message || "").trim() || `HTTP ${fallbackStatus}`;
+    return new ApiClientError(message, code, fallbackStatus);
+  } catch {
+    return new ApiClientError(trimmed, "HTTP_ERROR", fallbackStatus);
+  }
+}
+
+async function assertOk(response: Response): Promise<void> {
+  if (response.ok) return;
+  const text = await response.text();
+  throw parseApiErrorText(text, response.status);
+}
+
 export function setApiAuthTokenProvider(provider: AuthTokenProvider | null): void {
   authTokenProvider = provider;
 }
@@ -150,7 +193,7 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
   const token = await resolveAuthToken();
   const requireAuth = Boolean(options?.requireAuth);
   if (requireAuth && !token) {
-    throw new Error("登录状态初始化中，请稍后重试。");
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
   }
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -164,19 +207,10 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
       cache: "no-store",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法连接 API（${base}）：${message}`);
+    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const parsed = JSON.parse(text) as ApiErrorResponse;
-      throw new Error(parsed.error.message || `HTTP ${response.status}`);
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-  }
+  await assertOk(response);
 
   const payload = (await response.json()) as ApiResponse<T>;
   return payload.data;
@@ -190,7 +224,7 @@ async function requestWithExplicitToken<T>(path: string, token: string, init?: R
   const headers = new Headers(init?.headers);
   const normalizedToken = token.trim();
   if (!normalizedToken) {
-    throw new Error("登录状态初始化中，请稍后重试。");
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
   }
   headers.set("Authorization", `Bearer ${normalizedToken}`);
 
@@ -202,19 +236,10 @@ async function requestWithExplicitToken<T>(path: string, token: string, init?: R
       cache: "no-store",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法连接 API（${base}）：${message}`);
+    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const parsed = JSON.parse(text) as ApiErrorResponse;
-      throw new Error(parsed.error.message || `HTTP ${response.status}`);
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-  }
+  await assertOk(response);
 
   const payload = (await response.json()) as ApiResponse<T>;
   return payload.data;
@@ -282,37 +307,11 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
 export async function uploadVideo(jobId: string, file: File): Promise<Job> {
   const form = new FormData();
   form.append("file", file);
-  const token = await resolveAuthToken();
-  if (!token) {
-    throw new Error("登录状态初始化中，请稍后重试。");
-  }
-  const headers = new Headers();
-  headers.set("Authorization", `Bearer ${token}`);
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}/jobs/${jobId}/upload`, {
-      method: "POST",
-      body: form,
-      headers,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法连接 API（${base}）：${message}`);
-  }
-
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const parsed = JSON.parse(text) as ApiErrorResponse;
-      throw new Error(parsed.error.message || `HTTP ${response.status}`);
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-  }
-
-  const payload = (await response.json()) as ApiResponse<{job: Job}>;
-  return payload.data.job;
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/upload`, {
+    method: "POST",
+    body: form,
+  });
+  return data.job;
 }
 
 export async function runStep1(jobId: string): Promise<QueueAccepted> {
@@ -366,7 +365,7 @@ export async function getRenderSourceBlob(jobId: string): Promise<Blob> {
   const headers = new Headers();
   const token = await resolveAuthToken();
   if (!token) {
-    throw new Error("登录状态初始化中，请稍后重试。");
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
   }
   headers.set("Authorization", `Bearer ${token}`);
 
@@ -378,19 +377,10 @@ export async function getRenderSourceBlob(jobId: string): Promise<Blob> {
       cache: "no-store",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法连接 API（${base}）：${message}`);
+    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const parsed = JSON.parse(text) as ApiErrorResponse;
-      throw new Error(parsed.error.message || `HTTP ${response.status}`);
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-  }
+  await assertOk(response);
 
   return response.blob();
 }
@@ -414,7 +404,7 @@ export async function downloadRenderedVideo(jobId: string): Promise<{blob: Blob;
   const headers = new Headers();
   const token = await resolveAuthToken();
   if (!token) {
-    throw new Error("登录状态初始化中，请稍后重试。");
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
   }
   headers.set("Authorization", `Bearer ${token}`);
 
@@ -426,19 +416,10 @@ export async function downloadRenderedVideo(jobId: string): Promise<{blob: Blob;
       cache: "no-store",
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法连接 API（${base}）：${message}`);
+    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
   }
 
-  if (!response.ok) {
-    const text = await response.text();
-    try {
-      const parsed = JSON.parse(text) as ApiErrorResponse;
-      throw new Error(parsed.error.message || `HTTP ${response.status}`);
-    } catch {
-      throw new Error(text || `HTTP ${response.status}`);
-    }
-  }
+  await assertOk(response);
 
   const blob = await response.blob();
   const filename = parseFilenameFromDisposition(response.headers.get("content-disposition")) || "output.mp4";

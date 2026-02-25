@@ -677,6 +677,10 @@ def _has_artifacts(files: dict[str, Any]) -> bool:
     return False
 
 
+def _is_cleanup_candidate_status(status: str | None) -> bool:
+    return status in {JOB_STATUS_SUCCEEDED, JOB_STATUS_STEP2_CONFIRMED}
+
+
 def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:
     settings = get_settings()
     jobs_root = settings.work_dir / "jobs"
@@ -693,7 +697,7 @@ def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[s
         if not meta:
             continue
         status = _normalize_meta_status(meta.get("status"))
-        if status != JOB_STATUS_SUCCEEDED:
+        if not _is_cleanup_candidate_status(status):
             continue
         files = get_job_files(job_id) or {}
         if not _has_artifacts(files):
@@ -721,7 +725,7 @@ def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
         if not meta:
             continue
         status = _normalize_meta_status(meta.get("status"))
-        if status != JOB_STATUS_SUCCEEDED:
+        if not _is_cleanup_candidate_status(status):
             continue
         files = get_job_files(job_id) or {}
         if not _has_artifacts(files):
