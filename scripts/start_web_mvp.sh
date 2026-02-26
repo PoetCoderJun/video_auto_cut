@@ -56,12 +56,16 @@ export WEB_AUTH_BASE_URL="${WEB_AUTH_BASE_URL:-$BETTER_AUTH_URL}"
 export WEB_AUTH_ISSUER="${WEB_AUTH_ISSUER:-$BETTER_AUTH_URL}"
 export WEB_AUTH_AUDIENCE="${WEB_AUTH_AUDIENCE:-$BETTER_AUTH_URL}"
 export WEB_AUTH_JWKS_URL="${WEB_AUTH_JWKS_URL:-${BETTER_AUTH_URL%/}/api/auth/jwks}"
+ASR_BACKEND_NORMALIZED="$(printf '%s' "${ASR_BACKEND:-dashscope_filetrans}" | tr '[:upper:]' '[:lower:]')"
+if [[ "$ASR_BACKEND_NORMALIZED" != "dashscope_filetrans" ]]; then
+  echo "[start_web_mvp] unsupported ASR_BACKEND=$ASR_BACKEND_NORMALIZED (only dashscope_filetrans is supported)"
+  exit 1
+fi
 
-python_can_run_step1() {
+python_can_run() {
   "$@" - <<'PY' >/dev/null 2>&1
-import importlib.util
 import sys
-ok = sys.version_info >= (3, 10) and importlib.util.find_spec("qwen_asr") is not None
+ok = sys.version_info >= (3, 10)
 raise SystemExit(0 if ok else 1)
 PY
 }
@@ -73,14 +77,13 @@ if ! command -v "${PYTHON_CMD[0]}" >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! python_can_run_step1 "${PYTHON_CMD[@]}"; then
-  if command -v conda >/dev/null 2>&1 && python_can_run_step1 conda run -n qwen312 python; then
-    echo "[start_web_mvp] current python cannot run Step1 (qwen_asr/Python>=3.10), fallback to conda env: qwen312"
+if ! python_can_run "${PYTHON_CMD[@]}"; then
+  if command -v conda >/dev/null 2>&1 && python_can_run conda run -n qwen312 python; then
+    echo "[start_web_mvp] current python cannot run Step1 (Python>=3.10), fallback to conda env: qwen312"
     PYTHON_CMD=(conda run -n qwen312 python)
   else
-    echo "[start_web_mvp] current python cannot run Step1 (requires qwen_asr and Python>=3.10)."
-    echo "[start_web_mvp] fix: activate qwen312 env or set PYTHON_BIN to a compatible interpreter."
-    echo "[start_web_mvp] example: conda activate qwen312 && scripts/start_web_mvp.sh"
+    echo "[start_web_mvp] current python cannot run Step1 (requires Python>=3.10)."
+    echo "[start_web_mvp] fix: activate a compatible env or set PYTHON_BIN."
     exit 1
   fi
 fi
@@ -104,7 +107,6 @@ import sys
 
 required = ["fastapi", "uvicorn", "multipart", "jwt"]
 required.append("libsql")
-required.append("qwen_asr")
 asr_backend = (os.getenv("ASR_BACKEND") or "").strip().lower()
 if asr_backend == "dashscope_filetrans":
     required.append("oss2")
@@ -115,8 +117,6 @@ if missing:
     print("[start_web_mvp] installing python deps via requirements.txt ...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
-if importlib.util.find_spec("qwen_asr") is None:
-    raise SystemExit("[start_web_mvp] qwen_asr still missing after dependency install.")
 if asr_backend == "dashscope_filetrans" and importlib.util.find_spec("oss2") is None:
     raise SystemExit("[start_web_mvp] oss2 still missing after dependency install.")
 PY

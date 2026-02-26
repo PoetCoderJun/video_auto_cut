@@ -12,6 +12,9 @@ import {
   Sparkles,
   LayoutTemplate,
   UploadCloud,
+  Scissors,
+  ShieldCheck,
+  ArrowRight,
 } from "lucide-react";
 
 import {
@@ -55,6 +58,30 @@ const FAQ_ITEMS = [
   {
     question: "是否需要专业剪辑经验？",
     answer: "完全不需要。整个流程按步骤引导，您的重点只是确认文字字幕和章节结构。",
+  },
+];
+
+const LANDING_STATS = [
+  { label: "剪辑准备时间", value: "95%", hint: "平均可节省" },
+  { label: "上手门槛", value: "0", hint: "无需专业经验" },
+  { label: "流程步骤", value: "3", hint: "上传到导出" },
+];
+
+const FLOW_STEPS = [
+  {
+    title: "上传视频",
+    description: "直接上传口播视频，系统自动提取语音与字幕。",
+    icon: <UploadCloud className="h-5 w-5 text-indigo-600" />,
+  },
+  {
+    title: "AI 智能精简",
+    description: "自动识别废话、停顿和重复表达，生成更紧凑内容。",
+    icon: <Scissors className="h-5 w-5 text-violet-600" />,
+  },
+  {
+    title: "快速导出成片",
+    description: "自动渲染字幕、进度条和章节，导出可发布视频。",
+    icon: <Play className="h-5 w-5 text-rose-600" />,
   },
 ];
 
@@ -467,6 +494,14 @@ export default function HomePageClient() {
             </div>
             <span>AI Cut</span>
           </Link>
+          <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+            <a href="#how-it-works" className="transition-colors hover:text-foreground">
+              如何使用
+            </a>
+            <a href="#faq" className="transition-colors hover:text-foreground">
+              常见问题
+            </a>
+          </nav>
           <div className="flex items-center gap-3">
             {!authReady ? null : !isSignedIn ? (
               <>
@@ -498,7 +533,7 @@ export default function HomePageClient() {
 
       <main className="container mx-auto px-4 sm:px-6">
         {/* Hero Section */}
-        <section className="relative pt-20 pb-16 text-center lg:pt-32">
+        <section className="relative pt-14 pb-14 text-center lg:pt-24">
           <div className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80">
             <div
               className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-30 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
@@ -514,22 +549,29 @@ export default function HomePageClient() {
               <div className="relative rounded-full px-3 py-1 text-sm leading-6 text-muted-foreground ring-1 ring-border/60 hover:ring-border/80 bg-background/50 backdrop-blur-sm">
                 <span className="flex items-center gap-1.5 font-semibold text-foreground">
                   <Zap className="h-4 w-4 text-amber-500 fill-amber-500" />
-                  让口播视频剪辑提速 95%
+                  AI 自动剪辑，让口播制作提速 95%
                 </span>
               </div>
             </div>
 
-            <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl mb-6">
-              AI口播{" "}
+            <h1 className="mb-6 text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl">
+              AI 口播视频{" "}
               <span className="bg-gradient-to-r from-foreground to-indigo-600 bg-clip-text text-transparent">
-                一键剪辑
+                一键精剪与导出
               </span>
             </h1>
 
             <p className="mt-6 text-lg leading-8 text-muted-foreground">
-              AI自动剔除废话、精简字幕并自动渲染成品视频，<br />
-              自动完成且人工可修改。
+              自动剔除废话、整理章节并渲染字幕效果，几分钟完成口播后期。<br />
+              全流程可编辑，既快又可控。
             </p>
+
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                账号状态校验与额度可见
+              </span>
+            </div>
 
             <div className="mt-10 flex flex-col items-center justify-center gap-6">
               {/* Direct Upload Area */}
@@ -575,6 +617,22 @@ export default function HomePageClient() {
                 </div>
               </div>
 
+              {!isSignedIn && authReady && (
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <Link href="/sign-up">
+                    <Button className="rounded-full">
+                      立即注册体验
+                      <ArrowRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/sign-in">
+                    <Button variant="outline" className="rounded-full">
+                      我已有账号，去登录
+                    </Button>
+                  </Link>
+                </div>
+              )}
+
               {inviteNotice && (
                 <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 border border-emerald-200">
                   <CheckCircle2 className="h-4 w-4" />
@@ -599,39 +657,44 @@ export default function HomePageClient() {
                 </div>
               )}
             </div>
+
+            <div className="mx-auto mt-12 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
+              {LANDING_STATS.map((item) => (
+                <Card key={item.label} className="border-border/80 bg-card/80 text-left shadow-sm">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">{item.label}</p>
+                    <p className="mt-1 text-2xl font-bold tracking-tight">{item.value}</p>
+                    <p className="text-xs text-muted-foreground">{item.hint}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* Feature Grid */}
-        <section id="features" className="py-16">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {[
-              {
-                title: "智能字幕生成",
-                desc: "自动识别视频语音，生成高精度字幕，支持多种主流视频格式。",
-                icon: <LayoutTemplate className="h-6 w-6 text-blue-500" />,
-              },
-              {
-                title: "智能剪辑剔除",
-                desc: "自动分析静音与废话片段，一键剔除冗余内容，保留精华。",
-                icon: <Sparkles className="h-6 w-6 text-purple-500" />,
-              },
-              {
-                title: "自动渲染字幕、进度条、章节",
-                desc: "并且加入亮点，未来有更多渲染和AI的可选项即将推出。",
-                icon: <Play className="h-6 w-6 text-red-500" />,
-              },
-            ].map((f, i) => (
-              <Card key={i} className="border-muted bg-card shadow-sm transition-all hover:shadow-md hover:-translate-y-1">
+        <section id="how-it-works" className="py-8">
+          <div className="mx-auto mb-8 max-w-2xl text-center">
+            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              3 步完成视频成片
+            </h2>
+            <p className="mt-3 text-sm text-muted-foreground sm:text-base">
+              从上传到导出，全流程结构清晰，适合内容创作者快速复用。
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {FLOW_STEPS.map((step, index) => (
+              <Card key={step.title} className="border-muted bg-card shadow-sm">
                 <CardHeader>
-                  <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                    {f.icon}
+                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                    {step.icon}
                   </div>
-                  <CardTitle className="text-lg">{f.title}</CardTitle>
+                  <CardTitle className="text-lg">
+                    {index + 1}. {step.title}
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <CardDescription className="text-base leading-relaxed">
-                    {f.desc}
+                    {step.description}
                   </CardDescription>
                 </CardContent>
               </Card>
@@ -708,6 +771,39 @@ export default function HomePageClient() {
               </CardContent>
             </Card>
           </div>
+        </section>
+
+        <section className="pb-16">
+          <Card className="border-border bg-gradient-to-r from-indigo-50/70 via-violet-50/50 to-white shadow-sm">
+            <CardContent className="flex flex-col items-center gap-4 px-6 py-8 text-center sm:px-10">
+              <h3 className="text-xl font-bold text-foreground sm:text-2xl">
+                开始你的下一条高质量口播视频
+              </h3>
+              <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
+                上传视频后，AI 会自动完成字幕识别、内容精简与章节整理，你只需要做最后确认。
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button
+                  onClick={() => {
+                    const input = document.querySelector<HTMLInputElement>("input[type='file']");
+                    input?.click();
+                  }}
+                  className="rounded-full"
+                  disabled={loading || !authReady || profileLoading}
+                >
+                  立即上传视频
+                  <ArrowRight className="ml-1 h-4 w-4" />
+                </Button>
+                {!isSignedIn && authReady && (
+                  <Link href="/sign-up">
+                    <Button variant="outline" className="rounded-full">
+                      先注册账号
+                    </Button>
+                  </Link>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </section>
       </main>
 

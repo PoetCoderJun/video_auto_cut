@@ -1,21 +1,37 @@
 import logging
 import os
+import subprocess
 
-import ffmpeg
 import numpy as np
 
 
 def load_audio(file: str, sr: int = 16000) -> np.ndarray:
     try:
-        out, _ = (
-            ffmpeg.input(file, threads=0)
-            .output("-", format="s16le", acodec="pcm_s16le", ac=1, ar=sr)
-            .run(cmd=["ffmpeg", "-nostdin"], capture_stdout=True, capture_stderr=True)
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-i",
+                file,
+                "-f",
+                "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                "1",
+                "-ar",
+                str(sr),
+                "-",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-    except ffmpeg.Error as exc:
-        raise RuntimeError(f"Failed to load audio: {exc.stderr.decode()}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode("utf-8", "replace")
+        raise RuntimeError(f"Failed to load audio with ffmpeg: {detail}") from exc
 
-    return np.frombuffer(out, np.int16).flatten().astype(np.float32) / 32768.0
+    return np.frombuffer(proc.stdout, np.int16).flatten().astype(np.float32) / 32768.0
 
 
 def is_video(filename: str) -> bool:

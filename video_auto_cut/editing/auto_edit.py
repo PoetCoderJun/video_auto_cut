@@ -15,6 +15,8 @@ from .topic_segment import TopicSegmenter
 
 REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
+NO_SPEECH_PATTERN = re.compile(r"^\s*<\s*no\s*speech\s*>\s*$", re.IGNORECASE)
+TIME_PREFIX_PATTERN = re.compile(r"^\[\d{1,3}:\d{2}\]\s*")
 
 
 @dataclass
@@ -28,19 +30,41 @@ def _segments_to_tagged_text(segments: List[Dict[str, Any]]) -> str:
     lines: List[str] = []
     for idx, seg in enumerate(segments, start=1):
         text = (seg.get("text") or "").strip()
-        lines.append(f"[L{idx:04d}] {text}")
+        start_s = max(0.0, float(seg.get("start") or 0.0))
+        minutes = int(start_s // 60)
+        seconds = int(start_s % 60)
+        stamp = f"{minutes:02d}:{seconds:02d}"
+        lines.append(f"[L{idx:04d}] [{stamp}] {text}")
     return "\n".join(lines)
 
 
 def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
         "你是口播文案删减助手。输入是完整asr转写文案，每行对应一个字幕句子。"
-        "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多语义。"
+        "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多相似语义。"
         "任务：只判断每行是否删除，不做改写。"
-        "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的重复/试错内容一并删除。"
+        "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的一并删除。"
+        "严格要求：遇到语义重复时必须激进删除前文，不要保守。"
+        "你只负责语义重复判断，不需要处理静音占位行。"
         f"删除行输出 {REMOVE_TOKEN}。保留行必须原样回填，不允许改字、改词、改标点。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
+        "示例1输入：\n"
+        "[L0001] [00:08] 嗯，这个功能我还在导出。\n"
+        "[L0002] [00:11] 这个功能已经支持批量导出。\n"
+        "[L0003] [00:15] 已经开发了支持批量导出的功能\n"
+        "示例1输出：\n"
+        f"[L0001] {REMOVE_TOKEN}\n"
+        f"[L0002] {REMOVE_TOKEN}\n"
+        "[L0003] [00:15] 已经开发了支持批量导出的功能\n"
+        "示例2输入：\n"
+        "[L0001] [01:20] 我们先看第一步。\n"
+        "[L0002] [01:24] 要怎么做呢。\n"
+        "[L0003] [01:34] 今天我们先看第一步，先把参数配置好。\n"
+        "示例2输出：\n"
+        f"[L0001] {REMOVE_TOKEN}\n"
+        f"[L0002] {REMOVE_TOKEN}\n"
+        "[L0003] [01:34] 今天我们先看第一步，先把参数配置好。\n"
         "仅输出删减后的完整文案，不要输出任何解释。"
     )
     user = f"原文：\n{tagged_text}\n\n请输出第一步删减结果："
@@ -102,6 +126,7 @@ def _parse_tagged_output(
 
 def _is_remove_line(content: str) -> bool:
     value = (content or "").strip()
+    value = TIME_PREFIX_PATTERN.sub("", value)
     if not value:
         return True
     if value == REMOVE_TOKEN:
@@ -109,6 +134,13 @@ def _is_remove_line(content: str) -> bool:
     if value.startswith(REMOVE_TOKEN):
         return True
     return False
+
+
+def _is_no_speech_text(content: str) -> bool:
+    value = (content or "").strip()
+    if not value:
+        return True
+    return bool(NO_SPEECH_PATTERN.match(value))
 
 
 def _segments_to_edl(
@@ -288,7 +320,8 @@ class AutoEdit:
         for idx, seg in enumerate(segments, start=1):
             raw_text = (remove_mapped.get(idx) or "").strip()
             orig_text = (seg.get("text") or "").strip()
-            remove = _is_remove_line(raw_text)
+            # No-speech placeholders are always removed by deterministic rule.
+            remove = _is_no_speech_text(orig_text) or _is_remove_line(raw_text)
             remove_flags.append(remove)
             if remove:
                 remove_stage_lines.append(f"[L{idx:04d}] {REMOVE_TOKEN}")

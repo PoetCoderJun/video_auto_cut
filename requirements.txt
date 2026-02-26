@@ -1,4 +1,3 @@
-ffmpeg-python
 fastapi
 libsql
 moviepy
@@ -7,7 +6,5 @@ opencc-python-reimplemented
 oss2
 python-multipart
 PyJWT[crypto]
-qwen-asr
 srt
-torch
 uvicorn

@@ -81,9 +81,7 @@ export type RenderInputProps = {
 };
 
 export type WebRenderConfig = {
-  source_url: string;
   output_name: string;
-  has_server_source?: boolean;
   composition: RenderComposition;
   input_props: RenderInputProps;
 };
@@ -305,16 +303,6 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
   return data.coupon;
 }
 
-export async function uploadVideo(jobId: string, file: File): Promise<Job> {
-  const form = new FormData();
-  form.append("file", file);
-  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/upload`, {
-    method: "POST",
-    body: form,
-  });
-  return data.job;
-}
-
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
   const form = new FormData();
   form.append("file", file);
@@ -367,11 +355,6 @@ export async function confirmStep2(jobId: string, chapters: Chapter[]): Promise<
   return data.status;
 }
 
-export async function getWebRenderConfig(jobId: string): Promise<WebRenderConfig> {
-  const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config`);
-  return data.render;
-}
-
 export type RenderMeta = {
   width: number;
   height: number;
@@ -390,69 +373,4 @@ export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta
   }
   const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config?${params.toString()}`);
   return data.render;
-}
-
-export async function getRenderSourceBlob(jobId: string): Promise<Blob> {
-  const headers = new Headers();
-  const token = await resolveAuthToken();
-  if (!token) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
-  }
-  headers.set("Authorization", `Bearer ${token}`);
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}/jobs/${jobId}/render/source`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-    });
-  } catch (err) {
-    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
-  }
-
-  await assertOk(response);
-
-  return response.blob();
-}
-
-function parseFilenameFromDisposition(disposition: string | null): string | null {
-  if (!disposition) return null;
-  const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename=\"?([^\";]+)\"?/i);
-  const encoded = match?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return encoded;
-    }
-  }
-  const plain = match?.[2];
-  return plain || null;
-}
-
-export async function downloadRenderedVideo(jobId: string): Promise<{blob: Blob; filename: string}> {
-  const headers = new Headers();
-  const token = await resolveAuthToken();
-  if (!token) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
-  }
-  headers.set("Authorization", `Bearer ${token}`);
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}/jobs/${jobId}/download`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-    });
-  } catch (err) {
-    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
-  }
-
-  await assertOk(response);
-
-  const blob = await response.blob();
-  const filename = parseFilenameFromDisposition(response.headers.get("content-disposition")) || "output.mp4";
-  return {blob, filename};
 }

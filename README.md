@@ -69,6 +69,10 @@ grep -E '^(BETTER_AUTH_SECRET|TURSO_DATABASE_URL|TURSO_AUTH_TOKEN|ASR_DASHSCOPE_
 - `start_web_prod.sh` 会执行 `next build` + `next start`，并启动 FastAPI + worker。
 - 若依赖缺失，会直接报错并提示先跑 `install_ubuntu.sh`。
 - 生产模式下会强制检查 `BETTER_AUTH_SECRET`，避免误用开发默认密钥。
+- 强校验规则：`BETTER_AUTH_SECRET` 不能为空、不能是默认值、长度至少 32。
+- 若仅本地开发调试，可用 `start_web_mvp.sh`；若临时关闭鉴权可设 `WEB_AUTH_ENABLED=0`（不建议生产使用）。
+- 当 `ASR_BACKEND=dashscope_filetrans` 时，Python 侧不需要 `torch/qwen-asr/ffmpeg-python`。
+- 但系统层 `ffmpeg/ffprobe` 仍需保留（用于渲染与媒体探测）。
 
 ## systemd 托管（推荐线上）
 

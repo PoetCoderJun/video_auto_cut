@@ -9,12 +9,9 @@ import {
   Step1Line,
   confirmStep1,
   confirmStep2,
-  downloadRenderedVideo,
   getJob,
-  getRenderSourceBlob,
   getStep1,
   getStep2,
-  getWebRenderConfig,
   getWebRenderConfigWithMeta,
   runStep1,
   runStep2,
@@ -200,7 +197,6 @@ export default function JobWorkspace({
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [downloadBusy, setDownloadBusy] = useState(false);
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderDownloadUrl, setRenderDownloadUrl] = useState<string | null>(
@@ -240,12 +236,8 @@ export default function JobWorkspace({
       const isJobMissing =
         (err instanceof ApiClientError && err.code === "NOT_FOUND") ||
         message.includes("job not found");
-      const isAuthError =
-        (err instanceof ApiClientError && err.code === "UNAUTHORIZED") ||
-        message.includes("请先登录") ||
-        message.includes("登录状态无效");
 
-      if (isJobMissing || isAuthError) {
+      if (isJobMissing) {
         onBackHome?.();
       }
       throw err;
@@ -313,7 +305,6 @@ export default function JobWorkspace({
 
   useEffect(() => {
     setRenderBusy(false);
-    setDownloadBusy(false);
     setRenderProgress(0);
     setAutoStep1Triggered(false);
     setAutoStep2Triggered(false);
@@ -620,18 +611,12 @@ export default function JobWorkspace({
         sourceFile = await loadCachedJobSourceVideo(jobId);
         if (sourceFile) setSelectedFile(sourceFile);
       }
-      if (sourceFile) {
-        const meta = await resolveMetaFromFile(sourceFile);
-        config = await getWebRenderConfigWithMeta(jobId, meta);
-        sourceObjectUrl = URL.createObjectURL(sourceFile);
-      } else {
-        config = await getWebRenderConfig(jobId);
-        if (!config.has_server_source) {
-          throw new Error("当前会话缺少本地原始视频，请先在导出页重新选择原始视频。");
-        }
-        const sourceBlob = await getRenderSourceBlob(jobId);
-        sourceObjectUrl = URL.createObjectURL(sourceBlob);
+      if (!sourceFile) {
+        throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
       }
+      const meta = await resolveMetaFromFile(sourceFile);
+      config = await getWebRenderConfigWithMeta(jobId, meta);
+      sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
         ...config.input_props,
         src: sourceObjectUrl,
@@ -690,27 +675,6 @@ export default function JobWorkspace({
       setRenderBusy(false);
     }
   }, [jobId, selectedFile, subtitleTheme]);
-
-  const handleDownloadFinalVideo = useCallback(async () => {
-    setError("");
-    setDownloadBusy(true);
-    try {
-      const result = await downloadRenderedVideo(jobId);
-      const objectUrl = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = result.filename || "output.mp4";
-      link.style.display = "none";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "下载失败，请重试。");
-    } finally {
-      setDownloadBusy(false);
-    }
-  }, [jobId]);
 
   useEffect(() => {
     if (renderBusy) return;
@@ -958,16 +922,20 @@ export default function JobWorkspace({
               {lines.map((line) => {
                 const isRemoved = line.user_final_remove;
                 const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
+                const lineTime = formatDuration(Number(line.start) || 0);
                 
                 return (
                   <div 
                     key={line.line_id} 
-                    className="group relative flex items-start"
+                    className="group relative flex items-start gap-3"
                   >
+                    <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
+                      {lineTime}
+                    </span>
                     <div className="flex-1 min-w-0">
                       {isRemoved ? (
                         <div
-                          className="text-[13px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
+                          className="text-[12px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
                           onClick={() => updateLine(line.line_id, { user_final_remove: false })}
                           title="点击恢复此行"
                         >
@@ -988,7 +956,7 @@ export default function JobWorkspace({
                           ref={(el) => {
                             if (el) autoResize(el);
                           }}
-                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[17px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
                           placeholder={isNoSpeech ? "<No Speech>" : ""}
                         />
                       )}
@@ -1193,7 +1161,7 @@ export default function JobWorkspace({
       )}
 
       {/* Step 4: Export */}
-      {job.status === STATUS.STEP2_CONFIRMED && (
+      {(job.status === STATUS.STEP2_CONFIRMED || job.status === STATUS.SUCCEEDED) && (
         <div className="mx-auto max-w-lg text-center animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
           <div>
             <h2 className="text-2xl font-bold tracking-tight mb-2">导出视频</h2>
@@ -1282,36 +1250,6 @@ export default function JobWorkspace({
         </div>
       )}
 
-      {/* Success */}
-      {job.status === STATUS.SUCCEEDED && (
-        <div className="mx-auto max-w-md text-center animate-in fade-in zoom-in-95 duration-500 py-12">
-          <div className="mb-6 flex h-24 w-24 mx-auto items-center justify-center rounded-full bg-emerald-100">
-            <CheckCircle2 className="h-12 w-12 text-emerald-600" />
-          </div>
-          <h2 className="text-2xl font-bold tracking-tight mb-2">处理完成</h2>
-          <p className="text-muted-foreground mb-8">
-            您的视频已经成功剪辑并渲染完毕。
-          </p>
-          <Button
-            size="lg"
-            className="w-full"
-            onClick={() => void handleDownloadFinalVideo()}
-            disabled={downloadBusy}
-          >
-            {downloadBusy ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                正在下载...
-              </>
-            ) : (
-              <>
-                <Download className="mr-2 h-4 w-4" />
-                下载视频成品
-              </>
-            )}
-          </Button>
-        </div>
-      )}
     </main>
   );
 }

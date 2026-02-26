@@ -19,16 +19,7 @@ class Settings:
     cleanup_interval_seconds: float
     cleanup_ttl_seconds: int
     cleanup_batch_size: int
-    cleanup_on_download: bool
     cleanup_on_startup: bool
-    embedded_worker: bool
-    qwen3_prewarm_on_startup: bool
-    qwen3_model: str
-    qwen3_aligner: str
-    qwen3_progress_chunk_s: float
-    qwen3_correct: bool
-    qwen3_correct_max_diff_ratio: float
-    asr_backend: str
     asr_dashscope_base_url: str
     asr_dashscope_model: str
     asr_dashscope_task: str
@@ -45,6 +36,7 @@ class Settings:
     asr_dashscope_word_split_min_chars: int
     asr_dashscope_word_vad_gap_s: float
     asr_dashscope_word_max_segment_s: float
+    asr_dashscope_no_speech_gap_s: float
     asr_dashscope_insert_no_speech: bool
     asr_dashscope_insert_head_no_speech: bool
     asr_oss_endpoint: str | None
@@ -53,7 +45,6 @@ class Settings:
     asr_oss_access_key_secret: str | None
     asr_oss_prefix: str
     asr_oss_signed_url_ttl_seconds: int
-    device: str
     lang: str
     llm_base_url: str | None
     llm_model: str | None
@@ -64,7 +55,6 @@ class Settings:
     topic_max_topics: int
     topic_title_max_chars: int
     topic_summary_max_chars: int
-    render_bitrate: str
     cut_merge_gap: float
     auth_enabled: bool
     auth_jwks_url: str | None
@@ -111,6 +101,12 @@ def get_settings() -> Settings:
     cors_methods_raw = (os.getenv("WEB_CORS_ALLOWED_METHODS") or "GET,POST,PUT,PATCH,DELETE,OPTIONS").strip()
     cors_headers_raw = (os.getenv("WEB_CORS_ALLOWED_HEADERS") or "*").strip()
     cors_expose_headers_raw = (os.getenv("WEB_CORS_EXPOSE_HEADERS") or "").strip()
+    asr_backend = (os.getenv("ASR_BACKEND", "dashscope_filetrans").strip().lower() or "dashscope_filetrans")
+    if asr_backend != "dashscope_filetrans":
+        raise RuntimeError(
+            f"Unsupported ASR_BACKEND={asr_backend}. "
+            "This deployment only supports ASR_BACKEND=dashscope_filetrans."
+        )
 
     return Settings(
         work_dir=work_dir,
@@ -124,17 +120,7 @@ def get_settings() -> Settings:
         cleanup_interval_seconds=max(1.0, float(os.getenv("WEB_CLEANUP_INTERVAL_SECONDS", "300"))),
         cleanup_ttl_seconds=max(0, int(os.getenv("WEB_CLEANUP_TTL_SECONDS", "3600"))),
         cleanup_batch_size=max(1, int(os.getenv("WEB_CLEANUP_BATCH_SIZE", "10"))),
-        cleanup_on_download=os.getenv("WEB_CLEANUP_ON_DOWNLOAD", "1").strip().lower() in {"1", "true", "yes"},
         cleanup_on_startup=os.getenv("WEB_CLEANUP_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes"},
-        embedded_worker=os.getenv("WEB_EMBEDDED_WORKER", "0").strip().lower() in {"1", "true", "yes"},
-        qwen3_prewarm_on_startup=os.getenv("WEB_QWEN3_PREWARM_ON_STARTUP", "1").strip().lower()
-        in {"1", "true", "yes"},
-        qwen3_model=os.getenv("QWEN3_MODEL", "./model/Qwen3-ASR-0.6B"),
-        qwen3_aligner=os.getenv("QWEN3_ALIGNER", "./model/Qwen3-ForcedAligner-0.6B"),
-        qwen3_progress_chunk_s=max(2.0, float(os.getenv("QWEN3_PROGRESS_CHUNK_S", "8.0"))),
-        qwen3_correct=os.getenv("QWEN3_CORRECT", "1").strip().lower() in {"1", "true", "yes"},
-        qwen3_correct_max_diff_ratio=float(os.getenv("QWEN3_CORRECT_MAX_DIFF_RATIO", "0.3")),
-        asr_backend=(os.getenv("ASR_BACKEND", "dashscope_filetrans").strip().lower() or "dashscope_filetrans"),
         asr_dashscope_base_url=(
             os.getenv("ASR_DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com")
             .strip()
@@ -175,6 +161,9 @@ def get_settings() -> Settings:
         asr_dashscope_word_max_segment_s=max(
             1.0, float(os.getenv("ASR_DASHSCOPE_WORD_MAX_SEGMENT_S", "8.0"))
         ),
+        asr_dashscope_no_speech_gap_s=max(
+            0.2, float(os.getenv("ASR_DASHSCOPE_NO_SPEECH_GAP_S", "1.0"))
+        ),
         asr_dashscope_insert_no_speech=os.getenv(
             "ASR_DASHSCOPE_INSERT_NO_SPEECH", "1"
         ).strip().lower()
@@ -191,7 +180,6 @@ def get_settings() -> Settings:
         asr_oss_signed_url_ttl_seconds=max(
             60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
         ),
-        device=os.getenv("WEB_DEVICE", "cpu"),
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
         llm_model=(os.getenv("LLM_MODEL") or "").strip() or None,
@@ -202,7 +190,6 @@ def get_settings() -> Settings:
         topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         topic_summary_max_chars=int(os.getenv("TOPIC_SUMMARY_MAX_CHARS", "6")),
-        render_bitrate=os.getenv("RENDER_BITRATE", "10m"),
         cut_merge_gap=float(os.getenv("CUT_MERGE_GAP", "0.0")),
         auth_enabled=os.getenv("WEB_AUTH_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         auth_jwks_url=auth_jwks_url,

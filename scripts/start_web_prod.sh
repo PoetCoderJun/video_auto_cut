@@ -31,6 +31,16 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
+if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
+import sys
+raise SystemExit(0 if sys.version_info >= (3, 10) else 1)
+PY
+then
+  echo "[start_web_prod] Python>=3.10 is required (current: $("$PYTHON_BIN" -c 'import sys; print(sys.version.split()[0])'))"
+  echo "[start_web_prod] fix: use a Python 3.10+ interpreter via PYTHON_BIN or virtualenv"
+  exit 1
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "[start_web_prod] npm not found"
   exit 1
@@ -71,6 +81,10 @@ if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == 
 fi
 
 asr_backend="$(printf '%s' "${ASR_BACKEND:-dashscope_filetrans}" | tr '[:upper:]' '[:lower:]')"
+if [[ "$asr_backend" != "dashscope_filetrans" ]]; then
+  echo "[start_web_prod] unsupported ASR_BACKEND=$asr_backend (only dashscope_filetrans is supported)"
+  exit 1
+fi
 if [[ "$asr_backend" == "dashscope_filetrans" ]]; then
   if [[ -z "${ASR_DASHSCOPE_API_KEY:-${DASHSCOPE_API_KEY:-}}" ]]; then
     echo "[start_web_prod] ASR_DASHSCOPE_API_KEY or DASHSCOPE_API_KEY is required when ASR_BACKEND=dashscope_filetrans"
@@ -107,7 +121,7 @@ WORKER_TURSO_LOCAL_REPLICA_PATH="${WORKER_TURSO_LOCAL_REPLICA_PATH:-$API_TURSO_L
 import importlib.util
 import os
 
-required = ["fastapi", "uvicorn", "multipart", "jwt", "libsql", "qwen_asr"]
+required = ["fastapi", "uvicorn", "multipart", "jwt", "libsql"]
 asr_backend = (os.getenv("ASR_BACKEND") or "").strip().lower()
 if asr_backend == "dashscope_filetrans":
     required.append("oss2")
@@ -116,7 +130,7 @@ if missing:
     raise SystemExit(
         "[start_web_prod] missing python deps: "
         + ", ".join(missing)
-        + " (run ./scripts/install_ubuntu.sh)"
+        + " (install via requirements.txt)"
     )
 PY
 

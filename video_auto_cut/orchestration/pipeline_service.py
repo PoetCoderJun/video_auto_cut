@@ -12,24 +12,10 @@ class PipelineOptions:
     encoding: str = "utf-8"
     force: bool = False
 
-    device: str = "cpu"
     lang: str = "Chinese"
     prompt: str = ""
 
-    qwen3_model: str = "./model/Qwen3-ASR-0.6B"
-    qwen3_aligner: str = "./model/Qwen3-ForcedAligner-0.6B"
-    qwen3_language: str | None = None
-    qwen3_use_modelscope: bool = False
-    qwen3_offline: bool = True
-    qwen3_gap: float = 0.6
-    qwen3_max_seg: float = 20.0
-    qwen3_max_chars: int = 0
-    qwen3_no_speech_gap: float = 1.0
-    qwen3_use_punct: bool = True
-    qwen3_progress_chunk_s: float = 8.0
-    qwen3_correct: bool = True
-    qwen3_correct_max_diff_ratio: float = 0.3
-    asr_backend: str = "local_filetrans"
+    asr_backend: str = "dashscope_filetrans"
     asr_dashscope_base_url: str = "https://dashscope.aliyuncs.com"
     asr_dashscope_model: str = "qwen3-asr-flash-filetrans"
     asr_dashscope_task: str = ""
@@ -46,6 +32,7 @@ class PipelineOptions:
     asr_dashscope_word_split_min_chars: int = 12
     asr_dashscope_word_vad_gap_s: float = 1.0
     asr_dashscope_word_max_segment_s: float = 8.0
+    asr_dashscope_no_speech_gap_s: float = 1.0
     asr_dashscope_insert_no_speech: bool = True
     asr_dashscope_insert_head_no_speech: bool = True
     asr_oss_endpoint: str | None = None
@@ -102,19 +89,6 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         force=bool(options.force),
         encoding=options.encoding,
         transcribe=True,
-        qwen3_model=options.qwen3_model,
-        qwen3_aligner=options.qwen3_aligner,
-        qwen3_language=options.qwen3_language,
-        qwen3_use_modelscope=bool(options.qwen3_use_modelscope),
-        qwen3_offline=bool(options.qwen3_offline),
-        qwen3_gap=float(options.qwen3_gap),
-        qwen3_max_seg=float(options.qwen3_max_seg),
-        qwen3_max_chars=int(options.qwen3_max_chars),
-        qwen3_no_speech_gap=float(options.qwen3_no_speech_gap),
-        qwen3_use_punct=bool(options.qwen3_use_punct),
-        qwen3_progress_chunk_s=float(options.qwen3_progress_chunk_s),
-        qwen3_correct=bool(options.qwen3_correct),
-        qwen3_correct_max_diff_ratio=float(options.qwen3_correct_max_diff_ratio),
         asr_backend=options.asr_backend,
         asr_dashscope_base_url=options.asr_dashscope_base_url,
         asr_dashscope_model=options.asr_dashscope_model,
@@ -132,6 +106,7 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         asr_dashscope_word_split_min_chars=int(options.asr_dashscope_word_split_min_chars),
         asr_dashscope_word_vad_gap_s=float(options.asr_dashscope_word_vad_gap_s),
         asr_dashscope_word_max_segment_s=float(options.asr_dashscope_word_max_segment_s),
+        asr_dashscope_no_speech_gap_s=float(options.asr_dashscope_no_speech_gap_s),
         asr_dashscope_insert_no_speech=bool(options.asr_dashscope_insert_no_speech),
         asr_dashscope_insert_head_no_speech=bool(options.asr_dashscope_insert_head_no_speech),
         asr_oss_endpoint=options.asr_oss_endpoint,
@@ -146,7 +121,6 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
         llm_max_tokens=int(options.llm_max_tokens),
-        device=options.device,
         lang=options.lang,
         prompt=options.prompt,
     )
@@ -238,9 +212,12 @@ def run_transcribe(
 ) -> Path:
     from video_auto_cut.asr.transcribe import Transcribe
 
-    asr_backend = (options.asr_backend or "").strip().lower()
-    if asr_backend in {"local_filetrans", "local_qwen3"} and options.qwen3_correct:
-        require_llm(options, "ASR LLM correction")
+    asr_backend = (options.asr_backend or "").strip().lower() or "dashscope_filetrans"
+    if asr_backend != "dashscope_filetrans":
+        raise RuntimeError(
+            f"Unsupported ASR backend for web deployment: {asr_backend}. "
+            "Only dashscope_filetrans is supported."
+        )
     logging.info("Step 1/3: transcribe -> SRT")
     args = build_transcribe_args(video_path, options)
     if progress_callback is not None:

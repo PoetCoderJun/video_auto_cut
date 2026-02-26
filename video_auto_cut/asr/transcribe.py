@@ -11,98 +11,36 @@ from typing import Callable, Iterable
 import srt
 
 from ..shared import media
-from . import qwen3_asr
 from .dashscope_filetrans import DashScopeFiletransClient, DashScopeFiletransConfig
-from .filetrans_like import (
-    FiletransSegment,
-    FiletransTask,
-    LocalFiletransLikeASR,
-    segments_to_tokens,
-)
+from .filetrans_like import FiletransSegment, FiletransTask, segments_to_tokens
 from .oss_uploader import OSSAudioUploader
 
 
 class Transcribe:
     def __init__(self, args):
         self.args = args
-        self.sampling_rate = 16000
         self.asr_backend = (
-            getattr(self.args, "asr_backend", "local_filetrans")
-            or "local_filetrans"
+            getattr(self.args, "asr_backend", "dashscope_filetrans")
+            or "dashscope_filetrans"
         ).strip().lower()
-        self.model = None
+        if self.asr_backend != "dashscope_filetrans":
+            raise RuntimeError(
+                f"Unsupported ASR backend for web deployment: {self.asr_backend}. "
+                "Only dashscope_filetrans is supported."
+            )
+
         self.filetrans_client: DashScopeFiletransClient | None = None
         self.oss_uploader: OSSAudioUploader | None = None
-
-        if self.asr_backend in {"local_filetrans", "local_qwen3"}:
-            self._init_local_model()
-        elif self.asr_backend == "dashscope_filetrans":
-            self._init_dashscope_filetrans()
-        else:
-            raise RuntimeError(f"Unsupported ASR backend: {self.asr_backend}")
-
-    def _init_local_model(self) -> None:
-        tic = time.time()
-        model_id = qwen3_asr.default_model_id(
-            getattr(self.args, "qwen3_model", None),
-            "Qwen3-ASR-0.6B",
-            qwen3_asr.DEFAULT_ASR_ID,
-        )
-        aligner_id = qwen3_asr.default_model_id(
-            getattr(self.args, "qwen3_aligner", None),
-            "Qwen3-ForcedAligner-0.6B",
-            qwen3_asr.DEFAULT_ALIGNER_ID,
-        )
-        llm_config = None
-        qwen3_correct = bool(getattr(self.args, "qwen3_correct", False))
-        if qwen3_correct:
-            from ..editing import llm_client
-
-            llm_config = llm_client.build_llm_config(
-                base_url=getattr(self.args, "llm_base_url", None),
-                model=getattr(self.args, "llm_model", None),
-                api_key=getattr(self.args, "llm_api_key", None),
-                timeout=int(getattr(self.args, "llm_timeout", 60)),
-                temperature=float(getattr(self.args, "llm_temperature", 0.2)),
-                max_tokens=int(getattr(self.args, "llm_max_tokens", 4096)),
-            )
-            if not llm_config.get("base_url") or not llm_config.get("model"):
-                raise RuntimeError(
-                    "Qwen3 ASR correction requires LLM config: llm_base_url and llm_model."
-                )
-
-        self.model = qwen3_asr.Qwen3Model(
-            sample_rate=self.sampling_rate,
-            gap_s=float(getattr(self.args, "qwen3_gap", 0.6)),
-            max_seg_s=float(getattr(self.args, "qwen3_max_seg", 20.0)),
-            max_chars=int(getattr(self.args, "qwen3_max_chars", 0)),
-            no_speech_gap_s=float(getattr(self.args, "qwen3_no_speech_gap", 1.0)),
-            language=getattr(self.args, "qwen3_language", None),
-            use_punct=bool(getattr(self.args, "qwen3_use_punct", True)),
-            correct_with_llm=qwen3_correct,
-            llm_config=llm_config,
-            correct_max_length_diff_ratio=float(
-                getattr(self.args, "qwen3_correct_max_diff_ratio", 0.3)
-            ),
-        )
-        self.model.load(
-            model_id=model_id,
-            aligner_id=aligner_id,
-            device=getattr(self.args, "device", None),
-            offline=bool(getattr(self.args, "qwen3_offline", False)),
-            use_modelscope=bool(getattr(self.args, "qwen3_use_modelscope", False)),
-        )
-        elapsed = time.time() - tic
-        if getattr(self.model, "last_load_cache_hit", False):
-            logging.info("Reuse cached Qwen3 model in %.1f sec", elapsed)
-        else:
-            logging.info("Done Init Qwen3 model in %.1f sec", elapsed)
+        self._init_dashscope_filetrans()
 
     def _init_dashscope_filetrans(self) -> None:
         config = DashScopeFiletransConfig(
             base_url=(getattr(self.args, "asr_dashscope_base_url", "") or "").strip(),
             api_key=(getattr(self.args, "asr_dashscope_api_key", "") or "").strip(),
-            model=(getattr(self.args, "asr_dashscope_model", "qwen3-asr-flash-filetrans") or "").strip(),
+            model=(
+                getattr(self.args, "asr_dashscope_model", "qwen3-asr-flash-filetrans")
+                or ""
+            ).strip(),
             task=(getattr(self.args, "asr_dashscope_task", "") or "").strip() or None,
             poll_seconds=max(0.5, float(getattr(self.args, "asr_dashscope_poll_seconds", 2.0))),
             timeout_seconds=max(
@@ -116,9 +54,13 @@ class Transcribe:
             word_split_comma_pause_s=float(
                 max(0.0, float(getattr(self.args, "asr_dashscope_word_split_comma_pause_s", 0.4)))
             ),
-            word_split_min_chars=int(max(1, int(getattr(self.args, "asr_dashscope_word_split_min_chars", 18)))),
+            word_split_min_chars=int(
+                max(1, int(getattr(self.args, "asr_dashscope_word_split_min_chars", 18)))
+            ),
             word_vad_gap_s=float(max(0.0, float(getattr(self.args, "asr_dashscope_word_vad_gap_s", 0.6)))),
-            word_max_segment_s=float(max(1.0, float(getattr(self.args, "asr_dashscope_word_max_segment_s", 8.0)))),
+            word_max_segment_s=float(
+                max(1.0, float(getattr(self.args, "asr_dashscope_word_max_segment_s", 8.0))
+            )),
         )
         self.filetrans_client = DashScopeFiletransClient(config)
         self.oss_uploader = OSSAudioUploader(
@@ -154,11 +96,11 @@ class Transcribe:
                 continue
 
             tic = time.time()
-            language = getattr(self.args, "qwen3_language", None) or getattr(self.args, "lang", None)
+            language = getattr(self.args, "lang", None)
             prompt = getattr(self.args, "prompt", "")
             asr_progress_callback = getattr(self.args, "asr_progress_callback", None)
 
-            tokens = self._filetrans_like_transcribe(
+            tokens = self._dashscope_filetrans_transcribe(
                 media_path=input_path,
                 lang=language,
                 prompt=prompt,
@@ -166,74 +108,10 @@ class Transcribe:
             )
             logging.info("Done transcription in %.1f sec", time.time() - tic)
 
-            if self.model is not None:
-                subs = self.model.gen_srt(tokens)
-            else:
-                subs = self._tokens_to_subtitles(tokens)
+            subs = self._tokens_to_subtitles(tokens)
             with open(output_srt, "wb") as f:
                 f.write(srt.compose(subs).encode(getattr(self.args, "encoding", "utf-8"), "replace"))
             logging.info("Transcribed %s to %s", input_path, output_srt)
-
-    def _filetrans_like_transcribe(
-        self,
-        *,
-        media_path: str,
-        lang: str | None,
-        prompt: str,
-        progress_callback,
-    ) -> list[dict]:
-        if self.asr_backend in {"local_filetrans", "local_qwen3"}:
-            return self._local_filetrans_like_transcribe(
-                media_path=media_path,
-                lang=lang,
-                prompt=prompt,
-                progress_callback=progress_callback,
-            )
-        if self.asr_backend == "dashscope_filetrans":
-            return self._dashscope_filetrans_transcribe(
-                media_path=media_path,
-                lang=lang,
-                prompt=prompt,
-                progress_callback=progress_callback,
-            )
-        raise RuntimeError(f"Unsupported ASR backend: {self.asr_backend}")
-
-    def _local_filetrans_like_transcribe(
-        self,
-        *,
-        media_path: str,
-        lang: str | None,
-        prompt: str,
-        progress_callback,
-    ) -> list[dict]:
-        if self.model is None:
-            raise RuntimeError("Local ASR backend not initialized.")
-
-        def _transcribe_fn(*, media_path: Path, lang: str | None, prompt: str) -> list[dict]:
-            audio = media.load_audio(str(media_path), sr=self.sampling_rate)
-            if callable(progress_callback):
-                return self._transcribe_with_progress(
-                    audio,
-                    lang=lang,
-                    prompt=prompt,
-                    progress_callback=progress_callback,
-                )
-            return self.model.transcribe(
-                audio,
-                speech_array_indices=[{"start": 0, "end": len(audio)}],
-                lang=lang,
-                prompt=prompt,
-            )
-
-        media_p = Path(media_path)
-        result_dir = media_p.parent / ".asr"
-        client = LocalFiletransLikeASR(result_dir=result_dir)
-        submit = client.submit(media_path=media_p, transcribe_fn=_transcribe_fn, lang=lang, prompt=prompt)
-        task = client.poll(submit.task_id)
-        if task.task_status != "SUCCEEDED" or not task.transcription_url:
-            raise RuntimeError(f"Local ASR task not finished: {task.task_id} status={task.task_status}")
-        result = client.load_result(task.transcription_url)
-        return segments_to_tokens(result.segments)
 
     def _dashscope_filetrans_transcribe(
         self,
@@ -290,11 +168,12 @@ class Transcribe:
         if result is None:
             raise RuntimeError(f"DashScope ASR result missing: task_id={task.task_id}")
         self._emit_progress(progress_callback, 1.0)
+
         segments = result.segments
         if bool(getattr(self.args, "asr_dashscope_insert_no_speech", True)):
             segments = self._insert_no_speech_segments(
                 segments,
-                min_gap_s=float(getattr(self.args, "qwen3_no_speech_gap", 1.0)),
+                min_gap_s=float(getattr(self.args, "asr_dashscope_no_speech_gap_s", 1.0)),
                 include_head=bool(getattr(self.args, "asr_dashscope_insert_head_no_speech", True)),
             )
         sentence_rule_with_punc = bool(
@@ -415,44 +294,6 @@ class Transcribe:
         except Exception:
             logging.exception("asr progress callback failed")
 
-    def _transcribe_with_progress(
-        self,
-        audio,
-        *,
-        lang: str | None,
-        prompt: str,
-        progress_callback: Callable[[float], None],
-    ) -> list[dict]:
-        total_samples = int(len(audio))
-        if total_samples <= 0:
-            self._emit_progress(progress_callback, 1.0)
-            return []
-
-        chunk_seconds = max(
-            2.0, float(getattr(self.args, "qwen3_progress_chunk_s", 8.0))
-        )
-        chunk_samples = max(int(chunk_seconds * self.sampling_rate), self.sampling_rate)
-        self._emit_progress(progress_callback, 0.0)
-
-        tokens: list[dict] = []
-        cursor = 0
-        while cursor < total_samples:
-            end = min(total_samples, cursor + chunk_samples)
-            chunk_audio = audio[cursor:end]
-            chunk_tokens = self.model.transcribe(
-                chunk_audio,
-                speech_array_indices=[{"start": 0, "end": len(chunk_audio)}],
-                lang=lang,
-                prompt=prompt,
-            )
-            offset_s = float(cursor) / float(self.sampling_rate)
-            tokens.extend(self._shift_tokens(chunk_tokens, offset_s))
-            cursor = end
-            self._emit_progress(progress_callback, float(cursor) / float(total_samples))
-
-        tokens.sort(key=lambda item: float(item.get("start", 0.0)))
-        return tokens
-
     @staticmethod
     def _tokens_to_subtitles(tokens: Iterable[dict]) -> list[srt.Subtitle]:
         rows: list[tuple[float, float, str]] = []
@@ -482,28 +323,3 @@ class Transcribe:
                 )
             )
         return result
-
-    @staticmethod
-    def _shift_tokens(tokens: Iterable[dict], offset_s: float) -> list[dict]:
-        shifted: list[dict] = []
-        for item in tokens:
-            if not isinstance(item, dict):
-                continue
-            text = item.get("text")
-            start = item.get("start")
-            end = item.get("end")
-            if text is None or start is None or end is None:
-                continue
-            try:
-                start_v = float(start) + offset_s
-                end_v = float(end) + offset_s
-            except Exception:
-                continue
-            shifted.append(
-                {
-                    "text": str(text),
-                    "start": start_v,
-                    "end": end_v if end_v >= start_v else start_v,
-                }
-            )
-        return shifted
