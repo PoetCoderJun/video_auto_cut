@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.error
@@ -39,6 +40,7 @@ def require_current_user(
 
     token = credentials.credentials.strip() if credentials else ""
     if not token:
+        logging.warning("[auth] 401: no Authorization Bearer token")
         raise unauthorized("请先登录后再继续")
 
     claims = _decode_auth_token(token)
@@ -88,6 +90,7 @@ def _decode_auth_token(token: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(token, public_key, **decode_kwargs)
     except Exception as exc:
+        logging.warning("[auth] 401: JWT decode failed: %s (issuer=%s audience=%s)", exc, decode_kwargs.get("issuer"), decode_kwargs.get("audience"))
         raise unauthorized(f"登录令牌校验失败：{exc}") from exc
 
     if not isinstance(payload, dict):

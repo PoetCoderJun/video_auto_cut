@@ -281,7 +281,8 @@ export default function HomePageClient() {
       const job = await createJob();
       const audioFile = await extractAudioForAsr(file);
       await uploadAudio(job.job_id, audioFile);
-      void saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
+      // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
+      await saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
       saveJobId(job.job_id);
     } catch (err) {
       const message =

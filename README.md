@@ -138,6 +138,19 @@ Railway **不会读取你本地的 `.env` 文件**。必须在每个服务的 **
 - API 的 `WEB_CORS_ALLOWED_ORIGINS` 必须包含前端的完整 origin（如 `https://your-frontend.up.railway.app`）。
 - 前端的 `NEXT_PUBLIC_API_BASE` 必须指向 API 的 `/api/v1`（如 `https://your-api.up.railway.app/api/v1`）。
 
+### 5) API+Worker 合并部署（推荐）
+
+若将 API 与 Worker 合并为同一服务（共享 workdir），**Start Command** 必须：
+
+1. 让 uvicorn 作为前台进程（否则 Railway 会 502）
+2. **API 与 Worker 使用不同的 Turso 本地 replica 路径**，否则会冲突报 `wal_insert_begin failed`
+
+```bash
+sh -c "(TURSO_LOCAL_REPLICA_PATH=/app/workdir/replica_worker.db python -m web_api &) && exec env TURSO_LOCAL_REPLICA_PATH=/app/workdir/replica_api.db uvicorn web_api.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"
+```
+
+（Worker 用自己的 replica 文件，API 用另一个，二者都 sync 远程 Turso，互不锁文件。）
+
 推送代码后，Railway 会按各自 Root Directory / Dockerfile / Start Command 自动构建并部署对应服务。
 
 ## 部署位置建议

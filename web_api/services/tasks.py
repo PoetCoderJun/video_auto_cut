@@ -14,7 +14,7 @@ from ..constants import (
     TASK_TYPE_STEP2,
 )
 from ..repository import update_job
-from ..task_queue import enqueue_task, set_task_failed, set_task_succeeded
+from ..task_queue import enqueue_task, get_queue_db_path, set_task_failed, set_task_succeeded
 from .step1 import run_step1
 from .step2 import run_step2
 
@@ -48,6 +48,7 @@ def queue_job_task(job_id: str, task_type: str) -> int:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
     task_id = enqueue_task(job_id, task_type, payload={})
+    logging.info("[web_api] enqueued task_id=%s job_id=%s type=%s queue_path=%s", task_id, job_id, task_type, get_queue_db_path())
     update_job(job_id, status=status, progress=progress)
     return task_id
 

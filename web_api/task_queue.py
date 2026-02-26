@@ -27,6 +27,11 @@ def _queue_db_path() -> Path:
     return settings.work_dir / "local_task_queue.db"
 
 
+def get_queue_db_path() -> Path:
+    """Expose for logging/diagnostics."""
+    return _queue_db_path()
+
+
 def _connect() -> sqlite3.Connection:
     path = _queue_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)

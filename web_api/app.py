@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="video_auto_cut web api", version="0.1.0")
     allow_origins = list(settings.web_cors_allowed_origins)
     allow_credentials = settings.web_cors_allow_credentials
+    logging.info("[web_api] CORS allow_origins=%s allow_credentials=%s", allow_origins, allow_credentials)
     if allow_credentials and "*" in allow_origins:
         logging.warning("[web_api] WEB_CORS_ALLOWED_ORIGINS contains '*' so credentials are disabled")
         allow_credentials = False

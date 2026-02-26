@@ -8,7 +8,7 @@ from ..config import ensure_work_dirs, get_settings
 from ..db import init_db
 from ..services.cleanup import cleanup_expired_jobs, cleanup_on_startup
 from ..services.tasks import execute_task
-from ..task_queue import claim_next_task, init_task_queue_db
+from ..task_queue import claim_next_task, get_queue_db_path, init_task_queue_db
 
 def run_worker_loop(*, once: bool = False) -> None:
     settings = get_settings()
@@ -37,6 +37,7 @@ def run_worker_loop(*, once: bool = False) -> None:
             time.sleep(settings.worker_poll_seconds)
             continue
 
+        logging.info("[web-worker] claiming task_id=%s job_id=%s type=%s", task.get("task_id"), task.get("job_id"), task.get("task_type"))
         try:
             execute_task(task)
         except Exception:
@@ -53,6 +54,7 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="[web-worker] %(levelname)s %(message)s")
+    logging.info("[web-worker] starting worker loop queue_path=%s", get_queue_db_path())
     ensure_work_dirs()
     init_db()
     init_task_queue_db()
