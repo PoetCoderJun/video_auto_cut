@@ -48,7 +48,7 @@ echo "[install_ubuntu] apt update ..."
 $SUDO apt-get update -y
 
 echo "[install_ubuntu] installing system packages ..."
-$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_PACKAGES[@]}"
+DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y "${APT_PACKAGES[@]}"
 
 install_node() {
   local major
