@@ -8,7 +8,16 @@ const apiBaseURL = (process.env.WEB_API_BASE || process.env.NEXT_PUBLIC_API_BASE
   /\/$/,
   "",
 );
-const secret = process.env.BETTER_AUTH_SECRET || "video-auto-cut-dev-better-auth-secret-change-me";
+const DEV_DEFAULT_SECRET = "video-auto-cut-dev-better-auth-secret-change-me";
+const isProd = process.env.NODE_ENV === "production";
+const configuredSecret = (process.env.BETTER_AUTH_SECRET || "").trim();
+if (isProd && (!configuredSecret || configuredSecret === DEV_DEFAULT_SECRET)) {
+  throw new Error("BETTER_AUTH_SECRET must be set to a strong non-default value in production");
+}
+if (isProd && configuredSecret.length < 32) {
+  throw new Error("BETTER_AUTH_SECRET must be at least 32 characters in production");
+}
+const secret = configuredSecret || DEV_DEFAULT_SECRET;
 const tursoUrl = (process.env.TURSO_DATABASE_URL || "").trim();
 const tursoAuthToken = (process.env.TURSO_AUTH_TOKEN || "").trim();
 

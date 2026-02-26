@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes import router
-from .config import ensure_work_dirs
+from .config import ensure_work_dirs, get_settings
 from .db import init_db
 from .errors import ApiError
 from .services.cleanup import cleanup_on_startup
@@ -21,14 +21,21 @@ def _request_id() -> str:
 
 
 def create_app() -> FastAPI:
+    settings = get_settings()
     app = FastAPI(title="video_auto_cut web api", version="0.1.0")
+    allow_origins = list(settings.web_cors_allowed_origins)
+    allow_credentials = settings.web_cors_allow_credentials
+    if allow_credentials and "*" in allow_origins:
+        logging.warning("[web_api] WEB_CORS_ALLOWED_ORIGINS contains '*' so credentials are disabled")
+        allow_credentials = False
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-        allow_credentials=False,
+        allow_origins=allow_origins,
+        allow_methods=list(settings.web_cors_allowed_methods),
+        allow_headers=list(settings.web_cors_allowed_headers),
+        expose_headers=list(settings.web_cors_expose_headers),
+        allow_credentials=allow_credentials,
     )
 
     @app.exception_handler(ApiError)

@@ -71,10 +71,18 @@ class Settings:
     auth_issuer: str | None
     auth_audience: str | None
     auth_jwt_leeway_seconds: int
+    web_cors_allowed_origins: tuple[str, ...]
+    web_cors_allow_credentials: bool
+    web_cors_allowed_methods: tuple[str, ...]
+    web_cors_allowed_headers: tuple[str, ...]
+    web_cors_expose_headers: tuple[str, ...]
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    def parse_csv(value: str) -> tuple[str, ...]:
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+
     repo_root = Path(__file__).resolve().parents[1]
     work_dir = Path(os.getenv("WORK_DIR", str(repo_root / "workdir"))).expanduser().resolve()
     replica_path_raw = os.getenv("TURSO_LOCAL_REPLICA_PATH") or str(work_dir / "web_api_turso_replica.db")
@@ -96,6 +104,13 @@ def get_settings() -> Settings:
     auth_jwks_url = (os.getenv("WEB_AUTH_JWKS_URL") or "").strip() or f"{auth_base_url.rstrip('/')}/api/auth/jwks"
     auth_issuer = (os.getenv("WEB_AUTH_ISSUER") or "").strip() or auth_base_url
     auth_audience = (os.getenv("WEB_AUTH_AUDIENCE") or "").strip() or auth_base_url
+    cors_origins_raw = (
+        os.getenv("WEB_CORS_ALLOWED_ORIGINS")
+        or "http://127.0.0.1:3000,http://localhost:3000"
+    ).strip()
+    cors_methods_raw = (os.getenv("WEB_CORS_ALLOWED_METHODS") or "GET,POST,PUT,PATCH,DELETE,OPTIONS").strip()
+    cors_headers_raw = (os.getenv("WEB_CORS_ALLOWED_HEADERS") or "*").strip()
+    cors_expose_headers_raw = (os.getenv("WEB_CORS_EXPOSE_HEADERS") or "").strip()
 
     return Settings(
         work_dir=work_dir,
@@ -194,6 +209,12 @@ def get_settings() -> Settings:
         auth_issuer=auth_issuer,
         auth_audience=auth_audience,
         auth_jwt_leeway_seconds=max(0, int(os.getenv("WEB_AUTH_JWT_LEEWAY_SECONDS", "10"))),
+        web_cors_allowed_origins=parse_csv(cors_origins_raw),
+        web_cors_allow_credentials=os.getenv("WEB_CORS_ALLOW_CREDENTIALS", "1").strip().lower()
+        in {"1", "true", "yes"},
+        web_cors_allowed_methods=parse_csv(cors_methods_raw),
+        web_cors_allowed_headers=parse_csv(cors_headers_raw),
+        web_cors_expose_headers=parse_csv(cors_expose_headers_raw),
     )
 
 

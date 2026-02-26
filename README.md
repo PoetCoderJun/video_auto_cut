@@ -2,7 +2,7 @@
 
 口播视频自动剪辑（Web + 本地流水线）。
 
-## Web 启动（最小）
+## 本地开发启动
 
 ```bash
 python -m pip install -r requirements.txt
@@ -13,6 +13,100 @@ cd web_frontend && npm install && cd ..
 - Frontend: `http://127.0.0.1:3000`
 - API: `http://127.0.0.1:8000/api/v1`
 
+## 云端部署（Ubuntu 单机）
+
+### 1) 一键安装依赖
+
+```bash
+./scripts/install_ubuntu.sh
+```
+
+### 2) 配置环境变量
+
+```bash
+cp .env.example .env
+```
+
+按你的线上域名/密钥填好 `.env`，至少要改：
+
+- `BETTER_AUTH_SECRET`（生产必须非默认，且至少 32 位）
+- `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`
+- `ASR_DASHSCOPE_API_KEY`（或 `DASHSCOPE_API_KEY`）
+- `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`
+- `NEXT_PUBLIC_SITE_URL` / `BETTER_AUTH_URL` / `WEB_CORS_ALLOWED_ORIGINS`
+
+### 2.1 配置流程（推荐顺序）
+
+1. 先生成高强度鉴权密钥（至少 32 位）  
+`npx @better-auth/cli secret` 或 `openssl rand -base64 32`
+2. 填数据库参数（`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`）
+3. 填 ASR 参数（`ASR_DASHSCOPE_API_KEY` 或 `DASHSCOPE_API_KEY`）
+4. 填 OSS 参数（`OSS_ENDPOINT`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`）
+5. 填站点域名参数（`NEXT_PUBLIC_SITE_URL`、`BETTER_AUTH_URL`、`WEB_CORS_ALLOWED_ORIGINS`）
+6. 仅单机测试时可先用 `http://127.0.0.1:3000`；正式上线改成 HTTPS 域名
+
+### 2.2 配置完成后自检
+
+```bash
+# 检查关键变量是否都存在
+grep -E '^(BETTER_AUTH_SECRET|TURSO_DATABASE_URL|TURSO_AUTH_TOKEN|ASR_DASHSCOPE_API_KEY|DASHSCOPE_API_KEY|OSS_ENDPOINT|OSS_BUCKET|OSS_ACCESS_KEY_ID|OSS_ACCESS_KEY_SECRET|NEXT_PUBLIC_SITE_URL|BETTER_AUTH_URL|WEB_CORS_ALLOWED_ORIGINS)=' .env
+```
+
+说明：
+
+- 若你只填了 `DASHSCOPE_API_KEY`，也可正常跑 ASR（代码会自动回退）。
+- `WEB_CORS_ALLOWED_ORIGINS` 可以写多个，用英文逗号分隔。
+- 生产环境不要用 `127.0.0.1` 作为站点 URL。
+
+### 3) 生产模式启动
+
+```bash
+./scripts/start_web_prod.sh
+```
+
+说明：
+
+- `start_web_prod.sh` 会执行 `next build` + `next start`，并启动 FastAPI + worker。
+- 若依赖缺失，会直接报错并提示先跑 `install_ubuntu.sh`。
+- 生产模式下会强制检查 `BETTER_AUTH_SECRET`，避免误用开发默认密钥。
+
+## systemd 托管（推荐线上）
+
+模板文件在 `deploy/systemd/`，也提供一键安装脚本：
+
+```bash
+./scripts/install_systemd_services.sh
+```
+
+如需安装后立刻启动：
+
+```bash
+ENABLE_NOW=1 ./scripts/install_systemd_services.sh
+```
+
+手工方式如下：
+
+- `video-auto-cut-api.service`
+- `video-auto-cut-worker.service`
+- `video-auto-cut-frontend.service`
+- `video-auto-cut.env.example`
+
+典型步骤：
+
+```bash
+sudo mkdir -p /etc/video-auto-cut
+sudo cp deploy/systemd/video-auto-cut.env.example /etc/video-auto-cut/video-auto-cut.env
+sudo cp deploy/systemd/video-auto-cut-*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now video-auto-cut-api.service video-auto-cut-worker.service video-auto-cut-frontend.service
+```
+
+## 部署位置建议
+
+- 阿里云 `ECS / 轻量应用服务器`：可直接部署（当前项目最匹配）。
+- 阿里云 `ECI`：可部署，但需要你自己容器化和日志/持久化方案。
+- `Vercel / EdgeOne`：只能放前端层，不能直接承载 Python API + worker + ffmpeg 链路。
+
 ## 单一 Coupon 码体系
 
 只有一套码：`coupon code`。
@@ -20,38 +114,6 @@ cd web_frontend && npm install && cd ..
 - 前端文案可显示“邀请码”
 - 实际兑换和校验是 coupon
 - 线上来源是 Turso 的 `coupon_codes` 表
-
-## `.env` 关键配置
-
-```env
-TURSO_DATABASE_URL=libsql://<your-db>-<org>.turso.io
-TURSO_AUTH_TOKEN=<your-token>
-TURSO_LOCAL_REPLICA_PATH=./workdir/web_api_turso_replica.db
-
-# ASR: OSS + DashScope Filetrans
-ASR_BACKEND=dashscope_filetrans
-ASR_DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com
-ASR_DASHSCOPE_MODEL=qwen3-asr-flash-filetrans
-ASR_DASHSCOPE_TASK=
-ASR_DASHSCOPE_API_KEY=<optional, fallback to DASHSCOPE_API_KEY>
-ASR_DASHSCOPE_LANGUAGE_HINTS=zh,en
-ASR_DASHSCOPE_ENABLE_WORDS=1
-ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC=1
-ASR_DASHSCOPE_WORD_SPLIT_ENABLED=1
-ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA=1
-ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S=0.4
-ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS=12
-ASR_DASHSCOPE_WORD_VAD_GAP_S=1.0
-ASR_DASHSCOPE_WORD_MAX_SEGMENT_S=8.0
-ASR_DASHSCOPE_INSERT_NO_SPEECH=1
-ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH=1
-OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
-OSS_BUCKET=<your-oss-bucket>
-OSS_ACCESS_KEY_ID=<your-ak>
-OSS_ACCESS_KEY_SECRET=<your-sk>
-OSS_AUDIO_PREFIX=video-auto-cut/asr
-OSS_SIGNED_URL_TTL_SECONDS=86400
-```
 
 ## 管理 Coupon（直接写线上库）
 
@@ -61,7 +123,7 @@ OSS_SIGNED_URL_TTL_SECONDS=86400
 python scripts/coupon_admin.py create --credits 20 --source xhs
 ```
 
-批量创建（一次创建 n 个）：
+批量创建：
 
 ```bash
 python scripts/coupon_admin.py create --count 20 --credits 20 --source xhs
@@ -80,6 +142,7 @@ python scripts/coupon_admin.py disable --code CPN-XXXX
 ```
 
 字段说明：
+
 - `code`: coupon 码（唯一）
 - `credits`: 发放额度
 - `used_count`: 是否已兑换（`0` 未兑换，`1` 已兑换）
@@ -90,13 +153,13 @@ python scripts/coupon_admin.py disable --code CPN-XXXX
 ## 线上校验逻辑
 
 用户提交码时，后端直接查 `coupon_codes`，并校验：
+
 - 码存在且 `status=ACTIVE`
 - 未过期
 - `used_count = 0`
 
 通过后写入：
+
 - `credit_ledger`（额度流水）
 - `coupon_codes.used_count` 置为 `1`
 - `coupon_codes.status` 置为 `DISABLED`
-
-所以现在是：**coupon 定义和兑换结果都在线上库**。
