@@ -196,6 +196,7 @@ export default function JobWorkspace({
   const [lines, setLines] = useState<Step1Line[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [error, setError] = useState("");
+  const [renderNote, setRenderNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
@@ -488,6 +489,7 @@ export default function JobWorkspace({
 
   const handleStartRender = useCallback(async () => {
     setError("");
+    setRenderNote("");
     setRenderBusy(true);
     setRenderProgress(0);
     setRenderDownloadUrl((previous) => {
@@ -630,19 +632,44 @@ export default function JobWorkspace({
 
       const { renderMediaOnWeb, getEncodableAudioCodecs } = await import("@remotion/web-renderer");
 
-      // Some browsers (e.g. Firefox, certain Linux configs) cannot encode AAC for
-      // the MP4 container. Check first and fall back to WebM/VP8/Opus if needed.
+      // Determine the best available container+codec for this browser.
+      // On non-cross-origin-isolated pages (missing COOP/COEP headers), audio
+      // encoders are restricted by the browser. We probe MP4 first, then WebM,
+      // and as a last resort render muted (no audio) inside MP4 so the export
+      // never hard-crashes.
       const mp4AudioCodecs = await getEncodableAudioCodecs("mp4");
-      const useMp4 = mp4AudioCodecs.length > 0;
-      const container = useMp4 ? ("mp4" as const) : ("webm" as const);
-      const videoCodec = useMp4 ? "h264" : "vp8";
+      const webmAudioCodecs = await getEncodableAudioCodecs("webm");
+      const hasMp4Audio = mp4AudioCodecs.length > 0;
+      const hasWebmAudio = webmAudioCodecs.length > 0;
 
-      const result = await renderMediaOnWeb({
-        composition,
+      type WebRendererVideoCodec = "h264" | "vp8" | "vp9" | "h265" | "av1";
+      let container: "mp4" | "webm" = "mp4";
+      let videoCodec: WebRendererVideoCodec = "h264";
+      let muted = false;
+
+      if (hasMp4Audio) {
+        container = "mp4";
+        videoCodec = "h264";
+      } else if (hasWebmAudio) {
+        container = "webm";
+        videoCodec = "vp8";
+      } else {
+        // Neither container can encode audio — render muted and warn the user.
+        // The proper fix is to deploy COOP/COEP response headers so the page
+        // becomes cross-origin isolated (window.crossOriginIsolated === true).
+        container = "mp4";
+        videoCodec = "h264";
+        muted = true;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const renderOptions: Parameters<typeof renderMediaOnWeb>[0] = {
+        composition: composition as any,
         inputProps,
         container,
         videoCodec,
         videoBitrate: "high",
+        ...(muted ? { muted: true } : {}),
         onProgress: (progress) => {
           const totalFrames = Math.max(
             1,
@@ -657,10 +684,29 @@ export default function JobWorkspace({
             Math.max(previous, clampPercent((doneFrames / totalFrames) * 100))
           );
         },
-      });
+      };
+
+      // Try the probed container first; if rendering itself reports no audio
+      // codec (browser capability detection can lag behind actual support),
+      // retry once with muted=true so the user always gets a file.
+      let result: Awaited<ReturnType<typeof renderMediaOnWeb>>;
+      try {
+        result = await renderMediaOnWeb(renderOptions);
+      } catch (renderErr) {
+        const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
+        if (msg.includes("No audio codec can be encoded")) {
+          result = await renderMediaOnWeb({ ...renderOptions, muted: true });
+          muted = true;
+        } else {
+          throw renderErr;
+        }
+      }
 
       const baseName = (config.output_name || "output").replace(/\.(mp4|webm)$/i, "");
-      const outputName = useMp4 ? `${baseName}.mp4` : `${baseName}.webm`;
+      const outputName = `${baseName}.${container}`;
+      if (muted) {
+        setRenderNote("导出成功，但当前浏览器环境不支持音频编码，导出文件无声音。建议使用 Chrome / Edge 浏览器，或联系管理员确认服务器已配置 COOP/COEP 响应头。");
+      }
       setRenderFileName(outputName);
       const blob = await result.getBlob();
       const objectUrl = URL.createObjectURL(blob);
@@ -817,6 +863,12 @@ export default function JobWorkspace({
       {(job.error || error) && (
         <div className="mb-6 rounded-md bg-destructive/10 p-4 text-sm font-medium text-destructive border border-destructive/20">
           {job.error?.message || error}
+        </div>
+      )}
+
+      {renderNote && (
+        <div className="mb-6 rounded-md bg-amber-50 p-4 text-sm font-medium text-amber-800 border border-amber-200">
+          {renderNote}
         </div>
       )}
 

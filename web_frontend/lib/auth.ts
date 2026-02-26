@@ -65,10 +65,36 @@ export const auth = betterAuth({
           alg: "RS256",
         },
         disablePrivateKeyEncryption: true,
+        // Filter out any rows where privateKey was stored as NULL (e.g. from a
+        // partial write or Turso column-mapping bug). Returning no keys causes
+        // Better Auth to call createJwk() and generate a fresh valid pair.
+        // This prevents the cascade: JSON.parse(null) → null → importJWK(null)
+        //   → TypeError: JWK must be an object
       },
       jwt: {
         issuer: process.env.WEB_AUTH_ISSUER || baseURL,
         audience: process.env.WEB_AUTH_AUDIENCE || baseURL,
+      },
+      adapter: {
+        getJwks: async (ctx) => {
+          const keys = await ctx.context.adapter.findMany<{
+            id: string;
+            publicKey: string;
+            privateKey: string;
+            createdAt: Date;
+            expiresAt?: Date;
+            alg?: string;
+          }>({ model: "jwks" });
+          return (keys ?? []).filter((k: { privateKey: string | null | undefined }) => {
+            if (!k.privateKey) return false;
+            try {
+              const parsed = JSON.parse(k.privateKey);
+              return parsed !== null && typeof parsed === "object";
+            } catch {
+              return false;
+            }
+          });
+        },
       },
     }),
   ],
