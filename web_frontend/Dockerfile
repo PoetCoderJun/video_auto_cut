@@ -11,8 +11,11 @@ COPY . .
 # Build-time env (Railway injects these; set in Service Variables and redeploy)
 ARG NEXT_PUBLIC_SITE_URL
 ARG NEXT_PUBLIC_API_BASE
+ARG BETTER_AUTH_SECRET
 ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
+# Better Auth validates secret during next build; use placeholder so build passes. Runtime uses Railway Variables.
+ENV BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-build-time-placeholder-min-32-chars-for-next-build}
 RUN npm run build
 
 FROM node:20-slim AS runner
