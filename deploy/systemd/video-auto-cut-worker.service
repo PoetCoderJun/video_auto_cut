@@ -8,7 +8,7 @@ Type=simple
 User=videoautocut
 Group=videoautocut
 WorkingDirectory=/opt/video_auto_cut
-EnvironmentFile=/etc/video-auto-cut/video-auto-cut.env
+EnvironmentFile=/opt/video_auto_cut/.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/video_auto_cut/.venv/bin/python -m web_api
 Restart=always

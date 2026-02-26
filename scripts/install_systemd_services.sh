@@ -5,8 +5,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_DIR="${APP_DIR:-$ROOT_DIR}"
 SERVICE_USER="${SERVICE_USER:-videoautocut}"
 SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
-ENV_DIR="${ENV_DIR:-/etc/video-auto-cut}"
-ENV_FILE="${ENV_FILE:-$ENV_DIR/video-auto-cut.env}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 ENABLE_NOW="${ENABLE_NOW:-0}"
 
@@ -38,8 +36,8 @@ for svc in api worker frontend; do
   fi
 done
 
-if [[ ! -f "$ROOT_DIR/deploy/systemd/video-auto-cut.env.example" ]]; then
-  echo "[install_systemd] missing template: deploy/systemd/video-auto-cut.env.example"
+if [[ ! -f "$APP_DIR/.env" ]]; then
+  echo "[install_systemd] missing $APP_DIR/.env — create it before running this script"
   exit 1
 fi
 
@@ -48,37 +46,7 @@ if [[ ! -f "$ROOT_DIR/deploy/nginx/video-auto-cut.conf" ]]; then
   exit 1
 fi
 
-if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
-  echo "[install_systemd] creating system user: $SERVICE_USER"
-  $SUDO useradd --system --create-home --shell /usr/sbin/nologin "$SERVICE_USER"
-fi
-
-if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
-  echo "[install_systemd] creating group: $SERVICE_GROUP"
-  $SUDO groupadd --system "$SERVICE_GROUP"
-fi
-
-$SUDO mkdir -p "$ENV_DIR"
-if [[ ! -f "$ENV_FILE" ]]; then
-  if [[ -f "$ROOT_DIR/.env" ]]; then
-    echo "[install_systemd] creating env file from project .env: $ENV_FILE"
-    $SUDO cp "$ROOT_DIR/.env" "$ENV_FILE"
-  else
-    echo "[install_systemd] creating env file from template: $ENV_FILE"
-    echo "[install_systemd] warning: no .env found, fill in placeholders at $ENV_FILE before starting services"
-    $SUDO cp "$ROOT_DIR/deploy/systemd/video-auto-cut.env.example" "$ENV_FILE"
-  fi
-  $SUDO chmod 640 "$ENV_FILE"
-else
-  if [[ -f "$ROOT_DIR/.env" ]]; then
-    echo "[install_systemd] syncing env file from project .env: $ENV_FILE"
-    $SUDO cp "$ROOT_DIR/.env" "$ENV_FILE"
-    $SUDO chmod 640 "$ENV_FILE"
-  else
-    echo "[install_systemd] env file already exists, skipping: $ENV_FILE"
-  fi
-fi
-$SUDO chown "$SERVICE_USER:$SERVICE_GROUP" "$ENV_FILE"
+echo "[install_systemd] using env file: $APP_DIR/.env"
 
 for svc in api worker frontend; do
   src="$ROOT_DIR/deploy/systemd/video-auto-cut-${svc}.service"
@@ -149,8 +117,6 @@ if [[ "$ENABLE_NOW" == "1" || "$ENABLE_NOW" == "true" || "$ENABLE_NOW" == "yes" 
   echo "[install_systemd] services enabled and started"
 else
   echo "[install_systemd] services installed"
-  echo "[install_systemd] ensure user '$SERVICE_USER' has access to: $APP_DIR"
-  echo "[install_systemd] edit env file first: $ENV_FILE"
   echo "[install_systemd] then run:"
   echo "  sudo systemctl enable --now video-auto-cut-api.service video-auto-cut-worker.service video-auto-cut-frontend.service"
 fi
