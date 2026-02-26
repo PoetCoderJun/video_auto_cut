@@ -64,6 +64,7 @@ export const auth = betterAuth({
         keyPairConfig: {
           alg: "RS256",
         },
+        disablePrivateKeyEncryption: true,
       },
       jwt: {
         issuer: process.env.WEB_AUTH_ISSUER || baseURL,
