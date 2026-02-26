@@ -107,6 +107,8 @@ sudo systemctl enable --now video-auto-cut-api.service video-auto-cut-worker.ser
 
 ## Railway 部署（国外免备案）
 
+Railway **不会读取你本地的 `.env` 文件**。必须在每个服务的 **Variables** 里逐条添加环境变量（项目 → 选中服务 → Variables 标签 → Add Variable），键名与 `.env` 中一致，值填你的真实配置。部署时 Railway 会把它们注入到容器里。
+
 从 GitHub 连接仓库后，在同一项目下创建 **三个服务**，均从同一仓库部署，通过 **Root Directory** 和 **Start Command** 区分：
 
 ### 1) 服务 API
@@ -114,26 +116,27 @@ sudo systemctl enable --now video-auto-cut-api.service video-auto-cut-worker.ser
 - **Root Directory**：留空（仓库根目录）
 - **Dockerfile Path**：`Dockerfile`（根目录）
 - **Start Command**：留空（使用 Dockerfile 默认：`uvicorn ... --port $PORT`）
-- **Variables**：把 `.env.example` 里除 `API_PORT`/`FRONTEND_PORT` 外的变量按需填入；`NEXT_PUBLIC_SITE_URL`、`BETTER_AUTH_URL`、`WEB_CORS_ALLOWED_ORIGINS` 填 **前端** 的 Railway 公网 URL（如 `https://xxx.up.railway.app`）；`NEXT_PUBLIC_API_BASE` 填 **API** 的公网 URL（如 `https://yyy.up.railway.app/api/v1`）。API 服务生成域名后，再回来把上述 URL 改成实际值并 **Redeploy** 一次前端。
+- **Variables**：在 API 服务的 Variables 里添加以下变量（可对照本地 `.env` 或 `.env.example` 填写；`API_PORT`/`FRONTEND_PORT` 可不填，Railway 用 `PORT`）：
+  - **必填**：`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`BETTER_AUTH_SECRET`（至少 32 位）、`ASR_DASHSCOPE_API_KEY` 或 `DASHSCOPE_API_KEY`、`OSS_ENDPOINT`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`
+  - **URL**（填 Railway 生成后的真实域名）：`NEXT_PUBLIC_SITE_URL`、`BETTER_AUTH_URL`、`WEB_CORS_ALLOWED_ORIGINS` 填前端公网 URL（如 `https://xxx.up.railway.app`）；`NEXT_PUBLIC_API_BASE` 填 API 公网 URL（如 `https://yyy.up.railway.app/api/v1`）。首次可先占位，生成域名后改掉并 Redeploy。
 
 ### 2) 服务 Worker
 
 - **Root Directory**：留空
 - **Dockerfile Path**：`Dockerfile`（与 API 同一镜像）
 - **Start Command**：`python -m web_api`
-- **Variables**：与 API 相同（Turso、Auth、OSS、ASR 等）
+- **Variables**：与 API 完全一致（同一套 Turso、Auth、OSS、ASR 等），在 Worker 服务的 Variables 里再配一遍或使用 Railway 的 Shared Variables。
 
 ### 3) 服务 Frontend
 
 - **Root Directory**：`web_frontend`
 - **Dockerfile Path**：`Dockerfile`（即 `web_frontend/Dockerfile`）
-- **Variables**：在 **Build** 阶段需提供 `NEXT_PUBLIC_SITE_URL`、`NEXT_PUBLIC_API_BASE`（以及若用 Better Auth 的 `BETTER_AUTH_*` 等），值为前端、API 的 **最终公网 URL**；首次部署可先填占位，生成域名后在 Variables 中改为真实 URL 并 **Redeploy** 以重新 build。
+- **Variables**：至少提供 `NEXT_PUBLIC_SITE_URL`、`NEXT_PUBLIC_API_BASE`（以及 Better Auth 相关），值为前端、API 的最终公网 URL；首次可占位，域名确定后改值并 **Redeploy** 以重新 build。
 
 ### 4) 服务间引用与 CORS
 
 - API 的 `WEB_CORS_ALLOWED_ORIGINS` 必须包含前端的完整 origin（如 `https://your-frontend.up.railway.app`）。
 - 前端的 `NEXT_PUBLIC_API_BASE` 必须指向 API 的 `/api/v1`（如 `https://your-api.up.railway.app/api/v1`）。
-- 三个服务都需配置同一套 Turso、Auth、OSS、ASR 等环境变量（API 与 Worker 一致；Frontend 主要需要 `NEXT_PUBLIC_*` 和 Auth 相关）。
 
 推送代码后，Railway 会按各自 Root Directory / Dockerfile / Start Command 自动构建并部署对应服务。
 
