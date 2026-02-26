@@ -10,6 +10,7 @@ Group=videoautocut
 WorkingDirectory=/opt/video_auto_cut
 EnvironmentFile=/opt/video_auto_cut/.env
 Environment=PYTHONUNBUFFERED=1
+Environment=TURSO_LOCAL_REPLICA_PATH=/opt/video_auto_cut/workdir/web_api_turso_replica.db.api
 ExecStart=/opt/video_auto_cut/.venv/bin/python -m web_api
 Restart=always
 RestartSec=2
