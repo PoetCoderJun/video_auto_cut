@@ -628,11 +628,20 @@ export default function JobWorkspace({
         defaultProps: inputProps,
       };
 
-      const { renderMediaOnWeb } = await import("@remotion/web-renderer");
+      const { renderMediaOnWeb, getEncodableAudioCodecs } = await import("@remotion/web-renderer");
+
+      // Some browsers (e.g. Firefox, certain Linux configs) cannot encode AAC for
+      // the MP4 container. Check first and fall back to WebM/VP8/Opus if needed.
+      const mp4AudioCodecs = await getEncodableAudioCodecs("mp4");
+      const useMp4 = mp4AudioCodecs.length > 0;
+      const container = useMp4 ? ("mp4" as const) : ("webm" as const);
+      const videoCodec = useMp4 ? "h264" : "vp8";
+
       const result = await renderMediaOnWeb({
         composition,
         inputProps,
-        videoCodec: "h264",
+        container,
+        videoCodec,
         videoBitrate: "high",
         onProgress: (progress) => {
           const totalFrames = Math.max(
@@ -650,7 +659,9 @@ export default function JobWorkspace({
         },
       });
 
-      setRenderFileName(config.output_name || "output.mp4");
+      const baseName = (config.output_name || "output").replace(/\.(mp4|webm)$/i, "");
+      const outputName = useMp4 ? `${baseName}.mp4` : `${baseName}.webm`;
+      setRenderFileName(outputName);
       const blob = await result.getBlob();
       const objectUrl = URL.createObjectURL(blob);
       setRenderDownloadUrl((previous) => {
@@ -660,7 +671,7 @@ export default function JobWorkspace({
       // Try auto-download after export; keep the manual button as fallback.
       const autoDownloadLink = document.createElement("a");
       autoDownloadLink.href = objectUrl;
-      autoDownloadLink.download = config.output_name || "output.mp4";
+      autoDownloadLink.download = outputName;
       autoDownloadLink.style.display = "none";
       document.body.appendChild(autoDownloadLink);
       autoDownloadLink.click();
