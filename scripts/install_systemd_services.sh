@@ -60,9 +60,23 @@ fi
 
 $SUDO mkdir -p "$ENV_DIR"
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "[install_systemd] creating env file from template: $ENV_FILE"
-  $SUDO cp "$ROOT_DIR/deploy/systemd/video-auto-cut.env.example" "$ENV_FILE"
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    echo "[install_systemd] creating env file from project .env: $ENV_FILE"
+    $SUDO cp "$ROOT_DIR/.env" "$ENV_FILE"
+  else
+    echo "[install_systemd] creating env file from template: $ENV_FILE"
+    echo "[install_systemd] warning: no .env found, fill in placeholders at $ENV_FILE before starting services"
+    $SUDO cp "$ROOT_DIR/deploy/systemd/video-auto-cut.env.example" "$ENV_FILE"
+  fi
   $SUDO chmod 640 "$ENV_FILE"
+else
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    echo "[install_systemd] syncing env file from project .env: $ENV_FILE"
+    $SUDO cp "$ROOT_DIR/.env" "$ENV_FILE"
+    $SUDO chmod 640 "$ENV_FILE"
+  else
+    echo "[install_systemd] env file already exists, skipping: $ENV_FILE"
+  fi
 fi
 $SUDO chown "$SERVICE_USER:$SERVICE_GROUP" "$ENV_FILE"
 
