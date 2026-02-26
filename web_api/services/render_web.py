@@ -163,14 +163,16 @@ def _resolve_dimensions(
     override_width: int | None,
     override_height: int | None,
 ) -> tuple[int, int]:
+    if override_width is None or override_height is None:
+        raise ValueError("width and height are required to build render config")
     try:
-        width = int(override_width) if override_width is not None else 1920
-        height = int(override_height) if override_height is not None else 1080
-    except (TypeError, ValueError):
-        return 1920, 1080
+        width = int(override_width)
+        height = int(override_height)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid width/height: {override_width}, {override_height}") from exc
 
     if width <= 0 or height <= 0:
-        return 1920, 1080
+        raise ValueError(f"width and height must be positive, got {width}x{height}")
 
     return _ensure_even(width), _ensure_even(height)
 

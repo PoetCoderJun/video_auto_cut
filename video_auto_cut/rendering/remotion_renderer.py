@@ -445,7 +445,7 @@ class RemotionRenderer:
         src = Path(media_fn).resolve()
         meta = self._load_video_metadata(media_fn)
         is_hdr = self._is_hdr_source(meta)
-        standard_suffix = "std_1080p30_sdr709_hable_v2"
+        standard_suffix = "std_src_sdr709_v1"
         source_stamp = self._file_stamp(src)
         proxy_name = f"{src.stem}_{source_stamp}.{standard_suffix}.mp4"
         proxy = cache_dir / proxy_name
@@ -458,8 +458,9 @@ class RemotionRenderer:
         if proxy.exists():
             return str(proxy)
 
-        logging.info("Standardizing source to mp4/h264 SDR Rec.709 1080p30 for render ingest.")
-        scale_pad = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+        logging.info("Standardizing source to mp4/h264 SDR Rec.709 (native resolution) for render ingest.")
+        # Keep original resolution; only ensure even pixel dimensions required by H.264.
+        scale_pad = "scale='2*trunc(iw/2)':'2*trunc(ih/2)'"
         if is_hdr:
             self._ensure_zscale_available()
             # Community-proven HDR->SDR path (HLG/PQ -> linear -> tone map -> Rec.709).
@@ -684,12 +685,7 @@ class RemotionRenderer:
     def _resolve_dimensions(self, meta: Dict[str, object]) -> Tuple[int, int]:
         width = int(meta["width"])
         height = int(meta["height"])
-        max_height = 720 if bool(getattr(self.args, "render_preview", False)) else 1080
-        if height <= max_height:
-            return self._ensure_even(width), self._ensure_even(height)
-        scale = max_height / height
-        scaled_width = int(round(width * scale))
-        return self._ensure_even(scaled_width), self._ensure_even(max_height)
+        return self._ensure_even(width), self._ensure_even(height)
 
     def _ensure_even(self, value: int) -> int:
         if value % 2 == 0:

@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+workdir
+web_frontend
+node_modules
+__pycache__
+*.pyc
+.venv
+venv
+*.md
+scripts
+deploy
+test_data
+autocut

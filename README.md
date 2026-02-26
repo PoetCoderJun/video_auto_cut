@@ -105,8 +105,41 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now video-auto-cut-api.service video-auto-cut-worker.service video-auto-cut-frontend.service
 ```
 
+## Railway 部署（国外免备案）
+
+从 GitHub 连接仓库后，在同一项目下创建 **三个服务**，均从同一仓库部署，通过 **Root Directory** 和 **Start Command** 区分：
+
+### 1) 服务 API
+
+- **Root Directory**：留空（仓库根目录）
+- **Dockerfile Path**：`Dockerfile`（根目录）
+- **Start Command**：留空（使用 Dockerfile 默认：`uvicorn ... --port $PORT`）
+- **Variables**：把 `.env.example` 里除 `API_PORT`/`FRONTEND_PORT` 外的变量按需填入；`NEXT_PUBLIC_SITE_URL`、`BETTER_AUTH_URL`、`WEB_CORS_ALLOWED_ORIGINS` 填 **前端** 的 Railway 公网 URL（如 `https://xxx.up.railway.app`）；`NEXT_PUBLIC_API_BASE` 填 **API** 的公网 URL（如 `https://yyy.up.railway.app/api/v1`）。API 服务生成域名后，再回来把上述 URL 改成实际值并 **Redeploy** 一次前端。
+
+### 2) 服务 Worker
+
+- **Root Directory**：留空
+- **Dockerfile Path**：`Dockerfile`（与 API 同一镜像）
+- **Start Command**：`python -m web_api`
+- **Variables**：与 API 相同（Turso、Auth、OSS、ASR 等）
+
+### 3) 服务 Frontend
+
+- **Root Directory**：`web_frontend`
+- **Dockerfile Path**：`Dockerfile`（即 `web_frontend/Dockerfile`）
+- **Variables**：在 **Build** 阶段需提供 `NEXT_PUBLIC_SITE_URL`、`NEXT_PUBLIC_API_BASE`（以及若用 Better Auth 的 `BETTER_AUTH_*` 等），值为前端、API 的 **最终公网 URL**；首次部署可先填占位，生成域名后在 Variables 中改为真实 URL 并 **Redeploy** 以重新 build。
+
+### 4) 服务间引用与 CORS
+
+- API 的 `WEB_CORS_ALLOWED_ORIGINS` 必须包含前端的完整 origin（如 `https://your-frontend.up.railway.app`）。
+- 前端的 `NEXT_PUBLIC_API_BASE` 必须指向 API 的 `/api/v1`（如 `https://your-api.up.railway.app/api/v1`）。
+- 三个服务都需配置同一套 Turso、Auth、OSS、ASR 等环境变量（API 与 Worker 一致；Frontend 主要需要 `NEXT_PUBLIC_*` 和 Auth 相关）。
+
+推送代码后，Railway 会按各自 Root Directory / Dockerfile / Start Command 自动构建并部署对应服务。
+
 ## 部署位置建议
 
+- **Railway**：国外部署、免备案、自带 HTTPS，见上文「Railway 部署」。
 - 阿里云 `ECS / 轻量应用服务器`：可直接部署（当前项目最匹配）。
 - 阿里云 `ECI`：可部署，但需要你自己容器化和日志/持久化方案。
 - `Vercel / EdgeOne`：只能放前端层，不能直接承载 Python API + worker + ffmpeg 链路。

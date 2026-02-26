@@ -594,8 +594,8 @@ export default function JobWorkspace({
 
           const fps = (await tryParseFpsWithMediaInfo(file)) ?? (await estimateFps());
           return {
-            width: meta.width || 1920,
-            height: meta.height || 1080,
+            width: meta.width,
+            height: meta.height,
             duration_sec:
               typeof meta.duration === "number" && Number.isFinite(meta.duration)
                 ? meta.duration
