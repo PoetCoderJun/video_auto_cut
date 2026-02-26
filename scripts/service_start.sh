@@ -18,7 +18,7 @@ echo "[service_start] starting services ..."
 $SUDO systemctl start "${SERVICES[@]}"
 
 echo "[service_start] waiting for services to settle ..."
-sleep 60
+sleep  6
 
 ALL_OK=1
 for svc in "${SERVICES[@]}"; do
