@@ -42,6 +42,7 @@ APT_PACKAGES=(
   libsqlite3-dev
   lsof
   ripgrep
+  nginx
 )
 
 echo "[install_ubuntu] apt update ..."
@@ -93,4 +94,4 @@ echo "[install_ubuntu] next steps:"
 echo "  1) cp .env.example .env  # or prepare your .env"
 echo "  2) source $VENV_DIR/bin/activate"
 echo "  3) ./scripts/start_web_prod.sh"
-echo "  4) optional: ENABLE_NOW=1 ./scripts/install_systemd_services.sh"
+echo "  4) optional: NGINX_SERVER_NAME=your-domain.example ENABLE_NOW=1 ./scripts/install_systemd_services.sh"

@@ -10,6 +10,12 @@ ENV_FILE="${ENV_FILE:-$ENV_DIR/video-auto-cut.env}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 ENABLE_NOW="${ENABLE_NOW:-0}"
 
+NGINX_SERVER_NAME="${NGINX_SERVER_NAME:-_}"
+NGINX_API_PORT="${NGINX_API_PORT:-8000}"
+NGINX_FRONTEND_PORT="${NGINX_FRONTEND_PORT:-3000}"
+NGINX_SITES_AVAILABLE="${NGINX_SITES_AVAILABLE:-/etc/nginx/sites-available}"
+NGINX_SITES_ENABLED="${NGINX_SITES_ENABLED:-/etc/nginx/sites-enabled}"
+
 SUDO=""
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   if command -v sudo >/dev/null 2>&1; then
@@ -34,6 +40,11 @@ done
 
 if [[ ! -f "$ROOT_DIR/deploy/systemd/video-auto-cut.env.example" ]]; then
   echo "[install_systemd] missing template: deploy/systemd/video-auto-cut.env.example"
+  exit 1
+fi
+
+if [[ ! -f "$ROOT_DIR/deploy/nginx/video-auto-cut.conf" ]]; then
+  echo "[install_systemd] missing template: deploy/nginx/video-auto-cut.conf"
   exit 1
 fi
 
@@ -70,6 +81,51 @@ for svc in api worker frontend; do
 done
 
 $SUDO systemctl daemon-reload
+
+# ---- Nginx config ----
+if command -v nginx >/dev/null 2>&1; then
+  nginx_conf_src="$ROOT_DIR/deploy/nginx/video-auto-cut.conf"
+  nginx_conf_dst="$NGINX_SITES_AVAILABLE/video-auto-cut"
+  nginx_conf_tmp="$(mktemp)"
+  sed \
+    -e "s|__SERVER_NAME__|${NGINX_SERVER_NAME}|g" \
+    -e "s|__API_PORT__|${NGINX_API_PORT}|g" \
+    -e "s|__FRONTEND_PORT__|${NGINX_FRONTEND_PORT}|g" \
+    "$nginx_conf_src" > "$nginx_conf_tmp"
+  echo "[install_systemd] installing nginx config: $nginx_conf_dst"
+  $SUDO install -m 0644 "$nginx_conf_tmp" "$nginx_conf_dst"
+  rm -f "$nginx_conf_tmp"
+
+  # Enable site (symlink into sites-enabled)
+  if [[ ! -L "$NGINX_SITES_ENABLED/video-auto-cut" ]]; then
+    $SUDO ln -sf "$nginx_conf_dst" "$NGINX_SITES_ENABLED/video-auto-cut"
+    echo "[install_systemd] enabled nginx site: video-auto-cut"
+  fi
+
+  # Remove default nginx site to avoid port 80 conflict
+  if [[ -L "$NGINX_SITES_ENABLED/default" ]]; then
+    $SUDO rm -f "$NGINX_SITES_ENABLED/default"
+    echo "[install_systemd] removed nginx default site"
+  fi
+
+  # Validate config
+  if ! $SUDO nginx -t 2>/dev/null; then
+    echo "[install_systemd] nginx config test failed — check $nginx_conf_dst"
+    exit 1
+  fi
+
+  if [[ "$ENABLE_NOW" == "1" || "$ENABLE_NOW" == "true" || "$ENABLE_NOW" == "yes" ]]; then
+    $SUDO systemctl enable --now nginx
+    $SUDO systemctl reload nginx
+    echo "[install_systemd] nginx enabled and reloaded"
+  else
+    echo "[install_systemd] nginx config installed (nginx not yet reloaded)"
+    echo "[install_systemd] reload manually: sudo systemctl enable --now nginx && sudo nginx -s reload"
+  fi
+else
+  echo "[install_systemd] warning: nginx not found, skipping nginx config install"
+  echo "[install_systemd] install nginx first: sudo apt-get install -y nginx"
+fi
 
 if [[ "$ENABLE_NOW" == "1" || "$ENABLE_NOW" == "true" || "$ENABLE_NOW" == "yes" ]]; then
   $SUDO systemctl enable --now \

@@ -125,6 +125,15 @@ type ApiErrorResponse = {
 
 type AuthTokenProvider = () => Promise<string | null>;
 let authTokenProvider: AuthTokenProvider | null = null;
+
+// Module-level JWT cache so we don't hit /api/auth/token on every request.
+let tokenCache: { token: string; expiresAt: number } | null = null;
+const TOKEN_CACHE_TTL_MS = 4 * 60 * 1000; // 4 minutes
+
+export function invalidateTokenCache(): void {
+  tokenCache = null;
+}
+
 type RequestOptions = {
   requireAuth?: boolean;
 };
@@ -179,10 +188,20 @@ export function setApiAuthTokenProvider(provider: AuthTokenProvider | null): voi
 }
 
 async function resolveAuthToken(): Promise<string | null> {
+  if (tokenCache && Date.now() < tokenCache.expiresAt) {
+    return tokenCache.token;
+  }
   if (!authTokenProvider) return null;
   try {
-    return await authTokenProvider();
+    const token = await authTokenProvider();
+    if (token) {
+      tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS };
+      return token;
+    }
+    tokenCache = null;
+    return null;
   } catch {
+    tokenCache = null;
     return null;
   }
 }

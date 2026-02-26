@@ -9,8 +9,6 @@ import {
   Video,
   CheckCircle2,
   Play,
-  Sparkles,
-  LayoutTemplate,
   UploadCloud,
   Scissors,
   ShieldCheck,
@@ -22,6 +20,7 @@ import {
   activateInviteCode,
   createJob,
   getMe,
+  invalidateTokenCache,
   setApiAuthTokenProvider,
   uploadAudio,
 } from "../lib/api";
@@ -86,245 +85,55 @@ const FLOW_STEPS = [
 ];
 
 type UserStatus = "UNKNOWN" | "ACTIVE" | "PENDING_COUPON";
-type ProfileLoadState = "idle" | "loading" | "ready" | "error";
-const PROFILE_SYNC_MAX_ATTEMPTS = 3;
-const PROFILE_SYNC_RETRY_BASE_MS = 800;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function isAuthMessage(message: string): boolean {
-  return message.includes("请先登录") || message.includes("登录状态无效");
-}
-
-function isAuthError(err: unknown): boolean {
-  if (err instanceof ApiClientError && err.code === "UNAUTHORIZED") {
-    return true;
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  return isAuthMessage(message);
-}
 
 export default function HomePageClient() {
   const router = useRouter();
   const [jobId, setJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState("");
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [userStatus, setUserStatus] = useState<UserStatus>("UNKNOWN");
-  const [profileState, setProfileState] = useState<ProfileLoadState>("idle");
   const [inviteNotice, setInviteNotice] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authAccount, setAuthAccount] = useState("");
-  const [apiToken, setApiToken] = useState<string | null>(null);
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
-  const [profileSyncNonce, setProfileSyncNonce] = useState(0);
 
-  const inviteActivated = userStatus === "ACTIVE";
-  const profileLoading =
-    isSignedIn && (profileState === "idle" || profileState === "loading");
-
-  const getJwtToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const tokenResult = await (authClient as any).token();
-      return String(tokenResult?.data?.token || "").trim() || null;
-    } catch {
-      return null;
-    }
+  // Set up a lazy token provider. JWT is fetched on first API request and cached
+  // in api.ts for ~4 minutes; no network call on page mount.
+  useEffect(() => {
+    setApiAuthTokenProvider(async () => {
+      const result = await (authClient as any).token();
+      return String(result?.data?.token || "").trim() || null;
+    });
+    return () => setApiAuthTokenProvider(null);
   }, []);
 
-  const syncAuthState = useCallback(async () => {
-    try {
-      const sessionResult = await (authClient as any).getSession();
-      const user = sessionResult?.data?.user;
-      if (!user?.id) {
-        setIsSignedIn(false);
-        setAuthUserId(null);
-        setAuthAccount("");
-        setApiToken(null);
-        setCreditBalance(null);
-        setUserStatus("UNKNOWN");
-        setProfileState("idle");
-        return;
-      }
-      setIsSignedIn(true);
-      setAuthUserId(String(user.id));
-      const account = String(user.email || user.name || user.id || "").trim();
-      setAuthAccount(account);
-      setCreditBalance(null);
-      setUserStatus("UNKNOWN");
-      setProfileState("idle");
-      setApiToken(await getJwtToken());
-    } catch {
-      setIsSignedIn(false);
-      setAuthUserId(null);
-      setAuthAccount("");
-      setApiToken(null);
-      setCreditBalance(null);
-      setUserStatus("UNKNOWN");
-      setProfileState("idle");
-    }
-  }, [getJwtToken]);
-
+  // On mount: restore cached job ID and do a lightweight background session check
+  // (getSession only — no token fetch, no /me call) so the header reflects the
+  // signed-in state without blocking page render.
   useEffect(() => {
     let alive = true;
-    const bootstrap = async () => {
-      await syncAuthState();
-      if (!alive) return;
-      try {
-        const cachedJobId = localStorage.getItem(ACTIVE_JOB_ID_KEY)?.trim() || "";
-        if (cachedJobId) {
-          setJobId(cachedJobId);
-        }
-      } catch {
-        // Ignore storage errors.
-      }
-      setAuthReady(true);
-    };
-    void bootstrap();
-    return () => {
-      alive = false;
-    };
-  }, [syncAuthState]);
-
-  useEffect(() => {
-    setApiAuthTokenProvider(async () => apiToken);
-    return () => {
-      setApiAuthTokenProvider(null);
-    };
-  }, [apiToken]);
-
-  useEffect(() => {
-    if (!authReady) return;
-    if (isSignedIn) return;
-    setJobId(null);
-    setCreditBalance(null);
-    setUserStatus("UNKNOWN");
-    setProfileState("idle");
-    setInviteNotice("");
     try {
-      localStorage.removeItem(ACTIVE_JOB_ID_KEY);
+      const cached = localStorage.getItem(ACTIVE_JOB_ID_KEY)?.trim() || "";
+      if (cached && alive) setJobId(cached);
     } catch {
-      // Ignore storage failures.
+      // Ignore storage errors.
     }
-  }, [authReady, isSignedIn]);
-
-  useEffect(() => {
-    if (!authReady || !isSignedIn || !apiToken) return;
-    let cancelled = false;
-    setProfileState("loading");
-
-    const syncProfile = async () => {
-      for (let attempt = 1; attempt <= PROFILE_SYNC_MAX_ATTEMPTS; attempt += 1) {
-        if (cancelled) return;
-        try {
-          const me = await getMe();
-          if (cancelled) return;
-          setCreditBalance(me.credits.balance);
-          const normalizedStatus = String(me.status || "PENDING_COUPON").toUpperCase();
-          setUserStatus(normalizedStatus === "ACTIVE" ? "ACTIVE" : "PENDING_COUPON");
-          setProfileState("ready");
-          return;
-        } catch (err) {
-          if (cancelled) return;
-          const message =
-            err instanceof Error ? err.message : "登录状态已失效，请重新登录。";
-          const shouldRetry =
-            !isAuthError(err) && attempt < PROFILE_SYNC_MAX_ATTEMPTS;
-          if (shouldRetry) {
-            await sleep(PROFILE_SYNC_RETRY_BASE_MS * attempt);
-            continue;
-          }
-          setUserStatus("UNKNOWN");
-          setProfileState("error");
-          setError(message);
-          return;
-        }
+    (authClient as any).getSession().then((result: any) => {
+      if (!alive) return;
+      const user = result?.data?.user;
+      if (user?.id) {
+        setIsSignedIn(true);
+        setAuthAccount(String(user.email || user.name || user.id || "").trim());
       }
-    };
-    void syncProfile();
-    return () => {
-      cancelled = true;
-    };
-  }, [authReady, isSignedIn, apiToken, profileSyncNonce]);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
 
-  useEffect(() => {
-    if (!authReady || !isSignedIn || !apiToken || !authUserId) return;
-    if (profileState !== "ready") return;
-    if (userStatus !== "PENDING_COUPON") return;
-    let cancelled = false;
-
-    const activatePendingInvite = async () => {
-      const scopedKey = pendingInviteCodeKeyForUser(authUserId);
-      let code = "";
-      try {
-        code = localStorage.getItem(scopedKey)?.trim().toUpperCase() || "";
-        localStorage.removeItem(LEGACY_PENDING_INVITE_CODE_KEY);
-      } catch {
-        code = "";
-      }
-      if (!code) return;
-      try {
-        const activation = await activateInviteCode(code);
-        if (cancelled) return;
-        setCreditBalance(activation.balance);
-        setUserStatus("ACTIVE");
-        setInviteNotice("注册成功，邀请码已激活。");
-        try {
-          localStorage.removeItem(scopedKey);
-        } catch {
-          // Ignore storage failures.
-        }
-      } catch (err) {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : "邀请码自动激活失败";
-        const isPermanentInviteError =
-          message.includes("邀请码") &&
-          (message.includes("已被使用") ||
-            message.includes("无效") ||
-            message.includes("已过期"));
-        if (isPermanentInviteError) {
-          setInviteNotice(`邀请码激活失败：${message}`);
-          try {
-            localStorage.removeItem(scopedKey);
-          } catch {
-            // Ignore storage failures.
-          }
-          return;
-        }
-        setInviteNotice("检测到注册邀请码，正在后台自动激活，请稍后重试。");
-      }
-    };
-
-    void activatePendingInvite();
-    return () => {
-      cancelled = true;
-    };
-  }, [authReady, isSignedIn, apiToken, userStatus, profileState, authUserId]);
-
-  useEffect(() => {
-    if (!isSignedIn || profileState !== "ready" || !inviteActivated) return;
-    setError((previous) => {
-      if (
-        previous.includes("账号状态加载中") ||
-        previous.includes("账号状态校验失败") ||
-        previous.includes("尚未完成邀请码激活")
-      ) {
-        return "";
-      }
-      return previous;
-    });
-  }, [isSignedIn, profileState, inviteActivated]);
-
-  const saveJobId = useCallback((value: string) => {
-    setJobId(value);
+  const saveJobId = useCallback((id: string) => {
+    setJobId(id);
     try {
-      localStorage.setItem(ACTIVE_JOB_ID_KEY, value);
+      localStorage.setItem(ACTIVE_JOB_ID_KEY, id);
     } catch {
       // Ignore storage failures.
     }
@@ -343,13 +152,11 @@ export default function HomePageClient() {
     setAuthBusy(true);
     try {
       await (authClient as any).signOut();
-      setApiToken(null);
+      invalidateTokenCache();
       setIsSignedIn(false);
-      setAuthUserId(null);
       setAuthAccount("");
       setCreditBalance(null);
       setUserStatus("UNKNOWN");
-      setProfileState("idle");
       setJobId(null);
       setInviteNotice("");
       try {
@@ -362,60 +169,91 @@ export default function HomePageClient() {
     }
   };
 
-  const handleRetryProfileSync = () => {
-    setError((previous) => {
-      if (
-        previous.includes("登录状态") ||
-        previous.includes("账号状态校验失败") ||
-        previous.includes("无法连接 API")
-      ) {
-        return "";
-      }
-      return previous;
-    });
-    setProfileState("idle");
-    setProfileSyncNonce((previous) => previous + 1);
-  };
-
+  // Auth and profile checks happen here, only when user actually tries to upload.
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const input = e.currentTarget;
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
 
-    if (!authReady) {
-      setError("登录状态初始化中，请稍后再试。");
-      return;
-    }
-
-    if (!isSignedIn) {
-      router.push("/sign-in");
-      return;
-    }
-
-    if (!apiToken) {
-      setError("登录状态初始化中，请稍后再试。");
-      return;
-    }
-
-    if (profileState === "idle" || profileState === "loading") {
-      setError("账号状态加载中，请稍后自动重试。");
-      return;
-    }
-
-    if (profileState === "error") {
-      setError("账号状态校验失败，请刷新页面后重试。");
-      return;
-    }
-
-    if (!inviteActivated) {
-      setError("账号尚未完成邀请码激活，请先完成激活。");
-      return;
-    }
-
     setError("");
     setLoading(true);
     try {
+      // 1. Verify session lazily at consumption time.
+      const sessionResult = await (authClient as any).getSession();
+      const user = sessionResult?.data?.user;
+      if (!user?.id) {
+        router.push("/sign-in");
+        return;
+      }
+      const userId = String(user.id);
+      setIsSignedIn(true);
+      setAuthAccount(String(user.email || user.name || user.id || "").trim());
+
+      // 2. Fetch profile to check account status and credits.
+      let me;
+      try {
+        me = await getMe();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "账号状态校验失败，请稍后重试。";
+        setError(message);
+        return;
+      }
+      setCreditBalance(me.credits.balance);
+      const status = String(me.status || "PENDING_COUPON").toUpperCase();
+      let isActive = status === "ACTIVE";
+      setUserStatus(isActive ? "ACTIVE" : "PENDING_COUPON");
+
+      // 3. If not active, try to activate a pending invite code from localStorage.
+      if (!isActive) {
+        const scopedKey = pendingInviteCodeKeyForUser(userId);
+        let code = "";
+        try {
+          code = localStorage.getItem(scopedKey)?.trim().toUpperCase() || "";
+          localStorage.removeItem(LEGACY_PENDING_INVITE_CODE_KEY);
+        } catch {
+          code = "";
+        }
+        if (code) {
+          try {
+            const activation = await activateInviteCode(code);
+            setCreditBalance(activation.balance);
+            setUserStatus("ACTIVE");
+            setInviteNotice("注册成功，邀请码已激活。");
+            isActive = true;
+            try {
+              localStorage.removeItem(scopedKey);
+            } catch {
+              // Ignore storage failures.
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "";
+            const isPermanent =
+              msg.includes("邀请码") &&
+              (msg.includes("已被使用") ||
+                msg.includes("无效") ||
+                msg.includes("已过期"));
+            if (isPermanent) {
+              setInviteNotice(`邀请码激活失败：${msg}`);
+              try {
+                localStorage.removeItem(scopedKey);
+              } catch {
+                // Ignore storage failures.
+              }
+            } else {
+              setInviteNotice("检测到注册邀请码，正在后台自动激活，请稍后重试。");
+            }
+          }
+        }
+      }
+
+      if (!isActive) {
+        setError("账号尚未完成邀请码激活，请先完成激活。");
+        return;
+      }
+
+      // 4. Create job and upload.
       const job = await createJob();
       const audioFile = await extractAudioForAsr(file);
       await uploadAudio(job.job_id, audioFile);
@@ -431,14 +269,6 @@ export default function HomePageClient() {
   };
 
   if (jobId) {
-    if (!authReady || !isSignedIn || !apiToken) {
-      return (
-        <main className="container mx-auto flex h-[50vh] flex-col items-center justify-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-muted-foreground">正在校验登录状态...</p>
-        </main>
-      );
-    }
     return (
       <div className="min-h-screen bg-background font-sans">
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -503,7 +333,7 @@ export default function HomePageClient() {
             </a>
           </nav>
           <div className="flex items-center gap-3">
-            {!authReady ? null : !isSignedIn ? (
+            {!isSignedIn ? (
               <>
                 <Link href="/sign-in">
                   <Button variant="ghost">登录</Button>
@@ -566,26 +396,19 @@ export default function HomePageClient() {
               全流程可编辑，既快又可控。
             </p>
 
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                账号状态校验与额度可见
-              </span>
-            </div>
-
             <div className="mt-10 flex flex-col items-center justify-center gap-6">
               {/* Direct Upload Area */}
               <div
                 className={cn(
                   "relative group w-full max-w-lg cursor-pointer rounded-xl border-2 border-dashed border-muted-foreground/25 bg-card p-10 transition-all hover:border-primary/50 hover:bg-muted/30",
-                  (loading || profileLoading) && "opacity-70 cursor-not-allowed"
+                  loading && "opacity-70 cursor-not-allowed"
                 )}
               >
                 <input
                   type="file"
                   accept=".mp4,.mov,.mkv,.webm,.m4v,.ts,.m2ts,.mts"
                   onChange={handleFileSelect}
-                  disabled={loading || !authReady || profileLoading}
+                  disabled={loading}
                   className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                 />
                 <div className="flex flex-col items-center justify-center gap-4 text-center">
@@ -604,34 +427,13 @@ export default function HomePageClient() {
                       支持 MP4, MOV, MKV 等主流格式
                     </p>
                   </div>
-                  {!isSignedIn && authReady && (
+                  {!isSignedIn && (
                     <Badge variant="outline" className="text-amber-600 bg-amber-50 border-amber-200 mt-2">
                       需登录后使用
                     </Badge>
                   )}
-                  {profileLoading && (
-                    <Badge variant="outline" className="text-sky-600 bg-sky-50 border-sky-200 mt-2">
-                      正在同步账号状态...
-                    </Badge>
-                  )}
                 </div>
               </div>
-
-              {!isSignedIn && authReady && (
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  <Link href="/sign-up">
-                    <Button className="rounded-full">
-                      立即注册体验
-                      <ArrowRight className="ml-1 h-4 w-4" />
-                    </Button>
-                  </Link>
-                  <Link href="/sign-in">
-                    <Button variant="outline" className="rounded-full">
-                      我已有账号，去登录
-                    </Button>
-                  </Link>
-                </div>
-              )}
 
               {inviteNotice && (
                 <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 border border-emerald-200">
@@ -643,17 +445,6 @@ export default function HomePageClient() {
               {error && (
                 <div className="w-full max-w-lg rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive text-center border border-destructive/20">
                   <p>{error}</p>
-                  {isSignedIn && profileState === "error" && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3 border-destructive/40 text-destructive hover:bg-destructive/10"
-                      onClick={handleRetryProfileSync}
-                    >
-                      重试账号状态
-                    </Button>
-                  )}
                 </div>
               )}
             </div>
@@ -789,12 +580,12 @@ export default function HomePageClient() {
                     input?.click();
                   }}
                   className="rounded-full"
-                  disabled={loading || !authReady || profileLoading}
+                  disabled={loading}
                 >
                   立即上传视频
                   <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
-                {!isSignedIn && authReady && (
+                {!isSignedIn && (
                   <Link href="/sign-up">
                     <Button variant="outline" className="rounded-full">
                       先注册账号
