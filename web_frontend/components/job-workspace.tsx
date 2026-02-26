@@ -630,6 +630,12 @@ export default function JobWorkspace({
         defaultProps: inputProps,
       };
 
+      if (!window.isSecureContext) {
+        throw new Error(
+          "当前页面不在安全上下文中（需要 HTTPS 或 localhost），浏览器禁用了视频解码器 (VideoDecoder)，无法导出视频。请通过 HTTPS 访问本站，或联系管理员配置 SSL 证书。"
+        );
+      }
+
       const { renderMediaOnWeb, getEncodableAudioCodecs } = await import("@remotion/web-renderer");
 
       // Determine the best available container+codec for this browser.
