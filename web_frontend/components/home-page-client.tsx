@@ -179,6 +179,30 @@ export default function HomePageClient() {
     setError("");
     setLoading(true);
     try {
+      // 0. Check video duration — reject anything over 30 minutes.
+      const durationSec = await new Promise<number>((resolve) => {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          URL.revokeObjectURL(url);
+          resolve(video.duration);
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(0);
+        };
+        video.src = url;
+      });
+      if (durationSec > 30 * 60) {
+        const mins = Math.floor(durationSec / 60);
+        const secs = Math.round(durationSec % 60);
+        setError(
+          `视频时长 ${mins} 分 ${secs} 秒，超过 30 分钟限制，请上传更短的视频。`
+        );
+        return;
+      }
+
       // 1. Verify session lazily at consumption time.
       const sessionResult = await (authClient as any).getSession();
       const user = sessionResult?.data?.user;
@@ -424,7 +448,7 @@ export default function HomePageClient() {
                       {loading ? "正在上传并分析..." : "点击或拖拽上传视频"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      支持 MP4, MOV, MKV 等主流格式
+                      支持 MP4, MOV, MKV 等主流格式 · 最长 30 分钟
                     </p>
                   </div>
                   {!isSignedIn && (
