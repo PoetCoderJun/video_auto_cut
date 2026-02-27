@@ -184,7 +184,7 @@ def get_settings() -> Settings:
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
         llm_model=(os.getenv("LLM_MODEL") or "").strip() or None,
         llm_api_key=(llm_api_key or "").strip() or None,
-        llm_timeout=int(os.getenv("LLM_TIMEOUT", "60")),
+        llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
         llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "4096")),
         topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),

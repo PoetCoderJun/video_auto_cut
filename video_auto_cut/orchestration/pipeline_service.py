@@ -45,7 +45,7 @@ class PipelineOptions:
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
-    llm_timeout: int = 60
+    llm_timeout: int = 300
     llm_temperature: float = 0.2
     llm_max_tokens: int = 4096
 

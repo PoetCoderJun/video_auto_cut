@@ -237,7 +237,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-base-url", type=str, default=None)
     parser.add_argument("--llm-model", type=str, default=None)
     parser.add_argument("--llm-api-key", type=str, default=None)
-    parser.add_argument("--llm-timeout", type=int, default=60)
+    parser.add_argument("--llm-timeout", type=int, default=300)
     parser.add_argument("--llm-temperature", type=float, default=0.2)
     parser.add_argument("--llm-max-tokens", type=int, default=4096)
 

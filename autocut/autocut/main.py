@@ -227,7 +227,7 @@ def main():
     parser.add_argument(
         "--llm-timeout",
         type=int,
-        default=60,
+        default=300,
         help="LLM request timeout (seconds)",
     )
     parser.add_argument(
