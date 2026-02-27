@@ -194,11 +194,11 @@ export default function HomePageClient() {
         };
         video.src = url;
       });
-      if (durationSec > 30 * 60) {
+      if (durationSec > 60 * 60) {
         const mins = Math.floor(durationSec / 60);
         const secs = Math.round(durationSec % 60);
         setError(
-          `视频时长 ${mins} 分 ${secs} 秒，超过 30 分钟限制，请上传更短的视频。`
+          `视频时长 ${mins} 分 ${secs} 秒，超过 1 小时限制，请上传更短的视频。`
         );
         return;
       }
@@ -449,7 +449,7 @@ export default function HomePageClient() {
                       {loading ? "正在上传并分析..." : "点击或拖拽上传视频"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      支持 MP4, MOV, MKV 等主流格式 · 最长 30 分钟
+                      支持 MP4, MOV, MKV 等主流格式 · 最长 1 小时
                     </p>
                   </div>
                   {!isSignedIn && (
