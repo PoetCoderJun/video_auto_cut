@@ -44,7 +44,7 @@ function floatToInt16(samples: Float32Array): Int16Array {
   const out = new Int16Array(samples.length);
   for (let i = 0; i < samples.length; i += 1) {
     const s = Math.max(-1, Math.min(1, samples[i] ?? 0));
-    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    out[i] = Math.round(s * (s < 0 ? 0x8000 : 0x7fff));
   }
   return out;
 }
@@ -127,7 +127,7 @@ function getOutputName(sourceName: string, ext: "wav" | "mp3"): string {
 export type ExtractAudioFormat = "wav" | "mp3";
 
 /**
- * Extract audio for ASR. MP3 (64kbps) is smaller (~5x) with minimal speech quality loss.
+ * Extract audio for ASR. Prefer MP3 (64kbps) for smaller upload; fallback to WAV if MP3 fails.
  */
 export async function extractAudioForAsr(
   sourceFile: File,
@@ -147,11 +147,19 @@ export async function extractAudioForAsr(
     const resampled = resampleLinear(mono, decoded.sampleRate, sampleRate);
 
     if (format === "mp3") {
-      const int16 = floatToInt16(resampled);
-      const mp3 = await encodeMp3FromInt16(int16, sampleRate, 64);
-      return new File([mp3], getOutputName(sourceFile.name, "mp3"), {
-        type: "audio/mp3",
-      });
+      try {
+        const int16 = floatToInt16(resampled);
+        const mp3 = await encodeMp3FromInt16(int16, sampleRate, 64);
+        return new File([mp3], getOutputName(sourceFile.name, "mp3"), {
+          type: "audio/mp3",
+        });
+      } catch {
+        // lamejs 可能在某些情况下失败，回退到 WAV
+        const wav = encodeWavPcm16Mono(resampled, sampleRate);
+        return new File([wav], getOutputName(sourceFile.name, "wav"), {
+          type: "audio/wav",
+        });
+      }
     }
     const wav = encodeWavPcm16Mono(resampled, sampleRate);
     return new File([wav], getOutputName(sourceFile.name, "wav"), {
