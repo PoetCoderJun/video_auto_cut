@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import logging
+import time
 import datetime as dt
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+# Use resumable (multipart) upload for files >= this size (more reliable on slow/unstable networks)
+RESUMABLE_UPLOAD_THRESHOLD_BYTES = 10 * 1024 * 1024  # 10 MB
+UPLOAD_MAX_RETRIES = 3
+UPLOAD_RETRY_BASE_DELAY_SEC = 2.0
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -43,7 +52,8 @@ class OSSAudioUploader:
         self._prefix = prefix
         self._signed_url_ttl_seconds = int(max(60, signed_url_ttl_seconds))
         auth = oss2.Auth(access_key_id, access_key_secret)
-        self._bucket = oss2.Bucket(auth, endpoint, bucket_name)
+        # connect_timeout=300 for slow/unstable networks; Bucket uses 3600s for read/write
+        self._bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=300)
 
     def upload_audio(self, local_path: Path) -> UploadedAudioObject:
         path = Path(local_path).expanduser().resolve()
@@ -51,7 +61,40 @@ class OSSAudioUploader:
             raise RuntimeError(f"audio file not found: {path}")
 
         object_key = self._build_object_key(path)
-        self._bucket.put_object_from_file(object_key, str(path))
+        size = path.stat().st_size
+        use_resumable = size >= RESUMABLE_UPLOAD_THRESHOLD_BYTES
+
+        import oss2  # noqa: F811
+
+        last_exc: BaseException | None = None
+        for attempt in range(UPLOAD_MAX_RETRIES):
+            try:
+                if use_resumable:
+                    oss2.resumable.resumable_upload(
+                        self._bucket,
+                        object_key,
+                        str(path),
+                        multipart_threshold=RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+                    )
+                else:
+                    self._bucket.put_object_from_file(object_key, str(path))
+                break
+            except (oss2.exceptions.RequestError, TimeoutError, ConnectionError) as e:
+                last_exc = e
+                if attempt < UPLOAD_MAX_RETRIES - 1:
+                    delay = UPLOAD_RETRY_BASE_DELAY_SEC * (2**attempt)
+                    logger.warning(
+                        "[oss] upload attempt %d/%d failed (%s), retrying in %.1fs: %s",
+                        attempt + 1,
+                        UPLOAD_MAX_RETRIES,
+                        type(e).__name__,
+                        delay,
+                        e,
+                    )
+                    time.sleep(delay)
+                else:
+                    raise
+
         signed_url = self._bucket.sign_url(
             "GET",
             object_key,
