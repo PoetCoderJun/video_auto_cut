@@ -135,9 +135,20 @@ class OSSAudioUploader:
         parts.append(stamp)
         return "/".join(part for part in parts if part) + f"/audio_{nonce}{ext}"
 
-    def get_presigned_put_url(self, object_key: str, expires: int = 3600) -> str:
-        """Return presigned PUT URL for client-side direct upload."""
-        url = self._bucket.sign_url("PUT", object_key, expires, slash_safe=True)
+    def get_presigned_put_url(
+        self,
+        object_key: str,
+        expires: int = 3600,
+        *,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Return presigned PUT URL for client-side direct upload.
+        Client must send the same Content-Type to avoid SignatureDoesNotMatch.
+        """
+        headers = {"Content-Type": content_type}
+        url = self._bucket.sign_url(
+            "PUT", object_key, expires, headers=headers, slash_safe=True
+        )
         if url.startswith("http://"):
             url = "https://" + url[len("http://") :]
         return url

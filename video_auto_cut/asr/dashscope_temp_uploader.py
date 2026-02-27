@@ -16,42 +16,6 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def get_upload_policy_for_frontend(
-    *,
-    api_key: str,
-    base_url: str,
-    model_name: str,
-    file_name: str,
-) -> dict[str, Any]:
-    """Get DashScope getPolicy credentials for frontend POST form upload.
-
-    Returns dict with: upload_host, policy, OSSAccessKeyId, signature, key, oss_url,
-    and optional x_oss_object_acl, x_oss_forbid_overwrite.
-    Frontend uses these to POST multipart form to upload_host.
-    """
-    policy_data = _get_upload_policy(
-        api_key=api_key,
-        base_url=base_url.rstrip("/"),
-        model_name=model_name,
-    )
-    upload_dir = (policy_data.get("upload_dir") or "").strip().strip("/")
-    key = f"{upload_dir}/{file_name}" if upload_dir else file_name
-    oss_url = f"oss://{key}"
-    out: dict[str, Any] = {
-        "upload_host": policy_data["upload_host"].rstrip("/"),
-        "policy": policy_data["policy"],
-        "OSSAccessKeyId": policy_data["oss_access_key_id"],
-        "signature": policy_data["signature"],
-        "key": key,
-        "oss_url": oss_url,
-    }
-    if policy_data.get("x_oss_object_acl") is not None:
-        out["x_oss_object_acl"] = str(policy_data["x_oss_object_acl"])
-    if policy_data.get("x_oss_forbid_overwrite") is not None:
-        out["x_oss_forbid_overwrite"] = str(policy_data["x_oss_forbid_overwrite"])
-    return out
-
-
 def upload_to_dashscope_temp(
     *,
     api_key: str,

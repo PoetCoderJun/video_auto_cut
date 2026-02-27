@@ -322,21 +322,7 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
   return data.coupon;
 }
 
-export type OssUploadCreds =
-  | {put_url: string; object_key: string; upload_mode?: "oss_presign"}
-  | {
-      upload_mode: "dashscope_temp";
-      put_url: null;
-      object_key: string;
-      upload_host: string;
-      policy: string;
-      OSSAccessKeyId: string;
-      signature: string;
-      key: string;
-      oss_url: string;
-      x_oss_object_acl?: string;
-      x_oss_forbid_overwrite?: string;
-    };
+export type OssUploadCreds = {put_url: string; object_key: string};
 
 export async function getOssUploadUrl(
   jobId: string,
@@ -366,48 +352,24 @@ export async function uploadAudioOssReady(
 }
 
 /**
- * Upload audio via presigned OSS URL or DashScope temp OSS (direct browser -> OSS).
- * Bypasses Railway server, faster for users in China. Falls back to API upload if OSS fails.
- * - Own OSS: PUT to presigned URL (bucket must allow CORS)
- * - DashScope temp (USE_DASHSCOPE_TEMP_OSS_FRONTEND=1): POST form to 百炼 temp OSS (CORS may block)
+ * Upload audio via presigned OSS URL (direct browser -> own OSS).
+ * Falls back to API upload when OSS not configured or upload fails.
+ * 百炼临时 OSS 仅由后端在 API 上传时使用，前端不直传。
  */
 export async function uploadAudioDirectToOss(jobId: string, file: File): Promise<Job> {
   try {
     const format = file.name.toLowerCase().endsWith(".mp3") ? "mp3" : "wav";
-    const creds = await getOssUploadUrl(jobId, format);
-
-    if (creds.upload_mode === "dashscope_temp") {
-      const form = new FormData();
-      form.append("OSSAccessKeyId", creds.OSSAccessKeyId);
-      form.append("Signature", creds.signature);
-      form.append("policy", creds.policy);
-      form.append("key", creds.key);
-      form.append("success_action_status", "200");
-      if (creds.x_oss_object_acl) form.append("x-oss-object-acl", creds.x_oss_object_acl);
-      if (creds.x_oss_forbid_overwrite)
-        form.append("x-oss-forbid-overwrite", creds.x_oss_forbid_overwrite);
-      form.append("file", file, file.name);
-      const postResp = await fetch(creds.upload_host, {
-        method: "POST",
-        body: form,
-      });
-      if (!postResp.ok) {
-        const text = await postResp.text();
-        throw new Error(`DashScope temp OSS upload failed: ${postResp.status} ${text.slice(0, 200)}`);
-      }
-      return uploadAudioOssReady(jobId, creds.oss_url);
-    }
-
-    const putResp = await fetch(creds.put_url!, {
+    const {put_url, object_key} = await getOssUploadUrl(jobId, format);
+    const putResp = await fetch(put_url, {
       method: "PUT",
       body: file,
-      headers: {"Content-Type": file.type || "audio/wav"},
+      headers: {"Content-Type": "application/octet-stream"},
     });
     if (!putResp.ok) {
       const text = await putResp.text();
       throw new Error(`OSS upload failed: ${putResp.status} ${text.slice(0, 100)}`);
     }
-    return uploadAudioOssReady(jobId, creds.object_key);
+    return uploadAudioOssReady(jobId, object_key);
   } catch {
     return uploadAudio(jobId, file);
   }

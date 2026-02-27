@@ -146,11 +146,7 @@ class Transcribe:
         self._emit_progress(progress_callback, 0.0)
         file_url: str
         use_oss_resolve = False
-        if oss_object_key and (oss_object_key.startswith("oss://")):
-            logging.info("[asr] using DashScope temp oss:// URL (frontend uploaded)")
-            file_url = oss_object_key
-            use_oss_resolve = True
-        elif self.oss_uploader is not None and oss_object_key:
+        if self.oss_uploader is not None and oss_object_key:
             logging.info("[asr] using existing OSS object: %s (skip upload)", oss_object_key)
             file_url = self.oss_uploader.get_signed_get_url(oss_object_key)
         elif self.oss_uploader is not None:

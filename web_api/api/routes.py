@@ -34,7 +34,6 @@ from ..services.jobs import (
 )
 from ..config import get_settings
 from ..services.oss_presign import get_presigned_put_url_for_job
-from video_auto_cut.asr.dashscope_temp_uploader import get_upload_policy_for_frontend
 from ..services.auth import CurrentUser, require_current_user
 from ..services.billing import (
     check_coupon_for_signup,
@@ -107,23 +106,7 @@ def get_oss_upload_url(
     suffix = ".mp3" if (format or "").strip().lower() == "mp3" else ".wav"
     settings = get_settings()
 
-    # 实验项：前端直传百炼临时 OSS（需 CORS 支持，可能失败）
-    if settings.use_dashscope_temp_oss_frontend and settings.asr_dashscope_api_key:
-        import uuid
-        file_name = f"audio_{uuid.uuid4().hex[:12]}{suffix}"
-        creds = get_upload_policy_for_frontend(
-            api_key=settings.asr_dashscope_api_key,
-            base_url=settings.asr_dashscope_base_url,
-            model_name=settings.asr_dashscope_model,
-            file_name=file_name,
-        )
-        return _ok({
-            "upload_mode": "dashscope_temp",
-            "put_url": None,
-            "object_key": creds["oss_url"],
-            **creds,
-        })
-
+    # 百炼临时 OSS 仅由后端 fallback 使用，前端不直传
     oss_ready = bool(
         settings.asr_oss_endpoint
         and settings.asr_oss_bucket

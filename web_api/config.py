@@ -46,7 +46,6 @@ class Settings:
     asr_oss_prefix: str
     asr_oss_signed_url_ttl_seconds: int
     use_dashscope_temp_oss: bool
-    use_dashscope_temp_oss_frontend: bool
     lang: str
     llm_base_url: str | None
     llm_model: str | None
@@ -186,10 +185,6 @@ def get_settings() -> Settings:
             60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
         ),
         use_dashscope_temp_oss=os.getenv("USE_DASHSCOPE_TEMP_OSS", "0").strip().lower()
-        in {"1", "true", "yes"},
-        use_dashscope_temp_oss_frontend=os.getenv(
-            "USE_DASHSCOPE_TEMP_OSS_FRONTEND", "0"
-        ).strip().lower()
         in {"1", "true", "yes"},
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
