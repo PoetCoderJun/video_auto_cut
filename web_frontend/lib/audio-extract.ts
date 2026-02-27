@@ -54,9 +54,23 @@ async function encodeMp3FromInt16(
   sampleRate: number,
   kbps: number
 ): Promise<Blob> {
-  const { Mp3Encoder } = await import("lamejs");
+  // lamejs is published as a CommonJS module; under ESM bundlers the
+  // actual exports live on the `default` property.
+  const imported = await import("lamejs");
+  const lame: any = (imported as any).default ?? imported;
+  const Mp3Encoder = lame.Mp3Encoder as
+    | (new (channels: number, sampleRate: number, kbps: number) => {
+        encodeBuffer(input: Int16Array): Uint8Array;
+        flush(): Uint8Array;
+      })
+    | undefined;
+
+  if (typeof Mp3Encoder !== "function") {
+    throw new Error("Mp3Encoder is not available from lamejs module");
+  }
+
   const mp3encoder = new Mp3Encoder(1, sampleRate, kbps);
-  const mp3Data: Int8Array[] = [];
+  const mp3Data: Uint8Array[] = [];
   const maxSamples = 1152;
   for (let i = 0; i < samples.length; i += maxSamples) {
     const chunk = samples.subarray(i, Math.min(i + maxSamples, samples.length));
