@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, File, UploadFile, Query
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 
 from ..constants import (
     JOB_STATUS_CREATED,
@@ -32,7 +32,9 @@ from ..services.jobs import (
     save_uploaded_audio,
     mark_audio_oss_ready,
 )
+from ..config import get_settings
 from ..services.oss_presign import get_presigned_put_url_for_job
+from video_auto_cut.asr.dashscope_temp_uploader import get_upload_policy_for_frontend
 from ..services.auth import CurrentUser, require_current_user
 from ..services.billing import (
     check_coupon_for_signup,
@@ -103,6 +105,36 @@ def get_oss_upload_url(
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
     suffix = ".mp3" if (format or "").strip().lower() == "mp3" else ".wav"
+    settings = get_settings()
+
+    # 实验项：前端直传百炼临时 OSS（需 CORS 支持，可能失败）
+    if settings.use_dashscope_temp_oss_frontend and settings.asr_dashscope_api_key:
+        import uuid
+        file_name = f"audio_{uuid.uuid4().hex[:12]}{suffix}"
+        creds = get_upload_policy_for_frontend(
+            api_key=settings.asr_dashscope_api_key,
+            base_url=settings.asr_dashscope_base_url,
+            model_name=settings.asr_dashscope_model,
+            file_name=file_name,
+        )
+        return _ok({
+            "upload_mode": "dashscope_temp",
+            "put_url": None,
+            "object_key": creds["oss_url"],
+            **creds,
+        })
+
+    oss_ready = bool(
+        settings.asr_oss_endpoint
+        and settings.asr_oss_bucket
+        and settings.asr_oss_access_key_id
+        and settings.asr_oss_access_key_secret
+    )
+    if not oss_ready or settings.use_dashscope_temp_oss:
+        raise HTTPException(
+            status_code=503,
+            detail="Direct OSS upload unavailable. Audio will be uploaded via API instead.",
+        )
     put_url, object_key = get_presigned_put_url_for_job(job_id, suffix=suffix)
     return _ok({"put_url": put_url, "object_key": object_key})
 

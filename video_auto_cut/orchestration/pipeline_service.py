@@ -16,7 +16,7 @@ class PipelineOptions:
     prompt: str = ""
 
     asr_backend: str = "dashscope_filetrans"
-    asr_dashscope_base_url: str = "https://dashscope.aliyuncs.com"
+    asr_dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com"
     asr_dashscope_model: str = "qwen3-asr-flash-filetrans"
     asr_dashscope_task: str = ""
     asr_dashscope_api_key: str | None = None
@@ -41,13 +41,14 @@ class PipelineOptions:
     asr_oss_access_key_secret: str | None = None
     asr_oss_prefix: str = "video-auto-cut/asr"
     asr_oss_signed_url_ttl_seconds: int = 86400
+    use_dashscope_temp_oss: bool = False
 
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
     llm_timeout: int = 300
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 8192
+    llm_max_tokens: int = 16384
 
     auto_edit_merge_gap: float = 0.5
     auto_edit_pad_head: float = 0.0
@@ -117,6 +118,7 @@ def build_transcribe_args(
         asr_oss_access_key_secret=options.asr_oss_access_key_secret,
         asr_oss_prefix=options.asr_oss_prefix,
         asr_oss_signed_url_ttl_seconds=int(options.asr_oss_signed_url_ttl_seconds),
+        use_dashscope_temp_oss=bool(options.use_dashscope_temp_oss),
         llm_base_url=options.llm_base_url,
         llm_model=options.llm_model,
         llm_api_key=options.llm_api_key,

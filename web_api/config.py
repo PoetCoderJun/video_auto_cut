@@ -45,6 +45,8 @@ class Settings:
     asr_oss_access_key_secret: str | None
     asr_oss_prefix: str
     asr_oss_signed_url_ttl_seconds: int
+    use_dashscope_temp_oss: bool
+    use_dashscope_temp_oss_frontend: bool
     lang: str
     llm_base_url: str | None
     llm_model: str | None
@@ -122,7 +124,10 @@ def get_settings() -> Settings:
         cleanup_batch_size=max(1, int(os.getenv("WEB_CLEANUP_BATCH_SIZE", "10"))),
         cleanup_on_startup=os.getenv("WEB_CLEANUP_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes"},
         asr_dashscope_base_url=(
-            os.getenv("ASR_DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com")
+            os.getenv(
+                "ASR_DASHSCOPE_BASE_URL",
+                "https://dashscope-intl.aliyuncs.com",
+            )
             .strip()
             .rstrip("/")
         ),
@@ -180,13 +185,19 @@ def get_settings() -> Settings:
         asr_oss_signed_url_ttl_seconds=max(
             60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
         ),
+        use_dashscope_temp_oss=os.getenv("USE_DASHSCOPE_TEMP_OSS", "0").strip().lower()
+        in {"1", "true", "yes"},
+        use_dashscope_temp_oss_frontend=os.getenv(
+            "USE_DASHSCOPE_TEMP_OSS_FRONTEND", "0"
+        ).strip().lower()
+        in {"1", "true", "yes"},
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
-        llm_model=(os.getenv("LLM_MODEL") or "").strip() or None,
+        llm_model=(os.getenv("LLM_MODEL") or "qwen-plus").strip() or "qwen-plus",
         llm_api_key=(llm_api_key or "").strip() or None,
         llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "8192")),
+        llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "16384")),
         topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         topic_summary_max_chars=int(os.getenv("TOPIC_SUMMARY_MAX_CHARS", "6")),

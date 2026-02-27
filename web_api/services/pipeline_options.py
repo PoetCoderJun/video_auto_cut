@@ -39,6 +39,7 @@ def build_pipeline_options(**overrides: object) -> PipelineOptions:
         "asr_oss_access_key_secret": settings.asr_oss_access_key_secret,
         "asr_oss_prefix": settings.asr_oss_prefix,
         "asr_oss_signed_url_ttl_seconds": settings.asr_oss_signed_url_ttl_seconds,
+        "use_dashscope_temp_oss": settings.use_dashscope_temp_oss,
         "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
         "llm_api_key": settings.llm_api_key,

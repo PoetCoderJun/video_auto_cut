@@ -47,7 +47,15 @@ class DashScopeFiletransClient:
     def timeout_seconds(self) -> float:
         return self._config.timeout_seconds
 
-    def submit(self, *, file_url: str, lang: str | None, prompt: str) -> FiletransSubmitResponse:
+    def submit(
+        self,
+        *,
+        file_url: str,
+        lang: str | None,
+        prompt: str,
+        use_oss_resource_resolve: bool = False,
+    ) -> FiletransSubmitResponse:
+        """Submit ASR task. Set use_oss_resource_resolve=True when file_url is oss://."""
         language_hints = self._build_language_hints(lang)
         context = (prompt or self._config.context or "").strip()
         payload = self._build_submit_payload(
@@ -56,10 +64,14 @@ class DashScopeFiletransClient:
             context=context,
             use_file_urls=False,
         )
+        extra_headers = {}
+        if use_oss_resource_resolve:
+            extra_headers["X-DashScope-OssResourceResolve"] = "enable"
         try:
             data = self._post_json(
                 "/api/v1/services/audio/asr/transcription",
                 payload,
+                extra_headers=extra_headers,
             )
         except RuntimeError as exc:
             text = str(exc)
@@ -75,6 +87,7 @@ class DashScopeFiletransClient:
             data = self._post_json(
                 "/api/v1/services/audio/asr/transcription",
                 fallback_payload,
+                extra_headers=extra_headers,
             )
         output = data.get("output")
         if not isinstance(output, dict):
