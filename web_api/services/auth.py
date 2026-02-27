@@ -148,6 +148,8 @@ def _get_jwk_by_kid(jwks_url: str, kid: str) -> dict[str, Any] | None:
 
 def _fetch_jwks(jwks_url: str) -> dict[str, dict[str, Any]]:
     req = urllib.request.Request(jwks_url, method="GET")
+    req.add_header("User-Agent", "VideoAutoCut-API/1.0")
+    req.add_header("Accept", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
