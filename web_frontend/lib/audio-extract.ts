@@ -40,6 +40,38 @@ function resampleLinear(input: Float32Array, fromRate: number, toRate: number): 
   return out;
 }
 
+function floatToInt16(samples: Float32Array): Int16Array {
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = Math.max(-1, Math.min(1, samples[i] ?? 0));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+
+async function encodeMp3FromInt16(
+  samples: Int16Array,
+  sampleRate: number,
+  kbps: number
+): Promise<Blob> {
+  const { Mp3Encoder } = await import("lamejs");
+  const mp3encoder = new Mp3Encoder(1, sampleRate, kbps);
+  const mp3Data: Int8Array[] = [];
+  const maxSamples = 1152;
+  for (let i = 0; i < samples.length; i += maxSamples) {
+    const chunk = samples.subarray(i, Math.min(i + maxSamples, samples.length));
+    const mp3buf = mp3encoder.encodeBuffer(chunk);
+    if (mp3buf.length > 0) {
+      mp3Data.push(mp3buf);
+    }
+  }
+  const last = mp3encoder.flush();
+  if (last.length > 0) {
+    mp3Data.push(last);
+  }
+  return new Blob(mp3Data, { type: "audio/mp3" });
+}
+
 function encodeWavPcm16Mono(samples: Float32Array, sampleRate: number): Blob {
   const bytesPerSample = 2;
   const dataSize = samples.length * bytesPerSample;
@@ -86,13 +118,22 @@ function encodeWavPcm16Mono(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: "audio/wav" });
 }
 
-function getOutputName(sourceName: string): string {
+function getOutputName(sourceName: string, ext: "wav" | "mp3"): string {
   const idx = sourceName.lastIndexOf(".");
   const stem = idx > 0 ? sourceName.slice(0, idx) : sourceName;
-  return `${stem || "audio"}.wav`;
+  return `${stem || "audio"}.${ext}`;
 }
 
-export async function extractAudioForAsr(sourceFile: File, sampleRate = 16000): Promise<File> {
+export type ExtractAudioFormat = "wav" | "mp3";
+
+/**
+ * Extract audio for ASR. MP3 (64kbps) is smaller (~5x) with minimal speech quality loss.
+ */
+export async function extractAudioForAsr(
+  sourceFile: File,
+  sampleRate = 16000,
+  format: ExtractAudioFormat = "mp3"
+): Promise<File> {
   const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
   if (!Ctx) {
     throw new Error("当前浏览器不支持 AudioContext，无法提取音频。");
@@ -104,8 +145,18 @@ export async function extractAudioForAsr(sourceFile: File, sampleRate = 16000): 
     const decoded = await audioCtx.decodeAudioData(input.slice(0));
     const mono = toMonoChannelData(decoded);
     const resampled = resampleLinear(mono, decoded.sampleRate, sampleRate);
+
+    if (format === "mp3") {
+      const int16 = floatToInt16(resampled);
+      const mp3 = await encodeMp3FromInt16(int16, sampleRate, 64);
+      return new File([mp3], getOutputName(sourceFile.name, "mp3"), {
+        type: "audio/mp3",
+      });
+    }
     const wav = encodeWavPcm16Mono(resampled, sampleRate);
-    return new File([wav], getOutputName(sourceFile.name), { type: "audio/wav" });
+    return new File([wav], getOutputName(sourceFile.name, "wav"), {
+      type: "audio/wav",
+    });
   } catch (error) {
     throw new Error("浏览器音频提取失败，请尝试使用 Chrome 或更换视频格式。");
   } finally {

@@ -23,9 +23,11 @@ def get_oss_uploader() -> OSSAudioUploader:
     )
 
 
-def get_presigned_put_url_for_job(job_id: str, expires: int = 3600) -> tuple[str, str]:
-    """Return (put_url, object_key) for client direct upload."""
+def get_presigned_put_url_for_job(
+    job_id: str, *, expires: int = 3600, suffix: str = ".wav"
+) -> tuple[str, str]:
+    """Return (put_url, object_key) for client direct upload. suffix: .wav or .mp3."""
     uploader = get_oss_uploader()
-    object_key = uploader.build_object_key_for_job(job_id)
+    object_key = uploader.build_object_key_for_job(job_id, suffix=suffix)
     put_url = uploader.get_presigned_put_url(object_key, expires=expires)
     return put_url, object_key

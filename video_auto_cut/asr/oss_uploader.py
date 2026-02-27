@@ -121,16 +121,19 @@ class OSSAudioUploader:
         parts.append(stamp)
         return "/".join(part for part in parts if part) + f"/{stem}_{nonce}{suffix}"
 
-    def build_object_key_for_job(self, job_id: str) -> str:
-        """Build OSS object key for direct upload (no local file)."""
+    def build_object_key_for_job(self, job_id: str, *, suffix: str = ".wav") -> str:
+        """Build OSS object key for direct upload (no local file). suffix: .wav or .mp3."""
         stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
         nonce = uuid.uuid4().hex[:10]
         job_safe = _sanitize(job_id)[:40] if job_id else ""
+        ext = suffix if suffix.startswith(".") else f".{suffix}"
+        if ext not in (".wav", ".mp3"):
+            ext = ".wav"
         parts = [self._prefix]
         if job_safe:
             parts.append(job_safe)
         parts.append(stamp)
-        return "/".join(part for part in parts if part) + f"/audio_{nonce}.wav"
+        return "/".join(part for part in parts if part) + f"/audio_{nonce}{ext}"
 
     def get_presigned_put_url(self, object_key: str, expires: int = 3600) -> str:
         """Return presigned PUT URL for client-side direct upload."""

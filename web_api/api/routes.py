@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile, Query
 
 from ..constants import (
     JOB_STATUS_CREATED,
@@ -96,12 +96,14 @@ def get_job_endpoint(
 @router.post("/jobs/{job_id}/oss-upload-url")
 def get_oss_upload_url(
     job_id: str,
+    format: str | None = Query(default="mp3", description="mp3 or wav"),
     current_user: CurrentUser = Depends(require_current_user),
 ) -> dict[str, Any]:
     require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
-    put_url, object_key = get_presigned_put_url_for_job(job_id)
+    suffix = ".mp3" if (format or "").strip().lower() == "mp3" else ".wav"
+    put_url, object_key = get_presigned_put_url_for_job(job_id, suffix=suffix)
     return _ok({"put_url": put_url, "object_key": object_key})
 
 

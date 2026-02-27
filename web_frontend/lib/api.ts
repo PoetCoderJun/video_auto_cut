@@ -322,9 +322,13 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
   return data.coupon;
 }
 
-export async function getOssUploadUrl(jobId: string): Promise<{put_url: string; object_key: string}> {
+export async function getOssUploadUrl(
+  jobId: string,
+  format: "mp3" | "wav" = "mp3"
+): Promise<{put_url: string; object_key: string}> {
+  const params = new URLSearchParams({format});
   const data = await requestAuthed<{put_url: string; object_key: string}>(
-    `/jobs/${jobId}/oss-upload-url`,
+    `/jobs/${jobId}/oss-upload-url?${params.toString()}`,
     {method: "POST"}
   );
   return {put_url: data.put_url, object_key: data.object_key};
@@ -352,7 +356,8 @@ export async function uploadAudioOssReady(
  */
 export async function uploadAudioDirectToOss(jobId: string, file: File): Promise<Job> {
   try {
-    const {put_url, object_key} = await getOssUploadUrl(jobId);
+    const format = file.name.toLowerCase().endsWith(".mp3") ? "mp3" : "wav";
+    const {put_url, object_key} = await getOssUploadUrl(jobId, format);
     const putResp = await fetch(put_url, {
       method: "PUT",
       body: file,
