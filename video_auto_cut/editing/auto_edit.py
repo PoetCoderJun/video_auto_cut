@@ -41,30 +41,12 @@ def _segments_to_tagged_text(segments: List[Dict[str, Any]]) -> str:
 def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
         "你是口播文案删减助手。输入是完整asr转写文案，每行对应一个字幕句子。"
-        "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多相似语义。"
+        "场景：口播常先说错，后面会纠正，这时候字幕上反映出来就是重复说了很多语义。"
         "任务：只判断每行是否删除，不做改写。"
-        "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的一并删除。"
-        "严格要求：遇到语义重复时必须激进删除前文，不要保守。"
-        "你只负责语义重复判断，不需要处理静音占位行。"
+        "规则：对相同或相似语义（含连续错误尝试），只保留最后一个完整且正确的表达，前面的重复/试错内容一并删除。"
         f"删除行输出 {REMOVE_TOKEN}。保留行必须原样回填，不允许改字、改词、改标点。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
-        "示例1输入：\n"
-        "[L0001] [00:08] 嗯，这个功能我还在导出。\n"
-        "[L0002] [00:11] 这个功能已经支持批量导出。\n"
-        "[L0003] [00:15] 已经开发了支持批量导出的功能\n"
-        "示例1输出：\n"
-        f"[L0001] {REMOVE_TOKEN}\n"
-        f"[L0002] {REMOVE_TOKEN}\n"
-        "[L0003] [00:15] 已经开发了支持批量导出的功能\n"
-        "示例2输入：\n"
-        "[L0001] [01:20] 我们先看第一步。\n"
-        "[L0002] [01:24] 要怎么做呢。\n"
-        "[L0003] [01:34] 今天我们先看第一步，先把参数配置好。\n"
-        "示例2输出：\n"
-        f"[L0001] {REMOVE_TOKEN}\n"
-        f"[L0002] {REMOVE_TOKEN}\n"
-        "[L0003] [01:34] 今天我们先看第一步，先把参数配置好。\n"
         "仅输出删减后的完整文案，不要输出任何解释。"
     )
     user = f"原文：\n{tagged_text}\n\n请输出第一步删减结果："
@@ -74,10 +56,11 @@ def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
 def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
         "你是口播视频的文案优化助手。输入是第一步删减结果，每行对应一个字幕句子。"
-        "对每一条未删除行做审阅与润色，结合上下文修正 ASR 错字、错词、断句和不自然表达，提升可读性与连贯性，同时删除哦 嗯 啊 之类的语气词"
-        "重点修正明显 ASR 错误（同音字、错词）、口语断裂和标点。"
-        "在不改变核心语义的前提下，允许必要改写，使句子自然流畅。"
-        f"对于标记为 {REMOVE_TOKEN} 的行，必须原样输出 {REMOVE_TOKEN}，禁止恢复内容。"
+        "第二步任务：只优化句子、用词和标点，降低 ASR 错误并提升可读性。"
+        "重点修正明显 ASR 错误（同音字、冗余的语气词、错词）并恢复标点。"
+        "不要新增或删减语义，不要改写句意。"
+        "每行文本长度应尽量接近原句。"
+        f"对于标记为 {REMOVE_TOKEN} 的行，必须原样输出 {REMOVE_TOKEN}，保留{REMOVE_TOKEN} 但是对后面的内容也进行修正明显 ASR 错误。"
         "禁止新增删除，不要把保留行改成删除。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
@@ -242,7 +225,7 @@ class AutoEdit:
             model=self.args.llm_model,
             api_key=self.args.llm_api_key,
             timeout=self.args.llm_timeout,
-            temperature=self.args.llm_temperature,
+            temperature=0.0,
             max_tokens=self.args.llm_max_tokens,
         )
         if not self.llm_config.get("base_url") or not self.llm_config.get("model"):
