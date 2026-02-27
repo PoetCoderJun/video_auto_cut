@@ -41,7 +41,7 @@ cp .env.example .env
 `npx @better-auth/cli secret` 或 `openssl rand -base64 32`
 2. 填数据库参数（`TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`）
 3. 填 ASR 参数（`ASR_DASHSCOPE_API_KEY` 或 `DASHSCOPE_API_KEY`）
-4. 填 OSS 参数（`OSS_ENDPOINT`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`）
+4. 填 OSS 参数（`OSS_ENDPOINT`、`OSS_BUCKET`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`）；若前端直传 OSS，还需在阿里云控制台为该桶配置 **CORS**：来源填前端域名（如 `https://你的域名.com` 或 `http://localhost:3000`），允许方法包含 **PUT**，允许头包含 **Content-Type**（或填 `*`），否则浏览器直传会返回 403。
 5. 填站点域名参数（`NEXT_PUBLIC_SITE_URL`、`BETTER_AUTH_URL`、`WEB_CORS_ALLOWED_ORIGINS`）
 6. 仅单机测试时可先用 `http://127.0.0.1:3000`；正式上线改成 HTTPS 域名
 
