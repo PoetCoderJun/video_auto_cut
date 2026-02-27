@@ -156,8 +156,10 @@ def _upload_file_to_temp_oss(policy_data: dict[str, Any], file_path: Path) -> st
         _append_field("x-oss-forbid-overwrite", str(policy_data["x_oss_forbid_overwrite"]))
 
     body_parts.append(
-        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{file_name}"\r\n'
-        b"Content-Type: application/octet-stream\r\n\r\n"
+        (
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{file_name}"\r\n'
+            "Content-Type: application/octet-stream\r\n\r\n"
+        ).encode("utf-8")
     )
     body_parts.append(file_content)
     body_parts.append(f"\r\n--{boundary}--\r\n".encode("utf-8"))
