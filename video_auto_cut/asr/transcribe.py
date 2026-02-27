@@ -100,11 +100,13 @@ class Transcribe:
             prompt = getattr(self.args, "prompt", "")
             asr_progress_callback = getattr(self.args, "asr_progress_callback", None)
 
+            oss_object_key = getattr(self.args, "oss_object_key", None) or None
             tokens = self._dashscope_filetrans_transcribe(
                 media_path=input_path,
                 lang=language,
                 prompt=prompt,
                 progress_callback=asr_progress_callback,
+                oss_object_key=oss_object_key,
             )
             logging.info("Done transcription in %.1f sec", time.time() - tic)
 
@@ -120,24 +122,30 @@ class Transcribe:
         lang: str | None,
         prompt: str,
         progress_callback,
+        oss_object_key: str | None = None,
     ) -> list[dict]:
         if self.filetrans_client is None or self.oss_uploader is None:
             raise RuntimeError("DashScope Filetrans backend not initialized.")
 
-        media_p = Path(media_path)
         self._emit_progress(progress_callback, 0.0)
-        logging.info("[asr] oss upload start: %s", media_p)
-        uploaded = self.oss_uploader.upload_audio(media_p)
-        logging.info(
-            "[asr] oss upload done: key=%s size=%s signed_url_len=%s",
-            uploaded.object_key,
-            uploaded.size_bytes,
-            len(uploaded.signed_url),
-        )
+        if oss_object_key:
+            logging.info("[asr] using existing OSS object: %s (skip upload)", oss_object_key)
+            signed_url = self.oss_uploader.get_signed_get_url(oss_object_key)
+        else:
+            media_p = Path(media_path)
+            logging.info("[asr] oss upload start: %s", media_p)
+            uploaded = self.oss_uploader.upload_audio(media_p)
+            logging.info(
+                "[asr] oss upload done: key=%s size=%s signed_url_len=%s",
+                uploaded.object_key,
+                uploaded.size_bytes,
+                len(uploaded.signed_url),
+            )
+            signed_url = uploaded.signed_url
         self._emit_progress(progress_callback, 0.08)
 
         submit = self.filetrans_client.submit(
-            file_url=uploaded.signed_url,
+            file_url=signed_url,
             lang=lang,
             prompt=prompt,
         )

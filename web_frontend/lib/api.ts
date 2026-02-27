@@ -322,6 +322,52 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
   return data.coupon;
 }
 
+export async function getOssUploadUrl(jobId: string): Promise<{put_url: string; object_key: string}> {
+  const data = await requestAuthed<{put_url: string; object_key: string}>(
+    `/jobs/${jobId}/oss-upload-url`,
+    {method: "POST"}
+  );
+  return {put_url: data.put_url, object_key: data.object_key};
+}
+
+export async function uploadAudioOssReady(
+  jobId: string,
+  objectKey: string
+): Promise<Job> {
+  const data = await requestAuthed<{job: Job}>(
+    `/jobs/${jobId}/audio-oss-ready`,
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({object_key: objectKey}),
+    }
+  );
+  return data.job;
+}
+
+/**
+ * Upload audio via presigned OSS URL (direct browser -> OSS).
+ * Bypasses Railway server, faster for users in China. Falls back to API upload if OSS fails.
+ * Note: OSS bucket must allow CORS (PUT from frontend origin). See Aliyun OSS CORS settings.
+ */
+export async function uploadAudioDirectToOss(jobId: string, file: File): Promise<Job> {
+  try {
+    const {put_url, object_key} = await getOssUploadUrl(jobId);
+    const putResp = await fetch(put_url, {
+      method: "PUT",
+      body: file,
+      headers: {"Content-Type": file.type || "audio/wav"},
+    });
+    if (!putResp.ok) {
+      const text = await putResp.text();
+      throw new Error(`OSS upload failed: ${putResp.status} ${text.slice(0, 100)}`);
+    }
+    return uploadAudioOssReady(jobId, object_key);
+  } catch {
+    return uploadAudio(jobId, file);
+  }
+}
+
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
   const form = new FormData();
   form.append("file", file);

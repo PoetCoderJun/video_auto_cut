@@ -27,6 +27,7 @@ USER_STATUS_ACTIVE = "ACTIVE"
 JOB_FILE_FIELDS = (
     "video_path",
     "audio_path",
+    "asr_oss_key",
     "srt_path",
     "optimized_srt_path",
     "final_step1_srt_path",
@@ -437,7 +438,9 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"job_id": job_id}
     for field in JOB_FILE_FIELDS:
         raw = payload.get(field)
-        if isinstance(raw, str) and raw.strip() and Path(raw).exists():
+        if field == "asr_oss_key":
+            result[field] = raw if isinstance(raw, str) and raw.strip() else None
+        elif isinstance(raw, str) and raw.strip() and Path(raw).exists():
             result[field] = raw
         else:
             result[field] = None
@@ -481,7 +484,7 @@ def _infer_job_status(job_id: str) -> str:
         return JOB_STATUS_STEP1_CONFIRMED
     if _step1_lines_path(job_id).exists():
         return JOB_STATUS_STEP1_READY
-    if files.get("video_path") or files.get("audio_path"):
+    if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
     return JOB_STATUS_CREATED
 

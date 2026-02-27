@@ -100,3 +100,11 @@ async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
         "stored_as": target.name,
         "size_bytes": total,
     }
+
+
+def mark_audio_oss_ready(job_id: str, object_key: str) -> dict:
+    """Mark job as ready after client uploaded audio directly to OSS."""
+    upsert_job_files(job_id, asr_oss_key=object_key)
+    update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
+    logging.info("[web_api] audio OSS upload ready job=%s object_key=%s", job_id, object_key)
+    return {"object_key": object_key}

@@ -15,7 +15,7 @@ import {
   getWebRenderConfigWithMeta,
   runStep1,
   runStep2,
-  uploadAudio,
+  uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import { tryParseFpsWithMediaInfo } from "../lib/media-metadata";
@@ -346,7 +346,7 @@ export default function JobWorkspace({
       setBusy(true);
       try {
         const audioFile = await extractAudioForAsr(file);
-        const uploadedJob = await uploadAudio(jobId, audioFile);
+        const uploadedJob = await uploadAudioDirectToOss(jobId, audioFile);
         void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
         setJob(uploadedJob);
       } catch (err) {

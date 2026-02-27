@@ -22,7 +22,7 @@ import {
   getMe,
   invalidateTokenCache,
   setApiAuthTokenProvider,
-  uploadAudio,
+  uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
@@ -277,10 +277,10 @@ export default function HomePageClient() {
         return;
       }
 
-      // 4. Create job and upload.
+      // 4. Create job and upload (direct to OSS when available, bypasses Railway).
       const job = await createJob();
       const audioFile = await extractAudioForAsr(file);
-      await uploadAudio(job.job_id, audioFile);
+      await uploadAudioDirectToOss(job.job_id, audioFile);
       // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
       await saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
       saveJobId(job.job_id);

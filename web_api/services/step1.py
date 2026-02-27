@@ -32,13 +32,22 @@ from .pipeline_options import build_pipeline_options
 def run_step1(job_id: str) -> None:
     dirs = ensure_job_dirs(job_id)
     files = _load_required_paths(job_id)
-    media_path = Path(files["audio_path"])
-    logging.info(
-        "[web_api] step1 inputs job=%s audio_path=%s video_path=%s",
-        job_id,
-        files.get("audio_path"),
-        files.get("video_path"),
-    )
+    asr_oss_key = files.get("asr_oss_key")
+    if asr_oss_key:
+        media_path = dirs["input"] / "audio.wav"
+        logging.info(
+            "[web_api] step1 inputs job=%s asr_oss_key=%s (direct OSS, skip upload)",
+            job_id,
+            asr_oss_key[:50] + "..." if len(asr_oss_key) > 50 else asr_oss_key,
+        )
+    else:
+        media_path = Path(files["audio_path"])
+        logging.info(
+            "[web_api] step1 inputs job=%s audio_path=%s video_path=%s",
+            job_id,
+            files.get("audio_path"),
+            files.get("video_path"),
+        )
     logging.info("[web_api] step1 transcribe using: %s", media_path)
     options = build_pipeline_options()
     logging.info(
@@ -54,7 +63,7 @@ def run_step1(job_id: str) -> None:
         raise RuntimeError("额度不足，请先兑换邀请码后重试")
 
     logging.info("[web_api] step1 transcribe start: %s", media_path)
-    srt_path = run_transcribe(media_path, options)
+    srt_path = run_transcribe(media_path, options, oss_object_key=asr_oss_key)
 
     logging.info("[web_api] step1 auto-edit start: %s", srt_path)
     optimized_srt_path = run_auto_edit(srt_path, options)
@@ -92,8 +101,8 @@ def _load_required_paths(job_id: str) -> dict[str, str]:
     files = get_job_files(job_id)
     if not files:
         raise RuntimeError(f"job files not found: {job_id}")
-    if not files.get("audio_path"):
-        raise RuntimeError("upload audio missing for step1")
+    if not files.get("audio_path") and not files.get("asr_oss_key"):
+        raise RuntimeError("upload audio missing for step1 (need audio_path or asr_oss_key)")
     return files
 
 

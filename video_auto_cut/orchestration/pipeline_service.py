@@ -83,8 +83,10 @@ def require_llm(options: PipelineOptions, stage_name: str) -> None:
         )
 
 
-def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleNamespace:
-    return SimpleNamespace(
+def build_transcribe_args(
+    video_path: Path, options: PipelineOptions, *, oss_object_key: str | None = None
+) -> SimpleNamespace:
+    ns = SimpleNamespace(
         inputs=[str(video_path)],
         force=bool(options.force),
         encoding=options.encoding,
@@ -124,6 +126,9 @@ def build_transcribe_args(video_path: Path, options: PipelineOptions) -> SimpleN
         lang=options.lang,
         prompt=options.prompt,
     )
+    if oss_object_key:
+        setattr(ns, "oss_object_key", oss_object_key)
+    return ns
 
 
 def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleNamespace:
@@ -209,6 +214,7 @@ def run_transcribe(
     options: PipelineOptions,
     *,
     progress_callback: ASRProgressCallback | None = None,
+    oss_object_key: str | None = None,
 ) -> Path:
     from video_auto_cut.asr.transcribe import Transcribe
 
@@ -219,7 +225,7 @@ def run_transcribe(
             "Only dashscope_filetrans is supported."
         )
     logging.info("Step 1/3: transcribe -> SRT")
-    args = build_transcribe_args(video_path, options)
+    args = build_transcribe_args(video_path, options, oss_object_key=oss_object_key)
     if progress_callback is not None:
         setattr(args, "asr_progress_callback", progress_callback)
     Transcribe(args).run()

@@ -20,6 +20,7 @@ from ..constants import (
 from ..errors import invalid_step_state
 from ..repository import list_step1_lines
 from ..schemas import (
+    AudioOssReadyRequest,
     CouponRedeemRequest,
     Step1ConfirmRequest,
     Step2ConfirmRequest,
@@ -29,7 +30,9 @@ from ..services.jobs import (
     load_job_or_404,
     require_status,
     save_uploaded_audio,
+    mark_audio_oss_ready,
 )
+from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.auth import CurrentUser, require_current_user
 from ..services.billing import (
     check_coupon_for_signup,
@@ -88,6 +91,32 @@ def get_job_endpoint(
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
     return _ok({"job": job})
+
+
+@router.post("/jobs/{job_id}/oss-upload-url")
+def get_oss_upload_url(
+    job_id: str,
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+    put_url, object_key = get_presigned_put_url_for_job(job_id)
+    return _ok({"put_url": put_url, "object_key": object_key})
+
+
+@router.post("/jobs/{job_id}/audio-oss-ready")
+def audio_oss_ready(
+    job_id: str,
+    request: AudioOssReadyRequest,
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+    result = mark_audio_oss_ready(job_id, request.object_key)
+    job = load_job_or_404(job_id, current_user.user_id)
+    return _ok({"job": job, "upload": result})
 
 
 @router.post("/jobs/{job_id}/audio")

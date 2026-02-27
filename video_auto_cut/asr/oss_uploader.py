@@ -121,6 +121,33 @@ class OSSAudioUploader:
         parts.append(stamp)
         return "/".join(part for part in parts if part) + f"/{stem}_{nonce}{suffix}"
 
+    def build_object_key_for_job(self, job_id: str) -> str:
+        """Build OSS object key for direct upload (no local file)."""
+        stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
+        nonce = uuid.uuid4().hex[:10]
+        job_safe = _sanitize(job_id)[:40] if job_id else ""
+        parts = [self._prefix]
+        if job_safe:
+            parts.append(job_safe)
+        parts.append(stamp)
+        return "/".join(part for part in parts if part) + f"/audio_{nonce}.wav"
+
+    def get_presigned_put_url(self, object_key: str, expires: int = 3600) -> str:
+        """Return presigned PUT URL for client-side direct upload."""
+        url = self._bucket.sign_url("PUT", object_key, expires, slash_safe=True)
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        return url
+
+    def get_signed_get_url(self, object_key: str) -> str:
+        """Return signed GET URL for DashScope to fetch the object."""
+        url = self._bucket.sign_url(
+            "GET", object_key, self._signed_url_ttl_seconds, slash_safe=True
+        )
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        return url
+
 
 def _ensure_https_endpoint(endpoint: str) -> str:
     normalized = endpoint.strip()

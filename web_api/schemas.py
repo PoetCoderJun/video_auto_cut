@@ -28,3 +28,7 @@ class Step2ConfirmRequest(BaseModel):
 
 class CouponRedeemRequest(BaseModel):
     code: str = Field(default="", min_length=1)
+
+
+class AudioOssReadyRequest(BaseModel):
+    object_key: str = Field(..., min_length=1)
