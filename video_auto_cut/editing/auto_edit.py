@@ -17,7 +17,8 @@ REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
 NO_SPEECH_PATTERN = re.compile(r"^\s*<\s*no\s*speech\s*>\s*$", re.IGNORECASE)
 TIME_PREFIX_PATTERN = re.compile(r"^\[\d{1,3}:\d{2}\]\s*")
-AUTO_EDIT_CHUNK_LINES = 50
+AUTO_EDIT_CHUNK_LINES = 30
+AUTO_EDIT_CHUNK_OVERLAP_LINES = 4
 
 
 @dataclass
@@ -289,9 +290,10 @@ class AutoEdit:
             }
 
         logging.info(
-            "[auto_edit] segment count=%d exceeds chunk limit=%d, processing in chunks",
+            "[auto_edit] segment count=%d exceeds chunk limit=%d, processing in chunks (overlap=%d)",
             len(segments),
             AUTO_EDIT_CHUNK_LINES,
+            AUTO_EDIT_CHUNK_OVERLAP_LINES,
         )
         optimized_subs_all: List[srt.Subtitle] = []
         kept_segments_all: List[Dict[str, Any]] = []
@@ -299,12 +301,21 @@ class AutoEdit:
 
         for chunk_index, start in enumerate(range(0, len(segments), AUTO_EDIT_CHUNK_LINES), start=1):
             end = min(start + AUTO_EDIT_CHUNK_LINES, len(segments))
-            seg_chunk = segments[start:end]
+            left_overlap = min(AUTO_EDIT_CHUNK_OVERLAP_LINES, start)
+            right_overlap = min(AUTO_EDIT_CHUNK_OVERLAP_LINES, len(segments) - end)
+            context_start = start - left_overlap
+            context_end = end + right_overlap
+            seg_chunk = segments[context_start:context_end]
+            core_offset = left_overlap
+            core_count = end - start
             logging.info(
-                "[auto_edit] chunk %d line_range=[%d,%d] line_count=%d",
+                "[auto_edit] chunk %d core=[%d,%d] core_count=%d context=[%d,%d] context_count=%d",
                 chunk_index,
                 start + 1,
                 end,
+                core_count,
+                context_start + 1,
+                context_end,
                 len(seg_chunk),
             )
             try:
@@ -314,14 +325,34 @@ class AutoEdit:
                     f"Auto-edit chunk failed at lines [{start + 1}, {end}]: {exc}"
                 ) from exc
 
-            optimized_subs_all.extend(chunk_result["optimized_subs"])
-            kept_segments_all.extend(chunk_result["kept_segments"])
+            core_optimized_subs = chunk_result["optimized_subs"][core_offset : core_offset + core_count]
+            core_segments = seg_chunk[core_offset : core_offset + core_count]
+            if len(core_optimized_subs) != core_count or len(core_segments) != core_count:
+                raise RuntimeError(
+                    f"Chunk core slice mismatch at lines [{start + 1}, {end}]."
+                )
+
+            optimized_subs_all.extend(core_optimized_subs)
+            for seg, sub in zip(core_segments, core_optimized_subs):
+                if _is_remove_line(sub.content):
+                    continue
+                kept_segments_all.append(
+                    {
+                        "start": float(seg.get("start") or 0.0),
+                        "end": float(seg.get("end") or 0.0),
+                    }
+                )
             chunk_debug.append(
                 {
                     "chunk_index": chunk_index,
                     "line_start": start + 1,
                     "line_end": end,
-                    "line_count": len(seg_chunk),
+                    "line_count": core_count,
+                    "context_line_start": context_start + 1,
+                    "context_line_end": context_end,
+                    "context_line_count": len(seg_chunk),
+                    "context_left_overlap": left_overlap,
+                    "context_right_overlap": right_overlap,
                     "debug": chunk_result["debug"],
                 }
             )
@@ -336,6 +367,7 @@ class AutoEdit:
             "debug": {
                 "chunked": True,
                 "chunk_size": AUTO_EDIT_CHUNK_LINES,
+                "chunk_overlap_lines": AUTO_EDIT_CHUNK_OVERLAP_LINES,
                 "chunk_count": len(chunk_debug),
                 "chunks": chunk_debug,
             },
