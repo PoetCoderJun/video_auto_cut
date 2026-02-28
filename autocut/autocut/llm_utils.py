@@ -58,7 +58,7 @@ def build_llm_config(
     api_key: Optional[str] = None,
     timeout: int = 60,
     temperature: float = 0.2,
-    max_tokens: int = 1024,
+    max_tokens: int = 131072,
 ) -> Dict[str, Any]:
     _auto_load_dotenv()
     fallback_key = os.environ.get("DASHSCOPE_API_KEY") or ""
@@ -101,7 +101,7 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
         "model": model,
         "messages": messages,
         "temperature": cfg.get("temperature", 0.2),
-        "max_tokens": cfg.get("max_tokens", 1024),
+        "max_tokens": cfg.get("max_tokens", 131072),
     }
 
     try:

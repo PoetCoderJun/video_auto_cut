@@ -18,7 +18,7 @@ class DummyArgs:
         self.llm_api_key = None
         self.llm_timeout = 60
         self.llm_temperature = 0.2
-        self.llm_max_tokens = 1024
+        self.llm_max_tokens = 131072
 
 
 def _sample_segments():

@@ -239,7 +239,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-api-key", type=str, default=None)
     parser.add_argument("--llm-timeout", type=int, default=300)
     parser.add_argument("--llm-temperature", type=float, default=0.2)
-    parser.add_argument("--llm-max-tokens", type=int, default=65536)
+    parser.add_argument("--llm-max-tokens", type=int, default=131072)
 
     parser.add_argument("--auto-edit-merge-gap", type=float, default=0.5)
     parser.add_argument("--auto-edit-pad-head", type=float, default=0.0)

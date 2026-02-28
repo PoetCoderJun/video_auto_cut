@@ -239,7 +239,7 @@ def main():
     parser.add_argument(
         "--llm-max-tokens",
         type=int,
-        default=1024,
+        default=131072,
         help="LLM max tokens for responses",
     )
     parser.add_argument(
