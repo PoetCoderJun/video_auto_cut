@@ -267,13 +267,30 @@ class Transcribe:
 
     @staticmethod
     def _split_segments_by_punctuation(segments: list[FiletransSegment]) -> list[FiletransSegment]:
-        punct_pattern = re.compile(r"[^。！？!?；;]+[。！？!?；;]?")
+        punct_chars = set("，,。！？!?；;：:、…")
+        strong_breaks = set("。！？!?；;")
+        punct_limit = 2
         output: list[FiletransSegment] = []
         for seg in segments:
             text = (seg.text or "").strip()
             if not text:
                 continue
-            pieces = [item.strip() for item in punct_pattern.findall(text) if item and item.strip()]
+            pieces: list[str] = []
+            buf: list[str] = []
+            punct_count = 0
+            for ch in text:
+                buf.append(ch)
+                if ch in punct_chars:
+                    punct_count += 1
+                    if ch in strong_breaks or punct_count >= punct_limit:
+                        piece = "".join(buf).strip()
+                        if piece:
+                            pieces.append(piece)
+                        buf = []
+                        punct_count = 0
+            tail = "".join(buf).strip()
+            if tail:
+                pieces.append(tail)
             if len(pieces) <= 1:
                 output.append(seg)
                 continue

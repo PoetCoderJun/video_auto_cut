@@ -17,7 +17,7 @@ REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
 NO_SPEECH_PATTERN = re.compile(r"^\s*<\s*no\s*speech\s*>\s*$", re.IGNORECASE)
 TIME_PREFIX_PATTERN = re.compile(r"^\[\d{1,3}:\d{2}\]\s*")
-AUTO_EDIT_CHUNK_LINES = 100
+AUTO_EDIT_CHUNK_LINES = 50
 
 
 @dataclass
@@ -354,10 +354,13 @@ class AutoEdit:
             remove_text, segments
         )
         if remove_missing:
-            raise RuntimeError(
-                f"LLM remove pass missing {len(remove_missing)} line tags. "
-                "Please re-run or increase --llm-max-tokens."
+            logging.warning(
+                "LLM remove pass missing %d line tags; fallback to KEEP for missing lines. "
+                "Consider increasing --llm-max-tokens.",
+                len(remove_missing),
             )
+            for idx in remove_missing:
+                remove_mapped[idx] = (segments[idx - 1].get("text") or "").strip()
         if remove_duplicates:
             logging.warning(
                 "LLM remove pass has duplicated line tags: "

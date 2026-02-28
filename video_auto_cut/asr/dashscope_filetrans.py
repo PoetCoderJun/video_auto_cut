@@ -13,6 +13,9 @@ from .filetrans_like import (
     FiletransTask,
 )
 
+SEGMENT_PUNCT_LIMIT = 2
+SEGMENT_PUNCT_CHARS = set("，,。！？!?；;：:、…")
+
 
 @dataclass(frozen=True)
 class DashScopeFiletransConfig:
@@ -236,6 +239,15 @@ class DashScopeFiletransClient:
         out: list[FiletransSegment] = []
         current: list[dict[str, Any]] = []
 
+        def _punct_count(items: list[dict[str, Any]]) -> int:
+            count = 0
+            for item in items:
+                punct = str(item.get("punct") or "")
+                for ch in punct:
+                    if ch in SEGMENT_PUNCT_CHARS:
+                        count += 1
+            return count
+
         def _flush() -> None:
             if not current:
                 return
@@ -257,10 +269,18 @@ class DashScopeFiletransClient:
             )
 
         for idx, item in enumerate(normalized):
+            # Hard guardrail: one subtitle should not carry too many punctuation marks.
+            # Flush before adding current token if it would exceed punctuation cap.
+            if current:
+                next_punct = str(item.get("punct") or "")
+                next_punct_count = sum(1 for ch in next_punct if ch in SEGMENT_PUNCT_CHARS)
+                if _punct_count(current) + next_punct_count > SEGMENT_PUNCT_LIMIT:
+                    _flush()
             current.append(item)
 
             seg_chars = sum(len(str(x["text"])) + len(str(x["punct"])) for x in current)
             seg_ms = current[-1]["end"] - current[0]["begin"]
+            seg_punct_count = _punct_count(current)
             punct = str(item["punct"] or "")
             next_item = normalized[idx + 1] if idx + 1 < len(normalized) else None
             gap_ms = (
@@ -289,6 +309,8 @@ class DashScopeFiletransClient:
             elif gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad:
                 split = True
             elif seg_ms >= max_seg_ms and punct in strong_punc:
+                split = True
+            elif seg_punct_count >= SEGMENT_PUNCT_LIMIT and punct in comma_punc.union(strong_punc):
                 split = True
 
             if split:
