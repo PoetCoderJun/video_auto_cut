@@ -105,6 +105,7 @@ const SUBTITLE_THEME_OPTIONS: Array<{ value: SubtitleTheme; label: string }> = [
   { value: "text-white", label: "白色" },
   { value: "text-black", label: "黑色" },
 ];
+const MAX_VIDEO_DURATION_SEC = 10 * 60;
 
 function getActiveStep(status: Job["status"]): number {
   switch (status) {
@@ -340,6 +341,28 @@ export default function JobWorkspace({
       if (!hasSupportedExt) {
         setError(
           "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+        );
+        return;
+      }
+      const durationSec = await new Promise<number>((resolve) => {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          URL.revokeObjectURL(url);
+          resolve(video.duration);
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(0);
+        };
+        video.src = url;
+      });
+      if (durationSec >= MAX_VIDEO_DURATION_SEC) {
+        const mins = Math.floor(durationSec / 60);
+        const secs = Math.round(durationSec % 60);
+        setError(
+          `视频时长 ${mins} 分 ${secs} 秒，已达到 10 分钟限制，请上传更短的视频。`
         );
         return;
       }

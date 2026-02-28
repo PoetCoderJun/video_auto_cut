@@ -84,6 +84,8 @@ const FLOW_STEPS = [
   },
 ];
 
+const MAX_VIDEO_DURATION_SEC = 10 * 60;
+
 type UserStatus = "UNKNOWN" | "ACTIVE" | "PENDING_COUPON";
 
 export default function HomePageClient() {
@@ -179,7 +181,7 @@ export default function HomePageClient() {
     setError("");
     setLoading(true);
     try {
-      // 0. Check video duration — reject anything over 30 minutes.
+      // 0. Check video duration — reject anything >= 10 minutes.
       const durationSec = await new Promise<number>((resolve) => {
         const url = URL.createObjectURL(file);
         const video = document.createElement("video");
@@ -194,11 +196,11 @@ export default function HomePageClient() {
         };
         video.src = url;
       });
-      if (durationSec > 60 * 60) {
+      if (durationSec >= MAX_VIDEO_DURATION_SEC) {
         const mins = Math.floor(durationSec / 60);
         const secs = Math.round(durationSec % 60);
         setError(
-          `视频时长 ${mins} 分 ${secs} 秒，超过 1 小时限制，请上传更短的视频。`
+          `视频时长 ${mins} 分 ${secs} 秒，已达到 10 分钟限制，请上传更短的视频。`
         );
         return;
       }
@@ -449,7 +451,7 @@ export default function HomePageClient() {
                       {loading ? "正在上传并分析..." : "点击或拖拽上传视频"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      支持 MP4, MOV, MKV 等主流格式 · 最长 1 小时
+                      支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟
                     </p>
                   </div>
                   {!isSignedIn && (
