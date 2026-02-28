@@ -8,6 +8,8 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@hookform/resolvers": "^5.2.2",
     "@libsql/client": "0.17.0",
     "@libsql/kysely-libsql": "0.4.1",
@@ -27,7 +29,6 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "input-otp": "^1.4.2",
-    "lamejs": "^1.2.1",
     "lucide-react": "^0.575.0",
     "mediainfo.js": "^0.3.7",
     "next": "16.1.6",

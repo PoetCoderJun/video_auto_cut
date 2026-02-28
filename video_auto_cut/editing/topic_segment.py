@@ -449,7 +449,7 @@ class TopicSegmenter:
             api_key=getattr(args, "llm_api_key", None),
             timeout=getattr(args, "llm_timeout", 60),
             temperature=getattr(args, "llm_temperature", 0.2),
-            max_tokens=getattr(args, "llm_max_tokens", 1024),
+            max_tokens=getattr(args, "llm_max_tokens", 32768),
         )
         if not self.llm_config.get("base_url") or not self.llm_config.get("model"):
             raise RuntimeError(

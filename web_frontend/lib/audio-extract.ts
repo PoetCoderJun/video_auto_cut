@@ -1,3 +1,86 @@
+import { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile, toBlobURL } from "@ffmpeg/util";
+
+const FFMPEG_CORE_VERSION = "0.12.9";
+const FFMPEG_CORE_BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
+
+let ffmpegInstance: FFmpeg | null = null;
+let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
+
+function getFileExt(name: string): string {
+  const idx = name.lastIndexOf(".");
+  if (idx <= 0 || idx >= name.length - 1) return ".bin";
+  return name.slice(idx).toLowerCase();
+}
+
+async function getFfmpeg(): Promise<FFmpeg> {
+  if (ffmpegInstance?.loaded) {
+    return ffmpegInstance;
+  }
+  if (ffmpegLoadPromise) {
+    return ffmpegLoadPromise;
+  }
+
+  ffmpegLoadPromise = (async () => {
+    const ffmpeg = ffmpegInstance ?? new FFmpeg();
+    const [coreURL, wasmURL] = await Promise.all([
+      toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript"),
+      toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm`, "application/wasm"),
+    ]);
+    await ffmpeg.load({ coreURL, wasmURL });
+    ffmpegInstance = ffmpeg;
+    return ffmpeg;
+  })();
+
+  try {
+    return await ffmpegLoadPromise;
+  } catch (err) {
+    ffmpegLoadPromise = null;
+    throw err;
+  }
+}
+
+async function encodeMp3WithFfmpeg(
+  sourceFile: File,
+  sampleRate: number,
+  kbps: number
+): Promise<Blob> {
+  const ffmpeg = await getFfmpeg();
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const inputName = `input_${nonce}${getFileExt(sourceFile.name)}`;
+  const outputName = `output_${nonce}.mp3`;
+
+  try {
+    await ffmpeg.writeFile(inputName, await fetchFile(sourceFile));
+    const exitCode = await ffmpeg.exec([
+      "-i",
+      inputName,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      String(sampleRate),
+      "-b:a",
+      `${Math.max(16, Math.trunc(kbps))}k`,
+      outputName,
+    ]);
+    if (exitCode !== 0) {
+      throw new Error(`ffmpeg exited with code ${exitCode}`);
+    }
+
+    const data = await ffmpeg.readFile(outputName);
+    if (!(data instanceof Uint8Array)) {
+      throw new Error("ffmpeg output is not Uint8Array");
+    }
+    return new Blob([data], { type: "audio/mpeg" });
+  } finally {
+    await Promise.allSettled([
+      ffmpeg.deleteFile(inputName),
+      ffmpeg.deleteFile(outputName),
+    ]);
+  }
+}
+
 function toMonoChannelData(decoded: AudioBuffer): Float32Array {
   const channels = decoded.numberOfChannels;
   if (channels <= 1) {
@@ -38,52 +121,6 @@ function resampleLinear(input: Float32Array, fromRate: number, toRate: number): 
     out[i] = l + (r - l) * weight;
   }
   return out;
-}
-
-function floatToInt16(samples: Float32Array): Int16Array {
-  const out = new Int16Array(samples.length);
-  for (let i = 0; i < samples.length; i += 1) {
-    const s = Math.max(-1, Math.min(1, samples[i] ?? 0));
-    out[i] = Math.round(s * (s < 0 ? 0x8000 : 0x7fff));
-  }
-  return out;
-}
-
-async function encodeMp3FromInt16(
-  samples: Int16Array,
-  sampleRate: number,
-  kbps: number
-): Promise<Blob> {
-  // lamejs is published as a CommonJS module; under ESM bundlers the
-  // actual exports live on the `default` property.
-  const imported = await import("lamejs");
-  const lame: any = (imported as any).default ?? imported;
-  const Mp3Encoder = lame.Mp3Encoder as
-    | (new (channels: number, sampleRate: number, kbps: number) => {
-        encodeBuffer(input: Int16Array): Uint8Array;
-        flush(): Uint8Array;
-      })
-    | undefined;
-
-  if (typeof Mp3Encoder !== "function") {
-    throw new Error("Mp3Encoder is not available from lamejs module");
-  }
-
-  const mp3encoder = new Mp3Encoder(1, sampleRate, kbps);
-  const mp3Data: Uint8Array[] = [];
-  const maxSamples = 1152;
-  for (let i = 0; i < samples.length; i += maxSamples) {
-    const chunk = samples.subarray(i, Math.min(i + maxSamples, samples.length));
-    const mp3buf = mp3encoder.encodeBuffer(chunk);
-    if (mp3buf.length > 0) {
-      mp3Data.push(mp3buf);
-    }
-  }
-  const last = mp3encoder.flush();
-  if (last.length > 0) {
-    mp3Data.push(last);
-  }
-  return new Blob(mp3Data, { type: "audio/mp3" });
 }
 
 function encodeWavPcm16Mono(samples: Float32Array, sampleRate: number): Blob {
@@ -141,52 +178,49 @@ function getOutputName(sourceName: string, ext: "wav" | "mp3"): string {
 export type ExtractAudioFormat = "wav" | "mp3";
 
 /**
- * Extract audio for ASR. Prefer MP3 (64kbps) for smaller upload; fallback to WAV if MP3 fails.
+ * Extract audio for ASR.
+ * MP3 path uses ffmpeg.wasm directly from source media. Fallback is WAV.
  */
 export async function extractAudioForAsr(
   sourceFile: File,
   sampleRate = 16000,
   format: ExtractAudioFormat = "mp3"
 ): Promise<File> {
-  const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-  if (!Ctx) {
-    throw new Error("当前浏览器不支持 AudioContext，无法提取音频。");
-  }
-
-  const audioCtx: AudioContext = new Ctx();
   try {
-    const input = await sourceFile.arrayBuffer();
-    const decoded = await audioCtx.decodeAudioData(input.slice(0));
-    const mono = toMonoChannelData(decoded);
-    const resampled = resampleLinear(mono, decoded.sampleRate, sampleRate);
-
     if (format === "mp3") {
       try {
-        const int16 = floatToInt16(resampled);
-        const mp3 = await encodeMp3FromInt16(int16, sampleRate, 64);
+        const mp3 = await encodeMp3WithFfmpeg(sourceFile, sampleRate, 64);
         return new File([mp3], getOutputName(sourceFile.name, "mp3"), {
-          type: "audio/mp3",
+          type: "audio/mpeg",
         });
-      } catch {
-        // lamejs 可能在某些情况下失败，回退到 WAV
-        const wav = encodeWavPcm16Mono(resampled, sampleRate);
-        return new File([wav], getOutputName(sourceFile.name, "wav"), {
-          type: "audio/wav",
-        });
+      } catch (err) {
+        console.warn("[audio-extract] MP3 encode failed, fallback to WAV", err);
       }
     }
-    const wav = encodeWavPcm16Mono(resampled, sampleRate);
-    return new File([wav], getOutputName(sourceFile.name, "wav"), {
-      type: "audio/wav",
-    });
+
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) {
+      throw new Error("当前浏览器不支持 AudioContext，无法提取音频。");
+    }
+
+    const audioCtx: AudioContext = new Ctx();
+    try {
+      const input = await sourceFile.arrayBuffer();
+      const decoded = await audioCtx.decodeAudioData(input.slice(0));
+      const mono = toMonoChannelData(decoded);
+      const resampled = resampleLinear(mono, decoded.sampleRate, sampleRate);
+      const wav = encodeWavPcm16Mono(resampled, sampleRate);
+      return new File([wav], getOutputName(sourceFile.name, "wav"), {
+        type: "audio/wav",
+      });
+    } finally {
+      try {
+        await audioCtx.close();
+      } catch {
+        // ignore close failures
+      }
+    }
   } catch (error) {
     throw new Error("浏览器音频提取失败，请尝试使用 Chrome 或更换视频格式。");
-  } finally {
-    try {
-      await audioCtx.close();
-    } catch {
-      // ignore close failures
-    }
   }
 }
-
