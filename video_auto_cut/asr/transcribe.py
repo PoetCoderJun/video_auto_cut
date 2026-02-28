@@ -267,7 +267,7 @@ class Transcribe:
 
     @staticmethod
     def _split_segments_by_punctuation(segments: list[FiletransSegment]) -> list[FiletransSegment]:
-        punct_chars = set("，,。！？!?；;：:、…")
+        punct_chars = set("，,。！？!?；;")
         strong_breaks = set("。！？!?；;")
         punct_limit = 2
         output: list[FiletransSegment] = []

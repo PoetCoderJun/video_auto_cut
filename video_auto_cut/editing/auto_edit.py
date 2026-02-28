@@ -411,16 +411,28 @@ class AutoEdit:
 
         optimized_subs: List[srt.Subtitle] = []
         kept_segments: List[Dict[str, Any]] = []
+        restored_removed_lines: List[int] = []
         for idx, seg in enumerate(segments, start=1):
             raw_text = (optimize_mapped.get(idx) or "").strip()
             orig_text = (seg.get("text") or "").strip()
             remove = remove_flags[idx - 1]
 
             if remove:
-                if orig_text:
-                    new_text = f"{REMOVE_TOKEN} {orig_text}".strip()
+                # Line-level recovery only: if optimize pass produced non-remove content
+                # for a line removed by remove pass, restore this line instead of keeping it removed.
+                if not _is_remove_line(raw_text):
+                    restored_removed_lines.append(idx)
+                    new_text = raw_text or orig_text
+                    remove = False
+                    logging.warning(
+                        "Recovered removed line [L%04d] because optimize pass returned content.",
+                        idx,
+                    )
                 else:
-                    new_text = REMOVE_TOKEN
+                    if orig_text:
+                        new_text = f"{REMOVE_TOKEN} {orig_text}".strip()
+                    else:
+                        new_text = REMOVE_TOKEN
             else:
                 if _is_remove_line(raw_text):
                     logging.warning(
@@ -466,6 +478,7 @@ class AutoEdit:
                     "missing_tags": optimize_missing,
                     "duplicate_tags": optimize_duplicates,
                 },
+                "restored_removed_lines": restored_removed_lines,
             },
         }
 

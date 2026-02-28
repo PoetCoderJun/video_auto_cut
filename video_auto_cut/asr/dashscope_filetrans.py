@@ -14,7 +14,9 @@ from .filetrans_like import (
 )
 
 SEGMENT_PUNCT_LIMIT = 2
-SEGMENT_PUNCT_CHARS = set("，,。！？!?；;：:、…")
+# Only count clause-ending/sub-clause punctuation for forced split.
+# Do NOT count list separator "、".
+SEGMENT_PUNCT_CHARS = set("，,。！？!?；;")
 
 
 @dataclass(frozen=True)
