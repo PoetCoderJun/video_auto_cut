@@ -51,6 +51,9 @@ export default function BetaPage() {
             <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
               感谢你在小红书支持。当前版本为邀请制内测，凭邀请码即可登录使用。右上角可直接注册 / 登录。
             </p>
+            <Link href="/">
+              <Button className="rounded-full">立刻AI剪辑</Button>
+            </Link>
           </div>
         </section>
 
