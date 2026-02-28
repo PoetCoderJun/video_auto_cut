@@ -24,6 +24,14 @@ CUE_RULES = [
 ]
 
 
+def _required_min_topics(segment_count: int) -> int:
+    if segment_count <= 1:
+        return 1
+    if segment_count == 2:
+        return 2
+    return 3
+
+
 @dataclass
 class TopicSegment:
     segment_id: int
@@ -98,8 +106,8 @@ def _load_kept_segments(srt_path: str, encoding: str) -> List[TopicSegment]:
 def _build_segmentation_prompt(
     segments: List[TopicSegment], max_topics: int, title_max_chars: int
 ) -> List[Dict[str, str]]:
-    max_topics = max(2, int(max_topics))
-    min_topics = 1 if len(segments) < 4 else 2
+    min_topics = _required_min_topics(len(segments))
+    max_topics = max(min_topics, int(max_topics))
     normal_title_max_chars = max(1, int(title_max_chars))
     short_title_max_chars = min(4, normal_title_max_chars)
     lines: List[str] = []
@@ -239,6 +247,33 @@ def _build_cue_fallback_plan(segments: List[TopicSegment], max_topics: int) -> L
     while len(ranges) > max_topics:
         tail = ranges.pop()
         ranges[-1].extend(tail)
+    return ranges
+
+
+def _build_even_fallback_plan(segments: List[TopicSegment], max_topics: int) -> List[List[int]]:
+    if not segments:
+        return []
+    min_topics = _required_min_topics(len(segments))
+    if len(segments) <= min_topics:
+        return [[seg.segment_id for seg in segments]]
+
+    # Deterministic fallback when cue boundaries are unavailable:
+    # split contiguous subtitles into 3-5 near-even chapters when possible.
+    target = min_topics
+    if len(segments) >= 18:
+        target = 4
+    if len(segments) >= 36:
+        target = 5
+    target = max(min_topics, min(int(max_topics), target))
+
+    ranges: List[List[int]] = []
+    total = len(segments)
+    for i in range(target):
+        start = (i * total) // target
+        end = ((i + 1) * total) // target
+        ids = [seg.segment_id for seg in segments[start:end]]
+        if ids:
+            ranges.append(ids)
     return ranges
 
 
@@ -422,7 +457,7 @@ def _write_json(path: str, data: Dict[str, Any]) -> None:
 class TopicSegmenter:
     def __init__(self, args):
         self.args = args
-        self.max_topics = int(getattr(args, "topic_max_topics", 8))
+        self.max_topics = max(3, int(getattr(args, "topic_max_topics", 8)))
         self.generate_summary = bool(getattr(args, "topic_generate_summary", True))
         self.summary_max_chars = int(
             getattr(
@@ -449,7 +484,7 @@ class TopicSegmenter:
             api_key=getattr(args, "llm_api_key", None),
             timeout=getattr(args, "llm_timeout", 60),
             temperature=getattr(args, "llm_temperature", 0.2),
-            max_tokens=getattr(args, "llm_max_tokens", 32768),
+            max_tokens=getattr(args, "llm_max_tokens", 65536),
         )
         if not self.llm_config.get("base_url") or not self.llm_config.get("model"):
             raise RuntimeError(
@@ -472,6 +507,7 @@ class TopicSegmenter:
         segments = _load_kept_segments(srt_path, getattr(self.args, "encoding", "utf-8"))
         if not segments:
             raise RuntimeError(f"No kept subtitles found for topic segmentation: {srt_path}")
+        min_topics = _required_min_topics(len(segments))
 
         seg_prompt = _build_segmentation_prompt(segments, self.max_topics, self.title_max_chars)
         seg_text = llm_utils.chat_completion(self.llm_config, seg_prompt)
@@ -479,11 +515,21 @@ class TopicSegmenter:
         try:
             plan, seg_titles = _parse_segment_plan(seg_text)
             plan = _normalize_segment_plan(plan, segments)
+            if len(plan) < min_topics:
+                raise RuntimeError(
+                    f"Segmentation returned too few topics: {len(plan)} < {min_topics}"
+                )
         except Exception as exc:
             if self.strict:
                 raise
             logging.warning(f"Segmentation parsing failed, fallback to cue plan: {exc}")
             plan = _build_cue_fallback_plan(segments, self.max_topics)
+            if len(plan) < min_topics:
+                logging.warning(
+                    "Cue fallback produced too few topics (%d), fallback to even split.",
+                    len(plan),
+                )
+                plan = _build_even_fallback_plan(segments, self.max_topics)
 
         if self.generate_summary:
             sum_prompt = _build_summary_prompt(

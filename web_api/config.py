@@ -192,7 +192,7 @@ def get_settings() -> Settings:
         llm_api_key=(llm_api_key or "").strip() or None,
         llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "32768")),
+        llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "65536")),
         topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         topic_summary_max_chars=int(os.getenv("TOPIC_SUMMARY_MAX_CHARS", "6")),

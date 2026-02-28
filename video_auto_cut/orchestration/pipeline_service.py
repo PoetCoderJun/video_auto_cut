@@ -48,7 +48,7 @@ class PipelineOptions:
     llm_api_key: str | None = None
     llm_timeout: int = 300
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 32768
+    llm_max_tokens: int = 65536
 
     auto_edit_merge_gap: float = 0.5
     auto_edit_pad_head: float = 0.0
