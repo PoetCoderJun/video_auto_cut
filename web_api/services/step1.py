@@ -4,8 +4,9 @@ import logging
 from pathlib import Path
 
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit, run_transcribe
+from video_auto_cut.asr.oss_uploader import OSSAudioUploader
 
-from ..config import ensure_job_dirs
+from ..config import ensure_job_dirs, get_settings
 from ..constants import (
     DEFAULT_ENCODING,
     JOB_STATUS_STEP1_CONFIRMED,
@@ -67,6 +68,7 @@ def run_step1(job_id: str) -> None:
 
     logging.info("[web_api] step1 auto-edit start: %s", srt_path)
     optimized_srt_path = run_auto_edit(srt_path, options)
+    optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
 
     lines = build_step1_lines_from_srts(srt_path, optimized_srt_path, DEFAULT_ENCODING)
     if not lines:
@@ -82,6 +84,12 @@ def run_step1(job_id: str) -> None:
         job_id,
         srt_path=str(srt_path),
         optimized_srt_path=str(optimized_srt_path),
+        optimized_srt_oss_key=(
+            optimized_srt_upload.get("object_key") if optimized_srt_upload else None
+        ),
+        optimized_srt_oss_signed_url=(
+            optimized_srt_upload.get("signed_url") if optimized_srt_upload else None
+        ),
         final_step1_srt_path=str(final_step1_srt),
     )
 
@@ -104,6 +112,58 @@ def _load_required_paths(job_id: str) -> dict[str, str]:
     if not files.get("audio_path") and not files.get("asr_oss_key"):
         raise RuntimeError("upload audio missing for step1 (need audio_path or asr_oss_key)")
     return files
+
+
+def _upload_optimized_srt_to_oss(job_id: str, optimized_srt_path: Path) -> dict[str, str] | None:
+    settings = get_settings()
+    if not (
+        settings.asr_oss_endpoint
+        and settings.asr_oss_bucket
+        and settings.asr_oss_access_key_id
+        and settings.asr_oss_access_key_secret
+    ):
+        return None
+
+    prefix_base = (settings.asr_oss_prefix or "video-auto-cut/asr").strip().strip("/")
+    debug_prefix = f"{prefix_base}/debug/optimized-srt" if prefix_base else "video-auto-cut/asr/debug/optimized-srt"
+    try:
+        uploader = OSSAudioUploader(
+            endpoint=settings.asr_oss_endpoint,
+            bucket_name=settings.asr_oss_bucket,
+            access_key_id=settings.asr_oss_access_key_id,
+            access_key_secret=settings.asr_oss_access_key_secret,
+            prefix=debug_prefix,
+            signed_url_ttl_seconds=int(settings.asr_oss_signed_url_ttl_seconds),
+        )
+    except Exception as exc:
+        logging.warning(
+            "[web_api] step1 skip optimized.srt OSS upload job=%s (uploader init failed): %s",
+            job_id,
+            exc,
+        )
+        return None
+
+    try:
+        uploaded = uploader.upload_audio(optimized_srt_path)
+    except Exception as exc:
+        logging.warning(
+            "[web_api] step1 optimized.srt OSS upload failed job=%s path=%s: %s",
+            job_id,
+            optimized_srt_path,
+            exc,
+        )
+        return None
+
+    logging.info(
+        "[web_api] step1 optimized.srt OSS upload done job=%s key=%s size=%s",
+        job_id,
+        uploaded.object_key,
+        uploaded.size_bytes,
+    )
+    return {
+        "object_key": uploaded.object_key,
+        "signed_url": uploaded.signed_url,
+    }
 
 
 def confirm_step1(job_id: str, updates: list[dict[str, object]]) -> list[dict[str, object]]:

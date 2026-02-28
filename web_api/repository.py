@@ -28,6 +28,8 @@ JOB_FILE_FIELDS = (
     "video_path",
     "audio_path",
     "asr_oss_key",
+    "optimized_srt_oss_key",
+    "optimized_srt_oss_signed_url",
     "srt_path",
     "optimized_srt_path",
     "final_step1_srt_path",
@@ -438,7 +440,7 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"job_id": job_id}
     for field in JOB_FILE_FIELDS:
         raw = payload.get(field)
-        if field == "asr_oss_key":
+        if field in {"asr_oss_key", "optimized_srt_oss_key", "optimized_srt_oss_signed_url"}:
             result[field] = raw if isinstance(raw, str) and raw.strip() else None
         elif isinstance(raw, str) and raw.strip() and Path(raw).exists():
             result[field] = raw
