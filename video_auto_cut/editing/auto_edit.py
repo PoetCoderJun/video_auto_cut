@@ -17,6 +17,7 @@ REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
 NO_SPEECH_PATTERN = re.compile(r"^\s*<\s*no\s*speech\s*>\s*$", re.IGNORECASE)
 TIME_PREFIX_PATTERN = re.compile(r"^\[\d{1,3}:\d{2}\]\s*")
+AUTO_EDIT_CHUNK_LINES = 100
 
 
 @dataclass
@@ -275,6 +276,71 @@ class AutoEdit:
     def _auto_edit_segments(
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
     ) -> Dict[str, Any]:
+        if len(segments) <= AUTO_EDIT_CHUNK_LINES:
+            chunk_result = self._auto_edit_segment_chunk(segments)
+            if not chunk_result["kept_segments"]:
+                raise RuntimeError("All segments removed. Check LLM output.")
+            edl = _segments_to_edl(chunk_result["kept_segments"], self.cfg, total_length)
+            return {
+                "optimized_subs": chunk_result["optimized_subs"],
+                "edl": edl,
+                "debug": chunk_result["debug"],
+            }
+
+        logging.info(
+            "[auto_edit] segment count=%d exceeds chunk limit=%d, processing in chunks",
+            len(segments),
+            AUTO_EDIT_CHUNK_LINES,
+        )
+        optimized_subs_all: List[srt.Subtitle] = []
+        kept_segments_all: List[Dict[str, Any]] = []
+        chunk_debug: List[Dict[str, Any]] = []
+
+        for chunk_index, start in enumerate(range(0, len(segments), AUTO_EDIT_CHUNK_LINES), start=1):
+            end = min(start + AUTO_EDIT_CHUNK_LINES, len(segments))
+            seg_chunk = segments[start:end]
+            logging.info(
+                "[auto_edit] chunk %d line_range=[%d,%d] line_count=%d",
+                chunk_index,
+                start + 1,
+                end,
+                len(seg_chunk),
+            )
+            try:
+                chunk_result = self._auto_edit_segment_chunk(seg_chunk)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Auto-edit chunk failed at lines [{start + 1}, {end}]: {exc}"
+                ) from exc
+
+            optimized_subs_all.extend(chunk_result["optimized_subs"])
+            kept_segments_all.extend(chunk_result["kept_segments"])
+            chunk_debug.append(
+                {
+                    "chunk_index": chunk_index,
+                    "line_start": start + 1,
+                    "line_end": end,
+                    "line_count": len(seg_chunk),
+                    "debug": chunk_result["debug"],
+                }
+            )
+
+        if not kept_segments_all:
+            raise RuntimeError("All segments removed. Check LLM output.")
+
+        edl = _segments_to_edl(kept_segments_all, self.cfg, total_length)
+        return {
+            "optimized_subs": optimized_subs_all,
+            "edl": edl,
+            "debug": {
+                "chunked": True,
+                "chunk_size": AUTO_EDIT_CHUNK_LINES,
+                "chunk_count": len(chunk_debug),
+                "chunks": chunk_debug,
+            },
+        }
+
+    def _auto_edit_segment_chunk(self, segments: List[Dict[str, Any]]) -> Dict[str, Any]:
         tagged_text = _segments_to_tagged_text(segments)
 
         # Step 1: full-text semantic remove pass.
@@ -378,13 +444,9 @@ class AutoEdit:
                     }
                 )
 
-        if not kept_segments:
-            raise RuntimeError("All segments removed. Check LLM output.")
-
-        edl = _segments_to_edl(kept_segments, self.cfg, total_length)
         return {
             "optimized_subs": optimized_subs,
-            "edl": edl,
+            "kept_segments": kept_segments,
             "debug": {
                 "edited_text": optimize_text,
                 "remove_token": REMOVE_TOKEN,
