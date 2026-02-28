@@ -121,7 +121,9 @@ def _build_pipeline_options(
         llm_api_key=_resolve_llm_api_key(args),
         llm_timeout=int(args.llm_timeout),
         llm_temperature=float(args.llm_temperature),
-        llm_max_tokens=int(args.llm_max_tokens),
+        llm_max_tokens=(
+            int(args.llm_max_tokens) if args.llm_max_tokens is not None else None
+        ),
         auto_edit_merge_gap=float(args.auto_edit_merge_gap),
         auto_edit_pad_head=float(args.auto_edit_pad_head),
         auto_edit_pad_tail=float(args.auto_edit_pad_tail),
@@ -239,7 +241,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--llm-api-key", type=str, default=None)
     parser.add_argument("--llm-timeout", type=int, default=300)
     parser.add_argument("--llm-temperature", type=float, default=0.2)
-    parser.add_argument("--llm-max-tokens", type=int, default=131072)
+    parser.add_argument(
+        "--llm-max-tokens",
+        type=int,
+        default=None,
+        help="Optional LLM max tokens for responses (omit to use model default)",
+    )
 
     parser.add_argument("--auto-edit-merge-gap", type=float, default=0.5)
     parser.add_argument("--auto-edit-pad-head", type=float, default=0.0)

@@ -48,7 +48,7 @@ class PipelineOptions:
     llm_api_key: str | None = None
     llm_timeout: int = 300
     llm_temperature: float = 0.2
-    llm_max_tokens: int = 131072
+    llm_max_tokens: int | None = None
 
     auto_edit_merge_gap: float = 0.5
     auto_edit_pad_head: float = 0.0
@@ -124,7 +124,9 @@ def build_transcribe_args(
         llm_api_key=options.llm_api_key,
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
-        llm_max_tokens=int(options.llm_max_tokens),
+        llm_max_tokens=(
+            int(options.llm_max_tokens) if options.llm_max_tokens is not None else None
+        ),
         lang=options.lang,
         prompt=options.prompt,
     )
@@ -150,7 +152,9 @@ def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleName
         llm_api_key=options.llm_api_key,
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
-        llm_max_tokens=int(options.llm_max_tokens),
+        llm_max_tokens=(
+            int(options.llm_max_tokens) if options.llm_max_tokens is not None else None
+        ),
         topic_output=None,
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
@@ -186,7 +190,9 @@ def build_render_args(
         llm_api_key=options.llm_api_key,
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
-        llm_max_tokens=int(options.llm_max_tokens),
+        llm_max_tokens=(
+            int(options.llm_max_tokens) if options.llm_max_tokens is not None else None
+        ),
     )
 
 
@@ -207,7 +213,9 @@ def build_topic_args(
         llm_api_key=options.llm_api_key,
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
-        llm_max_tokens=int(options.llm_max_tokens),
+        llm_max_tokens=(
+            int(options.llm_max_tokens) if options.llm_max_tokens is not None else None
+        ),
     )
 
 

@@ -59,7 +59,7 @@ def build_llm_config(
     api_key: Optional[str] = None,
     timeout: int = 60,
     temperature: float = 0.2,
-    max_tokens: int = 131072,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     _auto_load_dotenv()
     fallback_key = os.environ.get("DASHSCOPE_API_KEY") or ""
@@ -69,7 +69,7 @@ def build_llm_config(
         "api_key": (api_key or os.environ.get("LLM_API_KEY") or fallback_key).strip(),
         "timeout": int(timeout),
         "temperature": float(temperature),
-        "max_tokens": int(max_tokens),
+        "max_tokens": int(max_tokens) if max_tokens is not None else None,
     }
     return cfg
 
@@ -102,8 +102,10 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
         "model": model,
         "messages": messages,
         "temperature": cfg.get("temperature", 0.2),
-        "max_tokens": cfg.get("max_tokens", 131072),
     }
+    max_tokens = cfg.get("max_tokens")
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
 
     try:
         data = _post_json(url, payload, cfg.get("api_key", ""), cfg.get("timeout", 60))

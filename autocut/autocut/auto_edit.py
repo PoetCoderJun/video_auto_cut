@@ -268,7 +268,7 @@ class AutoEdit:
         if remove_missing:
             raise RuntimeError(
                 f"LLM remove pass missing {len(remove_missing)} line tags. "
-                "Please re-run or increase --llm-max-tokens."
+                "Please re-run; LLM response may be truncated or malformed."
             )
         if remove_duplicates:
             logging.warning(
@@ -303,7 +303,7 @@ class AutoEdit:
         if optimize_missing:
             logging.warning(
                 "LLM optimize pass missing %d line tags; fallback to remove-pass/original text "
-                "for missing lines. Consider increasing --llm-max-tokens.",
+                "for missing lines. Re-run if this keeps happening.",
                 len(optimize_missing),
             )
             for idx in optimize_missing:

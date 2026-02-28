@@ -239,8 +239,8 @@ def main():
     parser.add_argument(
         "--llm-max-tokens",
         type=int,
-        default=131072,
-        help="LLM max tokens for responses",
+        default=None,
+        help="Optional LLM max tokens for responses (omit to use model default)",
     )
     parser.add_argument(
         "--auto-edit-llm",

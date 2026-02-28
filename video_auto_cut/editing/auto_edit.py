@@ -357,7 +357,7 @@ class AutoEdit:
         if remove_missing:
             logging.warning(
                 "LLM remove pass missing %d line tags; fallback to KEEP for missing lines. "
-                "Consider increasing --llm-max-tokens.",
+                "Re-run if this keeps happening.",
                 len(remove_missing),
             )
             for idx in remove_missing:
@@ -396,7 +396,7 @@ class AutoEdit:
         if optimize_missing:
             logging.warning(
                 "LLM optimize pass missing %d line tags; fallback to remove-pass/original text "
-                "for missing lines. Consider increasing --llm-max-tokens.",
+                "for missing lines. Re-run if this keeps happening.",
                 len(optimize_missing),
             )
             for idx in optimize_missing:

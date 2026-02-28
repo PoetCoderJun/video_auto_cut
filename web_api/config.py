@@ -52,7 +52,7 @@ class Settings:
     llm_api_key: str | None
     llm_timeout: int
     llm_temperature: float
-    llm_max_tokens: int
+    llm_max_tokens: int | None
     topic_max_topics: int
     topic_title_max_chars: int
     topic_summary_max_chars: int
@@ -108,6 +108,7 @@ def get_settings() -> Settings:
             f"Unsupported ASR_BACKEND={asr_backend}. "
             "This deployment only supports ASR_BACKEND=dashscope_filetrans."
         )
+    llm_max_tokens_raw = (os.getenv("LLM_MAX_TOKENS") or "").strip()
 
     return Settings(
         work_dir=work_dir,
@@ -192,7 +193,7 @@ def get_settings() -> Settings:
         llm_api_key=(llm_api_key or "").strip() or None,
         llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", "131072")),
+        llm_max_tokens=int(llm_max_tokens_raw) if llm_max_tokens_raw else None,
         topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         topic_summary_max_chars=int(os.getenv("TOPIC_SUMMARY_MAX_CHARS", "6")),
