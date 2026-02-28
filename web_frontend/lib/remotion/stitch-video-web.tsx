@@ -42,6 +42,8 @@ type TimelineSegment = {
   from: number;
   durationInFrames: number;
   trimBefore: number;
+  cutStart: number;
+  cutEnd: number;
 };
 
 const clamp = (value: number, min = 0, max = 1): number => {
@@ -50,9 +52,10 @@ const clamp = (value: number, min = 0, max = 1): number => {
   return value;
 };
 
-/** 1080p 基准，横竖屏统一用短边约束，竖屏时不会因 height 放大而溢出 */
-const BASE_WIDTH = 1920;
-const BASE_HEIGHT = 1080;
+/** Typography scales by short edge so portrait / high-res variants remain readable. */
+const BASE_SHORT_EDGE = 1080;
+const MIN_UI_SCALE = 0.6;
+const MAX_UI_SCALE = 2.4;
 const SUBTITLE_FONT_SIZE_BASE = 44;
 const SUBTITLE_MAX_WIDTH_RATIO = 0.9;
 const SUBTITLE_SAFE_WIDTH_RATIO = 0.86;
@@ -156,8 +159,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   subtitleTheme = "box-white-on-black",
 }) => {
   const frame = useCurrentFrame();
-  const t = frame / fps;
-  const scale = Math.min(width / BASE_WIDTH, height / BASE_HEIGHT);
+  const shortEdge = Math.max(1, Math.min(width, height));
+  const scale = clamp(shortEdge / BASE_SHORT_EDGE, MIN_UI_SCALE, MAX_UI_SCALE);
   const subtitleFontSize = round(SUBTITLE_FONT_SIZE_BASE * scale);
 
   const scaledStyles = useMemo(() => {
@@ -271,6 +274,53 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       })),
     [captions, width, subtitleFontSize]
   );
+
+  const timelineSegments = useMemo((): TimelineSegment[] => {
+    const normalized = (segments || [])
+      .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+      .slice()
+      .sort((a, b) => a.start - b.start);
+    let cursorFrames = 0;
+    let cursorCutSec = 0;
+    return normalized.map((segment) => {
+      const trimBefore = Math.max(0, Math.floor(segment.start * fps));
+      const trimAfterFrame = Math.max(trimBefore + 1, Math.ceil(segment.end * fps));
+      const durationInFrames = Math.max(1, trimAfterFrame - trimBefore);
+      const exactDurationSec = Math.max(0, segment.end - segment.start);
+      const item = {
+        from: cursorFrames,
+        durationInFrames,
+        trimBefore,
+        cutStart: cursorCutSec,
+        cutEnd: cursorCutSec + exactDurationSec,
+      };
+      cursorFrames += durationInFrames;
+      cursorCutSec += exactDurationSec;
+      return item;
+    });
+  }, [segments, fps]);
+
+  const mappedTimelineTime = useMemo(() => {
+    if (timelineSegments.length === 0) {
+      return frame / fps;
+    }
+    const last = timelineSegments[timelineSegments.length - 1];
+    const totalFrames = last.from + last.durationInFrames;
+    if (frame <= 0) return 0;
+    if (frame >= totalFrames) return last.cutEnd;
+
+    for (const seg of timelineSegments) {
+      const segEndFrame = seg.from + seg.durationInFrames;
+      if (frame < segEndFrame) {
+        const inSegFrame = frame - seg.from;
+        const ratio = seg.durationInFrames > 0 ? inSegFrame / seg.durationInFrames : 0;
+        return seg.cutStart + (seg.cutEnd - seg.cutStart) * clamp(ratio, 0, 1);
+      }
+    }
+    return last.cutEnd;
+  }, [frame, fps, timelineSegments]);
+
+  const t = mappedTimelineTime;
   const activeCaption = wrappedCaptions.find((caption) => t >= caption.start && t < caption.end);
 
   const normalizedTopics = useMemo(() => {
@@ -290,29 +340,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
   const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
 
-  const timelineSegments = useMemo((): TimelineSegment[] => {
-    const normalized = (segments || [])
-      .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
-      .slice()
-      .sort((a, b) => a.start - b.start);
-    let cursor = 0;
-    return normalized.map((segment) => {
-      const trimBefore = Math.max(0, Math.floor(segment.start * fps));
-      const trimAfterFrame = Math.max(trimBefore + 1, Math.ceil(segment.end * fps));
-      const durationInFrames = Math.max(1, trimAfterFrame - trimBefore);
-      const item = {
-        from: cursor,
-        durationInFrames,
-        trimBefore,
-      };
-      cursor += durationInFrames;
-      return item;
-    });
-  }, [segments, fps]);
-
-  const topicDurationEnd = normalizedTopics.length > 0 ? normalizedTopics[normalizedTopics.length - 1].end : 0;
-  const captionDurationEnd = captions.length > 0 ? captions[captions.length - 1].end : 0;
-  const totalDuration = Math.max(1, topicDurationEnd, captionDurationEnd);
+  const topicDurationEnd = normalizedTopics.reduce((max, item) => Math.max(max, item.end), 0);
+  const captionDurationEnd = captions.reduce((max, item) => Math.max(max, item.end), 0);
+  const segmentDurationEnd =
+    timelineSegments.length > 0 ? timelineSegments[timelineSegments.length - 1].cutEnd : 0;
+  const totalDuration = Math.max(1, topicDurationEnd, captionDurationEnd, segmentDurationEnd);
   const progress = clamp(t / totalDuration);
 
   const topicSegments = useMemo(() => {
