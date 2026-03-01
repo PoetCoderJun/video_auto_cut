@@ -2,6 +2,9 @@ import json
 import logging
 import os
 import re
+import ssl
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -69,6 +72,7 @@ def build_llm_config(
         "timeout": int(timeout),
         "temperature": float(temperature),
         "max_tokens": int(max_tokens) if max_tokens is not None else None,
+        "request_retries": max(1, int(os.environ.get("LLM_REQUEST_RETRIES", "3"))),
     }
     return cfg
 
@@ -90,6 +94,34 @@ def _post_json(url: str, payload: Dict[str, Any], api_key: str, timeout: int) ->
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _is_retryable_llm_error(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        code = int(getattr(exc, "code", 0) or 0)
+        return code == 429 or 500 <= code < 600
+    if isinstance(exc, urllib.error.URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (ssl.SSLError, TimeoutError, OSError)):
+            return True
+        reason_text = str(reason or "").lower()
+        for token in (
+            "timed out",
+            "temporary failure",
+            "connection reset",
+            "connection aborted",
+            "unexpected eof",
+            "eof occurred",
+            "tls",
+            "ssl",
+        ):
+            if token in reason_text:
+                return True
+        return False
+    return isinstance(
+        exc,
+        (TimeoutError, ssl.SSLError, ConnectionResetError, ConnectionAbortedError, BrokenPipeError),
+    )
+
+
 def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
     base_url = cfg.get("base_url") or ""
     model = cfg.get("model") or ""
@@ -106,13 +138,31 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
     if max_tokens is not None:
         payload["max_tokens"] = int(max_tokens)
 
-    try:
-        data = _post_json(url, payload, cfg.get("api_key", ""), cfg.get("timeout", 60))
-    except Exception as exc:
-        logging.error(f"LLM request failed: {exc}")
-        raise
+    retries = max(1, int(cfg.get("request_retries", 3)))
+    data: Dict[str, Any] | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            data = _post_json(url, payload, cfg.get("api_key", ""), cfg.get("timeout", 60))
+            break
+        except Exception as exc:
+            retryable = _is_retryable_llm_error(exc)
+            if retryable and attempt < retries:
+                delay = min(8.0, 0.8 * (2 ** (attempt - 1)))
+                logging.warning(
+                    "LLM request transient failure (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt,
+                    retries,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+                continue
+            logging.error(f"LLM request failed: {exc}")
+            raise
 
     try:
+        if data is None:
+            raise RuntimeError("LLM request returned no data.")
         return data["choices"][0]["message"]["content"]
     except Exception as exc:
         raise RuntimeError(f"Unexpected LLM response: {data}") from exc
