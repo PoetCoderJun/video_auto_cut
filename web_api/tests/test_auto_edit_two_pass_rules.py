@@ -72,6 +72,11 @@ class AutoEditTwoPassRulesTest(unittest.TestCase):
         system_prompt = messages[0]["content"]
         self.assertIn("一律删除前面版本", system_prompt)
         self.assertIn("只保留最后出现", system_prompt)
+        self.assertIn("仅依据时间先后顺序决定保留对象", system_prompt)
+        self.assertIn("禁止使用“更正、补全、完整、通顺、准确”", system_prompt)
+        self.assertIn("以下示例必须严格模仿", system_prompt)
+        self.assertIn("示例1（同义重复，保留后句）", system_prompt)
+        self.assertIn("示例2（前短后长，保留后句）", system_prompt)
 
 
 if __name__ == "__main__":
