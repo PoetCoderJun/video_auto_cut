@@ -1048,7 +1048,7 @@ export default function JobWorkspace({
                           ref={(el) => {
                             if (el) autoResize(el);
                           }}
-                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[17px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
                           placeholder={isNoSpeech ? "<No Speech>" : ""}
                         />
                       )}

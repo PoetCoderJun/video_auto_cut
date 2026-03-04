@@ -231,11 +231,12 @@ class DashScopeFiletransClient:
         # Treat list separator "、" as weaker than comma for subtitle boundary.
         comma_punc = {"，", ","}
         min_chars = max(1, int(self._config.word_split_min_chars))
-        # Tune split behavior toward local baseline: many boundaries are comma + short pause.
+        # Tune split behavior toward finer subtitle boundaries around punctuation.
         vad_gap_ms = max(800.0, float(self._config.word_vad_gap_s) * 1000.0)
         comma_pause_ms = max(300.0, float(self._config.word_split_comma_pause_s) * 1000.0)
         max_seg_ms = max(1000.0, float(self._config.word_max_segment_s) * 1000.0)
-        min_seg_ms_for_comma = 1200.0
+        min_seg_ms_for_comma = 500.0
+        min_chars_for_comma = max(2, min_chars // 2)
         min_seg_ms_for_vad = 1600.0
 
         out: list[FiletransSegment] = []
@@ -290,21 +291,17 @@ class DashScopeFiletransClient:
             )
 
             split = False
-            if punct in strong_punc:
+            has_strong_punc = any(ch in strong_punc for ch in punct)
+            has_comma_punc = any(ch in comma_punc for ch in punct)
+            if has_strong_punc:
                 split = True
             elif (
                 bool(self._config.word_split_on_comma)
-                and punct in comma_punc
+                and has_comma_punc
                 and (
-                    (
-                        (gap_ms >= 800.0 and seg_ms >= 1100.0)
-                        or (
-                            gap_ms >= comma_pause_ms
-                            and seg_ms >= 2600.0
-                            and (seg_ms <= 9000.0 or gap_ms >= 600.0)
-                        )
-                    )
-                    or (seg_chars >= min_chars and seg_ms >= 15000.0)
+                    seg_ms >= min_seg_ms_for_comma
+                    or seg_chars >= min_chars_for_comma
+                    or gap_ms >= comma_pause_ms
                 )
             ):
                 split = True

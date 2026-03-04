@@ -269,6 +269,7 @@ class Transcribe:
     def _split_segments_by_punctuation(segments: list[FiletransSegment]) -> list[FiletransSegment]:
         punct_chars = set("，,。！？!?；;")
         strong_breaks = set("。！？!?；;")
+        comma_breaks = set("，,")
         punct_limit = 2
         output: list[FiletransSegment] = []
         for seg in segments:
@@ -282,7 +283,7 @@ class Transcribe:
                 buf.append(ch)
                 if ch in punct_chars:
                     punct_count += 1
-                    if ch in strong_breaks or punct_count >= punct_limit:
+                    if ch in strong_breaks or ch in comma_breaks or punct_count >= punct_limit:
                         piece = "".join(buf).strip()
                         if piece:
                             pieces.append(piece)
