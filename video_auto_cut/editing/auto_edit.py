@@ -82,6 +82,19 @@ def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
 
 
 def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
+    few_shot_example = """
+示例输入：
+[L0001] [00:00] 大家好今天呢我们要聊一个话题
+[L0002] <<REMOVE>>
+[L0003] [00:05] 就是关于如何提高效率的
+[L0004] [00:08] 嗯这个方法呢其实很多人不知道
+
+示例输出：
+[L0001] [00:00] 大家好，今天我们要聊一个话题
+[L0002] <<REMOVE>>
+[L0003] [00:05] 就是关于如何提高效率的
+[L0004] [00:08] 这个方法其实很多人不知道
+"""
     system = (
         "你是口播视频的文案优化助手。输入是第一步删减结果，每行对应一个字幕句子。"
         "第二步任务：只优化句子、用词和标点，降低 ASR 错误并提升可读性。"
@@ -93,7 +106,8 @@ def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
         "禁止新增删除，不要把保留行改成删除。"
         "禁止跨行操作：不要合并/拆分/重排句子。"
         "必须保留每一行的行号标签，且行数必须与输入完全一致。"
-        "仅输出优化后的完整文案，不要输出任何解释。"
+        "仅输出优化后的完整文案，不要输出任何解释。\n\n"
+        f"{few_shot_example}"
     )
     user = f"第一步结果：\n{tagged_text}\n\n请输出第二步优化结果："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -453,15 +467,13 @@ class AutoEdit:
         )
         if optimize_missing:
             logging.warning(
-                "LLM optimize pass missing %d line tags; fallback to remove-pass/original text "
+                "LLM optimize pass missing %d line tags; fallback to original ASR text "
                 "for missing lines. Re-run if this keeps happening.",
                 len(optimize_missing),
             )
             for idx in optimize_missing:
-                if remove_flags[idx - 1]:
-                    optimize_mapped[idx] = REMOVE_TOKEN
-                else:
-                    optimize_mapped[idx] = (segments[idx - 1].get("text") or "").strip()
+                # 缺失行直接使用原始 ASR 文本（不标记为删除）
+                optimize_mapped[idx] = (segments[idx - 1].get("text") or "").strip()
         if optimize_duplicates:
             logging.warning(
                 "LLM optimize pass has duplicated line tags: "
