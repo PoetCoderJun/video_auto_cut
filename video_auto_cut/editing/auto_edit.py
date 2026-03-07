@@ -15,10 +15,16 @@ from .topic_segment import TopicSegmenter
 
 REMOVE_TOKEN = "<<REMOVE>>"
 TAG_PATTERN = re.compile(r"^\[L(\d{1,6})\]\s*(.*)$")
-NO_SPEECH_PATTERN = re.compile(r"^\s*<\s*no\s*speech\s*>\s*$", re.IGNORECASE)
+NO_SPEECH_PATTERN = re.compile(
+    r"^\s*<\s*(?:no|low)[\s_-]*speech\s*>\s*$",
+    re.IGNORECASE,
+)
 TIME_PREFIX_PATTERN = re.compile(r"^\[\d{1,3}:\d{2}\]\s*")
+JOIN_PUNCTUATION = set("，、；：,.!?！？。")
+TRAILING_LINE_PUNCTUATION = "，。、；：!！"
 AUTO_EDIT_CHUNK_LINES = 30
 AUTO_EDIT_CHUNK_OVERLAP_LINES = 4
+MERGE_SHORT_LINES_THRESHOLD = 20  # 字数阈值：低于此值的短句将尝试合并
 
 
 @dataclass
@@ -42,72 +48,24 @@ def _segments_to_tagged_text(segments: List[Dict[str, Any]]) -> str:
 
 def _build_llm_remove_prompt(tagged_text: str) -> List[Dict[str, str]]:
     system = (
-        "你是口播文案删减助手。输入是完整asr转写文案，每行对应一个字幕句子。"
-        "场景：口播里常有同义重复句。"
-        "任务：只判断每行是否删除，不做改写。"
-        "硬规则：仅依据时间先后顺序决定保留对象。"
-        "对相同或相似语义，一律删除前面版本，只保留最后出现的版本。"
-        "前句无论看起来是否更完整、更通顺、更准确，都必须删除。"
-        "禁止使用“更正、补全、完整、通顺、准确”作为保留判断标准。"
-        "判定顺序必须从后往前：先确定最后一句保留，再向前删除同义句。"
-        f"删除行输出 {REMOVE_TOKEN}。保留行必须原样回填，不允许改字、改词、改标点。"
-        "禁止跨行操作：不要合并/拆分/重排句子。"
-        "必须保留每一行的行号标签，且行数必须与输入完全一致。"
-        "以下示例必须严格模仿：\n"
-        f"示例1\n"
-        "输入：\n"
-        "[L0001] 我们今天讲三个功能点。\n"
-        "[L0002] 我们今天讲三个核心功能点。\n"
-        "输出：\n"
-        f"[L0001] {REMOVE_TOKEN}\n"
-        "[L0002] 我们今天讲三个核心功能点。\n"
-        f"示例2\n"
-        "输入：\n"
-        "[L0001] 这会自动生成结构。\n"
-        "[L0002] 这个功能会自动生成字幕和章节结构。\n"
-        "输出：\n"
-        f"[L0001] {REMOVE_TOKEN}\n"
-        "[L0002] 这个功能会自动生成字幕和章节结构。\n"
-        f"示例3（前书面后口语，仍保留后句）\n"
-        "输入：\n"
-        "[L0001] 我们支持剪辑和导出。\n"
-        "[L0002] 啊，我们支持自动剪辑和一键导出。\n"
-        "输出：\n"
-        f"[L0001] {REMOVE_TOKEN}\n"
-        "[L0002] 啊，我们支持自动剪辑和一键导出。\n"
-        "仅输出删减后的完整文案，不要输出任何解释。"
+        "你是口播删改助手。输入是逐句ASR。"
+        "背景：说话人录口播时会一边组织语言一边说，所以经常先说错，再连续补救，最后重说一遍。"
+        "只保留最后那句真正定稿的话。"
+        "优先删除：试探表达、回头修正、半句、重复句、前面那版错误表达。"
+        "只做删除，不改写。按时间从后往前判断；同义只留最后一句。"
+        f"删除输出 {REMOVE_TOKEN}，保留行原样回填。保留标签，行数一致，不要解释。"
     )
     user = f"原文：\n{tagged_text}\n\n请输出第一步删减结果："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def _build_llm_optimize_prompt(tagged_text: str) -> List[Dict[str, str]]:
-    few_shot_example = """
-示例输入：
-[L0001] [00:00] 大家好今天呢我们要聊一个话题
-[L0002] <<REMOVE>>
-[L0003] [00:05] 就是关于如何提高效率的
-[L0004] [00:08] 嗯这个方法呢其实很多人不知道
-
-示例输出：
-[L0001] [00:00] 大家好，今天我们要聊一个话题
-[L0002] <<REMOVE>>
-[L0003] [00:05] 就是关于如何提高效率的
-[L0004] [00:08] 这个方法其实很多人不知道
-"""
     system = (
-        "你是口播视频的文案优化助手。输入是第一步删减结果，每行对应一个字幕句子。"
-        "第二步任务：只优化句子、用词和标点，降低 ASR 错误并提升可读性。"
-        "重点修正明显 ASR 错误（同音字、冗余的语气词、错词）并恢复标点。"
-        "请去除无实际语义的口头语/语气词，如“嗯、啊、哦、呃”等（不改变句意）。"
-        "不要新增或删减语义，不要改写句意。"
-        "每行文本长度应尽量接近原句。"
-        f"对于标记为 {REMOVE_TOKEN} 的行，必须原样输出 {REMOVE_TOKEN}，禁止恢复内容。"
-        "禁止新增删除，不要把保留行改成删除。"
-        "禁止跨行操作：不要合并/拆分/重排句子。"
-        "必须保留每一行的行号标签，且行数必须与输入完全一致。"
-        "仅输出优化后的完整文案，不要输出任何解释。\n\n"
-        f"{few_shot_example}"
+        "你是口播润色助手。把每一行整理成最终口播会说出来的版本。"
+        "修正明显ASR错字，去掉口头语和拖沓重复，但尽量保留原句关键信息和原有说法，不要过度改写。"
+        "表达要直接、自然、完整。不要跨行。"
+        "行内停顿优先用逗号；除问句外行尾不要标点。"
+        f"{REMOVE_TOKEN} 行原样输出。保留标签，行数一致，不要解释。"
     )
     user = f"第一步结果：\n{tagged_text}\n\n请输出第二步优化结果："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -167,6 +125,108 @@ def _is_no_speech_text(content: str) -> bool:
     if not value:
         return True
     return bool(NO_SPEECH_PATTERN.match(value))
+
+
+def _normalize_line_text(text: str) -> str:
+    value = (text or "").strip()
+    while value and value[-1] in TRAILING_LINE_PUNCTUATION:
+        value = value[:-1].rstrip()
+    return value
+
+
+def _smart_join_text(left: str, right: str) -> str:
+    left_text = _normalize_line_text(left)
+    right_text = _normalize_line_text(right)
+    if not left_text:
+        return right_text
+    if not right_text:
+        return left_text
+    if left_text.endswith(("？", "?")):
+        if right_text[0] in JOIN_PUNCTUATION:
+            return left_text + right_text[1:].lstrip()
+        return left_text + right_text
+    return left_text + "，" + right_text
+
+
+def _merge_short_lines(
+    segments: List[Dict[str, Any]],
+    remove_flags: List[bool],
+    threshold: int = MERGE_SHORT_LINES_THRESHOLD,
+) -> List[Dict[str, Any]]:
+    """
+    合并短句字幕：将字数低于阈值的行与相邻行合并，返回合并后的新 segments（行数减少）。
+    
+    规则：
+    1. 从左到右遍历保留的行
+    2. 如果当前行字数 < threshold，持续与后续行合并，直到：
+       - 合并后的字数 >= threshold，或
+       - 没有更多行可合并
+    3. 如果当前行字数 >= threshold，直接保留（不向后合并）
+    4. 合并时：文字用逗号连接，时间戳取合并范围的最小start和最大end
+    5. 被合并的行直接从结果中移除
+    
+    返回合并后的 segments 列表（行数可能少于输入）
+    """
+    n = len(segments)
+    merged_segments: List[Dict[str, Any]] = []
+    
+    i = 0
+    while i < n:
+        if remove_flags[i]:
+            # 已删除的行，跳过（不加入结果）
+            i += 1
+            continue
+        
+        current_seg = dict(segments[i])
+        current_text = (current_seg.get("text") or "").strip()
+        merged_start = float(current_seg.get("start") or 0.0)
+        merged_end = float(current_seg.get("end") or 0.0)
+        
+        # 如果当前行字数已达到阈值，直接保留（不向后合并）
+        if len(current_text) >= threshold:
+            merged_segments.append({
+                "id": current_seg.get("id"),
+                "start": merged_start,
+                "end": merged_end,
+                "duration": max(0.0, merged_end - merged_start),
+                "text": current_text,
+            })
+            i += 1
+            continue
+        
+        # 当前行是短句，持续合并后续行
+        j = i + 1
+        while j < n:
+            # 跳过已删除的行
+            if remove_flags[j]:
+                j += 1
+                continue
+            
+            next_seg = segments[j]
+            next_text = (next_seg.get("text") or "").strip()
+            
+            # 合并下一行（无论长短）
+            current_text = current_text + "，" + next_text
+            merged_start = min(merged_start, float(next_seg.get("start") or 0.0))
+            merged_end = max(merged_end, float(next_seg.get("end") or 0.0))
+            j += 1
+            
+            # 如果达到阈值，停止合并
+            if len(current_text) >= threshold:
+                break
+        
+        merged_segments.append({
+            "id": current_seg.get("id"),
+            "start": merged_start,
+            "end": merged_end,
+            "duration": max(0.0, merged_end - merged_start),
+            "text": current_text,
+        })
+        
+        # 跳到已处理范围的下一行
+        i = j
+    
+    return merged_segments
 
 
 def _segments_to_edl(
@@ -270,6 +330,7 @@ class AutoEdit:
             timeout=self.args.llm_timeout,
             temperature=0.0,
             max_tokens=self.args.llm_max_tokens,
+            enable_thinking=False,
         )
         if not self.llm_config.get("base_url") or not self.llm_config.get("model"):
             raise RuntimeError(
@@ -318,13 +379,24 @@ class AutoEdit:
     def _auto_edit_segments(
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
     ) -> Dict[str, Any]:
+        # 先执行删除+润色（可能分 chunk）
         if len(segments) <= AUTO_EDIT_CHUNK_LINES:
             chunk_result = self._auto_edit_segment_chunk(segments)
             if not chunk_result["kept_segments"]:
                 raise RuntimeError("All segments removed. Check LLM output.")
-            edl = _segments_to_edl(chunk_result["kept_segments"], self.cfg, total_length)
+            # Step 3: 合并短句（在删除+润色完成后）
+            # 从 optimized_subs 中提取 segment 信息（与 subs 一一对应）
+            segment_infos = [
+                {"start": seg["start"], "end": seg["end"]}
+                for seg in segments
+            ]
+            merged_subs, merged_segments = self._merge_short_lines_in_subs(
+                chunk_result["optimized_subs"], 
+                segment_infos
+            )
+            edl = _segments_to_edl(merged_segments, self.cfg, total_length)
             return {
-                "optimized_subs": chunk_result["optimized_subs"],
+                "optimized_subs": merged_subs,
                 "edl": edl,
                 "debug": chunk_result["debug"],
             }
@@ -374,12 +446,12 @@ class AutoEdit:
 
             optimized_subs_all.extend(core_optimized_subs)
             for seg, sub in zip(core_segments, core_optimized_subs):
-                if _is_remove_line(sub.content):
-                    continue
+                # 暂不过滤，保留所有行用于后续合并
                 kept_segments_all.append(
                     {
                         "start": float(seg.get("start") or 0.0),
                         "end": float(seg.get("end") or 0.0),
+                        "content": sub.content,  # 保存内容用于合并判断
                     }
                 )
             chunk_debug.append(
@@ -400,9 +472,15 @@ class AutoEdit:
         if not kept_segments_all:
             raise RuntimeError("All segments removed. Check LLM output.")
 
-        edl = _segments_to_edl(kept_segments_all, self.cfg, total_length)
+        # Step 3: 合并短句（在所有 chunk 处理完成后）
+        merged_subs, merged_segments = self._merge_short_lines_in_subs(
+            optimized_subs_all,
+            [{"start": s["start"], "end": s["end"]} for s in kept_segments_all]
+        )
+
+        edl = _segments_to_edl(merged_segments, self.cfg, total_length)
         return {
-            "optimized_subs": optimized_subs_all,
+            "optimized_subs": merged_subs,
             "edl": edl,
             "debug": {
                 "chunked": True,
@@ -503,9 +581,9 @@ class AutoEdit:
                         "LLM optimize pass attempted to remove kept line [L%04d]; using original text.",
                         idx,
                     )
-                    new_text = orig_text
+                    new_text = _normalize_line_text(orig_text)
                 else:
-                    new_text = raw_text or orig_text
+                    new_text = _normalize_line_text(raw_text or orig_text)
 
             sub = srt.Subtitle(
                 index=int(seg.get("id") or idx),
@@ -544,6 +622,122 @@ class AutoEdit:
                 },
             },
         }
+
+    def _merge_short_lines_in_subs(
+        self,
+        subs: List[srt.Subtitle],
+        segments: List[Dict[str, Any]],
+        threshold: int = MERGE_SHORT_LINES_THRESHOLD,
+    ) -> Tuple[List[srt.Subtitle], List[Dict[str, Any]]]:
+        """
+        在删除+润色完成后，合并短句字幕。
+        
+        规则：
+        1. 保留标记为 <<REMOVE>> 的行（不删除）
+        2. <<REMOVE>> 行不参与合并，并且阻断前后合并
+        3. 如果当前行字数 < threshold，持续与后续行合并，直到：
+           - 合并后的字数 >= threshold，或
+           - 没有更多行可合并
+        4. 如果当前行字数 >= threshold，直接保留（不向后合并）
+        5. 合并时：文字用逗号连接，时间戳取合并范围的最小start和最大end
+        
+        返回：
+        - 合并后的 subtitles（包含 remove 行，便于 Step UI 保留删除标记）
+        - 仅保留有效内容的 segments（不含 remove 行，用于 EDL）
+        """
+        if not subs:
+            return [], []
+
+        merged_subs: List[srt.Subtitle] = []
+        merged_segments: List[Dict[str, Any]] = []
+
+        n = min(len(subs), len(segments))
+        i = 0
+        while i < n:
+            current_sub = subs[i]
+            current_seg = segments[i]
+            current_text = (current_sub.content or "").strip()
+
+            if _is_remove_line(current_text):
+                # Keep remove markers in Step output and treat them as hard merge boundaries.
+                merged_subs.append(
+                    srt.Subtitle(
+                        index=int(current_sub.index),
+                        start=current_sub.start,
+                        end=current_sub.end,
+                        content=current_text,
+                    )
+                )
+                i += 1
+                continue
+
+            if len(current_text) >= threshold:
+                merged_subs.append(
+                    srt.Subtitle(
+                        index=int(current_sub.index),
+                        start=current_sub.start,
+                        end=current_sub.end,
+                        content=current_text,
+                    )
+                )
+                merged_segments.append(
+                    {
+                        "start": float(current_seg.get("start") or 0.0),
+                        "end": float(current_seg.get("end") or 0.0),
+                    }
+                )
+                i += 1
+                continue
+
+            merged_text = current_text
+            merged_start = float(current_seg.get("start") or 0.0)
+            merged_end = float(current_seg.get("end") or 0.0)
+            j = i + 1
+
+            while j < n:
+                next_sub = subs[j]
+                next_text = (next_sub.content or "").strip()
+                if _is_remove_line(next_text):
+                    break
+                next_seg = segments[j]
+                merged_text = _smart_join_text(merged_text, next_text)
+                merged_start = min(merged_start, float(next_seg.get("start") or 0.0))
+                merged_end = max(merged_end, float(next_seg.get("end") or 0.0))
+                j += 1
+                if len(merged_text) >= threshold:
+                    break
+
+            merged_subs.append(
+                srt.Subtitle(
+                    index=int(current_sub.index),
+                    start=datetime.timedelta(seconds=merged_start),
+                    end=datetime.timedelta(seconds=merged_end),
+                    content=merged_text,
+                )
+            )
+            merged_segments.append(
+                {
+                    "start": merged_start,
+                    "end": merged_end,
+                }
+            )
+            i = j
+
+        # Preserve any trailing remove-only lines when input lengths mismatch unexpectedly.
+        for tail_idx in range(n, len(subs)):
+            tail_sub = subs[tail_idx]
+            tail_text = (tail_sub.content or "").strip()
+            if _is_remove_line(tail_text):
+                merged_subs.append(
+                    srt.Subtitle(
+                        index=int(tail_sub.index),
+                        start=tail_sub.start,
+                        end=tail_sub.end,
+                        content=tail_text,
+                    )
+                )
+
+        return merged_subs, merged_segments
 
     def _resolve_topic_output(self, optimized_srt: str) -> Optional[str]:
         output = getattr(self.args, "topic_output", None)

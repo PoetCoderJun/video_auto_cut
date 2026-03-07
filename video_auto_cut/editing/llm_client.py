@@ -2,21 +2,25 @@ import json
 import logging
 import os
 import re
-import ssl
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from openai import OpenAI
 
 
 _ENV_LOADED = False
+_OPENAI_CLIENTS_BY_CFG: Dict[Tuple[str, str], OpenAI] = {}
 
 
 def _strip_quotes(value: str) -> str:
     if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
         return value[1:-1]
     return value
+
+
+def _env_flag(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _load_env_file(path: Path):
@@ -63,6 +67,7 @@ def build_llm_config(
     timeout: int = 60,
     temperature: float = 0.2,
     max_tokens: Optional[int] = None,
+    enable_thinking: Optional[bool] = None,
 ) -> Dict[str, Any]:
     _auto_load_dotenv()
     fallback_key = os.environ.get("DASHSCOPE_API_KEY") or ""
@@ -74,53 +79,55 @@ def build_llm_config(
         "temperature": float(temperature),
         "max_tokens": int(max_tokens) if max_tokens is not None else None,
         "request_retries": max(1, int(os.environ.get("LLM_REQUEST_RETRIES", "3"))),
+        "enable_thinking": (
+            bool(enable_thinking)
+            if enable_thinking is not None
+            else _env_flag(os.environ.get("LLM_ENABLE_THINKING"))
+        ),
     }
     return cfg
 
 
-def _resolve_chat_url(base_url: str) -> str:
-    base = base_url.rstrip("/")
-    if not base.endswith("/v1"):
-        base += "/v1"
-    return base + "/chat/completions"
-
-
-def _post_json(url: str, payload: Dict[str, Any], api_key: str, timeout: int) -> Dict[str, Any]:
-    data = json.dumps(payload).encode("utf-8")
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
 def _is_retryable_llm_error(exc: BaseException) -> bool:
-    if isinstance(exc, urllib.error.HTTPError):
-        code = int(getattr(exc, "code", 0) or 0)
-        return code == 429 or 500 <= code < 600
-    if isinstance(exc, urllib.error.URLError):
-        reason = getattr(exc, "reason", None)
-        if isinstance(reason, (ssl.SSLError, TimeoutError, OSError)):
+    status_code = int(getattr(exc, "status_code", 0) or 0)
+    if status_code == 429 or 500 <= status_code < 600:
+        return True
+    text = str(exc).lower()
+    for token in (
+        "timed out",
+        "temporary failure",
+        "connection reset",
+        "connection aborted",
+        "unexpected eof",
+        "eof occurred",
+        "tls",
+        "ssl",
+        "remote end closed connection",
+        "server disconnected",
+    ):
+        if token in text:
             return True
-        reason_text = str(reason or "").lower()
-        for token in (
-            "timed out",
-            "temporary failure",
-            "connection reset",
-            "connection aborted",
-            "unexpected eof",
-            "eof occurred",
-            "tls",
-            "ssl",
-        ):
-            if token in reason_text:
-                return True
-        return False
-    return isinstance(
-        exc,
-        (TimeoutError, ssl.SSLError, ConnectionResetError, ConnectionAbortedError, BrokenPipeError),
+    return False
+
+
+def _client_cache_key(cfg: Dict[str, Any]) -> Tuple[str, str]:
+    return (
+        str(cfg.get("base_url") or "").strip(),
+        str(cfg.get("api_key") or "").strip(),
     )
+
+
+def _get_openai_client(cfg: Dict[str, Any]) -> OpenAI:
+    cache_key = _client_cache_key(cfg)
+    client = _OPENAI_CLIENTS_BY_CFG.get(cache_key)
+    if client is not None:
+        return client
+    client = OpenAI(
+        api_key=cfg.get("api_key", ""),
+        base_url=cfg.get("base_url") or "",
+    )
+    _OPENAI_CLIENTS_BY_CFG[cache_key] = client
+    return client
 
 
 def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
@@ -129,21 +136,26 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
     if not base_url or not model:
         raise RuntimeError("LLM base_url/model is required for this operation.")
 
-    url = _resolve_chat_url(base_url)
-    payload = {
+    client = _get_openai_client(cfg)
+    request_kwargs: Dict[str, Any] = {
         "model": model,
         "messages": messages,
         "temperature": cfg.get("temperature", 0.2),
     }
+    if cfg.get("enable_thinking"):
+        request_kwargs["extra_body"] = {"enable_thinking": True}
     max_tokens = cfg.get("max_tokens")
     if max_tokens is not None:
-        payload["max_tokens"] = int(max_tokens)
+        request_kwargs["max_tokens"] = int(max_tokens)
 
     retries = max(1, int(cfg.get("request_retries", 3)))
-    data: Dict[str, Any] | None = None
+    response: Any = None
     for attempt in range(1, retries + 1):
         try:
-            data = _post_json(url, payload, cfg.get("api_key", ""), cfg.get("timeout", 60))
+            response = client.chat.completions.create(
+                timeout=cfg.get("timeout", 60),
+                **request_kwargs,
+            )
             break
         except Exception as exc:
             retryable = _is_retryable_llm_error(exc)
@@ -162,11 +174,11 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
             raise
 
     try:
-        if data is None:
+        if response is None:
             raise RuntimeError("LLM request returned no data.")
-        return data["choices"][0]["message"]["content"]
+        return response.choices[0].message.content
     except Exception as exc:
-        raise RuntimeError(f"Unexpected LLM response: {data}") from exc
+        raise RuntimeError(f"Unexpected LLM response: {response}") from exc
 
 
 def extract_json(text: str) -> Dict[str, Any]:

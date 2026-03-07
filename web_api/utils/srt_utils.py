@@ -23,33 +23,25 @@ def _strip_remove_token(text: str) -> str:
     return value
 
 
-def build_step1_lines_from_srts(original_srt: Path, optimized_srt: Path, encoding: str) -> list[dict[str, Any]]:
-    original_subs = list(srt.parse(original_srt.read_text(encoding=encoding)))
-    optimized_subs = list(srt.parse(optimized_srt.read_text(encoding=encoding)))
-    optimized_by_index = {int(item.index): item for item in optimized_subs}
-
+def build_step1_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str, Any]]:
+    subtitles = list(srt.parse(source_srt.read_text(encoding=encoding)))
     lines: list[dict[str, Any]] = []
-    for idx, original in enumerate(original_subs, start=1):
-        line_id = int(original.index) if int(original.index) > 0 else idx
-        optimized = optimized_by_index.get(line_id)
-
-        original_text = (original.content or "").strip()
-        optimized_content = (optimized.content or original_text).strip() if optimized else original_text
-        ai_suggest_remove = _is_remove_text(optimized_content)
-        optimized_text = _strip_remove_token(optimized_content) or original_text
-
+    for idx, subtitle in enumerate(subtitles, start=1):
+        line_id = int(subtitle.index) if int(subtitle.index) > 0 else idx
+        raw_text = (subtitle.content or "").strip()
+        ai_suggest_remove = _is_remove_text(raw_text)
+        text = _strip_remove_token(raw_text)
         lines.append(
             {
                 "line_id": line_id,
-                "start": float(original.start.total_seconds()),
-                "end": float(original.end.total_seconds()),
-                "original_text": original_text,
-                "optimized_text": optimized_text,
+                "start": float(subtitle.start.total_seconds()),
+                "end": float(subtitle.end.total_seconds()),
+                "original_text": text,
+                "optimized_text": text,
                 "ai_suggest_remove": ai_suggest_remove,
                 "user_final_remove": ai_suggest_remove,
             }
         )
-
     lines.sort(key=lambda item: item["line_id"])
     return lines
 

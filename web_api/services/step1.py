@@ -22,7 +22,7 @@ from ..repository import (
     upsert_job_files,
 )
 from ..utils.srt_utils import (
-    build_step1_lines_from_srts,
+    build_step1_lines_from_srt,
     write_final_step1_srt,
     write_step1_json,
 )
@@ -70,7 +70,7 @@ def run_step1(job_id: str) -> None:
     optimized_srt_path = run_auto_edit(srt_path, options)
     optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
 
-    lines = build_step1_lines_from_srts(srt_path, optimized_srt_path, DEFAULT_ENCODING)
+    lines = build_step1_lines_from_srt(optimized_srt_path, DEFAULT_ENCODING)
     if not lines:
         raise RuntimeError("step1 produced empty line list")
 

@@ -31,26 +31,29 @@ class DummyArgs:
 
 
 def _sample_segments() -> list[dict[str, object]]:
+    # 使用超过20字的文本，避免触发短句合并
     return [
-        {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "前句：我先说错了。"},
-        {"id": 2, "start": 1.2, "end": 2.2, "duration": 1.0, "text": "后句：这是更准确的表达。"},
+        {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "这是前一句的表达内容，我先说错了一些信息。"},
+        {"id": 2, "start": 1.2, "end": 2.2, "duration": 1.0, "text": "这是后一句的表达内容，这是更加准确的表达方式。"},
     ]
 
 
 class AutoEditTwoPassRulesTest(unittest.TestCase):
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
     def test_optimize_pass_cannot_restore_removed_line(self, mock_chat) -> None:
+        """Test that _auto_edit_segment_chunk keeps remove markers and doesn't restore removed lines."""
         mock_chat.side_effect = [
             "\n".join(
                 [
                     f"[L0001] {REMOVE_TOKEN}",
-                    "[L0002] 后句：这是更准确的表达。",
+                    "[L0002] 这是后一句的表达内容，这是更加准确的表达方式。",
                 ]
             ),
+            # Step 2: LLM tries to restore L1 but it should be ignored
             "\n".join(
                 [
-                    "[L0001] 我把前句恢复回来。",
-                    "[L0002] 后句：这是更准确的表达！",
+                    "[L0001] 我把前句恢复回来。",  # This should be ignored
+                    "[L0002] 这是后一句的表达内容，这是更加准确的表达方式！",
                 ]
             ),
         ]
@@ -59,9 +62,12 @@ class AutoEditTwoPassRulesTest(unittest.TestCase):
         result = editor._auto_edit_segment_chunk(_sample_segments())
         subs = result["optimized_subs"]
 
+        # _auto_edit_segment_chunk returns all lines (merge happens outside in _auto_edit_segments)
+        self.assertEqual(len(subs), 2)
+        # L1 should keep the remove marker
         self.assertTrue(subs[0].content.startswith(REMOVE_TOKEN))
-        self.assertIn("前句：我先说错了。", subs[0].content)
-        self.assertEqual(subs[1].content, "后句：这是更准确的表达！")
+        # L2 should have the optimized content
+        self.assertEqual(subs[1].content, "这是后一句的表达内容，这是更加准确的表达方式")
 
     def test_remove_prompt_requires_drop_earlier_duplicate(self) -> None:
         tagged = (
@@ -70,10 +76,134 @@ class AutoEditTwoPassRulesTest(unittest.TestCase):
         )
         messages = _build_llm_remove_prompt(tagged)
         system_prompt = messages[0]["content"]
-        self.assertIn("一律删除前面版本", system_prompt)
-        self.assertIn("只保留最后出现", system_prompt)
-        self.assertIn("仅依据时间先后顺序决定保留对象", system_prompt)
-        self.assertIn("前句无论看起来是否更完整、更通顺、更准确，都必须删除", system_prompt)
+        self.assertIn("口播", system_prompt)
+        self.assertIn("先说错", system_prompt)
+        self.assertIn("最后重说一遍", system_prompt)
+        self.assertIn("只保留最后那句真正定稿的话", system_prompt)
+        self.assertIn("优先删除", system_prompt)
+        self.assertIn("同义只留最后一句", system_prompt)
+
+    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
+    def test_low_speech_placeholder_is_always_removed(self, mock_chat) -> None:
+        mock_chat.side_effect = [
+            "\n".join(
+                [
+                    "[L0001] < Low Speech >",
+                    "[L0002] 正常文本，这里应该保留。",
+                ]
+            ),
+            "\n".join(
+                [
+                    "[L0001] < Low Speech >",
+                    "[L0002] 正常文本，这里应该保留。",
+                ]
+            ),
+        ]
+        segments = [
+            {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "< Low Speech >"},
+            {"id": 2, "start": 1.2, "end": 2.2, "duration": 1.0, "text": "正常文本，这里应该保留。"},
+        ]
+
+        editor = AutoEdit(DummyArgs())
+        result = editor._auto_edit_segment_chunk(segments)
+        subs = result["optimized_subs"]
+
+        self.assertTrue(subs[0].content.startswith(REMOVE_TOKEN))
+        self.assertEqual(subs[1].content, "正常文本，这里应该保留")
+
+    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
+    def test_step15_keeps_remove_line_and_blocks_merge(self, mock_chat) -> None:
+        mock_chat.side_effect = [
+            "\n".join(
+                [
+                    "[L0001] 短句一",
+                    f"[L0002] {REMOVE_TOKEN}",
+                    "[L0003] 短句二",
+                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
+                ]
+            ),
+            "\n".join(
+                [
+                    "[L0001] 短句一",
+                    "[L0002] 这句要删除",
+                    "[L0003] 短句二",
+                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
+                ]
+            ),
+        ]
+        segments = [
+            {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "短句一"},
+            {"id": 2, "start": 1.2, "end": 2.2, "duration": 1.0, "text": "这句要删除"},
+            {"id": 3, "start": 2.4, "end": 3.4, "duration": 1.0, "text": "短句二"},
+            {
+                "id": 4,
+                "start": 3.6,
+                "end": 4.6,
+                "duration": 1.0,
+                "text": "这句很长不需要合并因为已经超过二十字阈值",
+            },
+        ]
+
+        editor = AutoEdit(DummyArgs())
+        result = editor._auto_edit_segments(segments, total_length=10.0)
+        subs = result["optimized_subs"]
+
+        self.assertEqual(len(subs), 3)
+        self.assertEqual(subs[0].content, "短句一")
+        self.assertTrue(subs[1].content.startswith(REMOVE_TOKEN))
+        self.assertEqual(subs[2].content, "短句二，这句很长不需要合并因为已经超过二十字阈值")
+
+    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
+    def test_optimize_pass_strips_trailing_punctuation_for_non_question(self, mock_chat) -> None:
+        mock_chat.side_effect = [
+            "\n".join(
+                [
+                    "[L0001] 这是保留句子。",
+                    "[L0002] 这也是保留句子！",
+                ]
+            ),
+            "\n".join(
+                [
+                    "[L0001] 这是保留句子。",
+                    "[L0002] 这也是保留句子！",
+                ]
+            ),
+        ]
+
+        editor = AutoEdit(DummyArgs())
+        result = editor._auto_edit_segment_chunk(
+            [
+                {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "这是保留句子。"},
+                {"id": 2, "start": 1.2, "end": 2.2, "duration": 1.0, "text": "这也是保留句子！"},
+            ]
+        )
+
+        self.assertEqual(result["optimized_subs"][0].content, "这是保留句子")
+        self.assertEqual(result["optimized_subs"][1].content, "这也是保留句子")
+
+    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
+    def test_optimize_pass_keeps_question_mark(self, mock_chat) -> None:
+        mock_chat.side_effect = [
+            "\n".join(
+                [
+                    "[L0001] 这个功能好用吗？",
+                ]
+            ),
+            "\n".join(
+                [
+                    "[L0001] 这个功能好用吗？",
+                ]
+            ),
+        ]
+
+        editor = AutoEdit(DummyArgs())
+        result = editor._auto_edit_segment_chunk(
+            [
+                {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "这个功能好用吗？"},
+            ]
+        )
+
+        self.assertEqual(result["optimized_subs"][0].content, "这个功能好用吗？")
 
 
 if __name__ == "__main__":
