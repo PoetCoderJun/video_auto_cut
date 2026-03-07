@@ -22,7 +22,7 @@ from ..repository import (
     upsert_job_files,
 )
 from ..utils.srt_utils import (
-    build_step1_lines_from_srt,
+    build_step1_lines_from_json,
     write_final_step1_srt,
     write_step1_json,
 )
@@ -69,8 +69,11 @@ def run_step1(job_id: str) -> None:
     logging.info("[web_api] step1 auto-edit start: %s", srt_path)
     optimized_srt_path = run_auto_edit(srt_path, options)
     optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
+    step1_lines_path = optimized_srt_path.with_suffix(".step1.json")
+    if not step1_lines_path.exists():
+        raise RuntimeError(f"step1 sidecar missing: {step1_lines_path}")
 
-    lines = build_step1_lines_from_srt(optimized_srt_path, DEFAULT_ENCODING)
+    lines = build_step1_lines_from_json(step1_lines_path)
     if not lines:
         raise RuntimeError("step1 produced empty line list")
 

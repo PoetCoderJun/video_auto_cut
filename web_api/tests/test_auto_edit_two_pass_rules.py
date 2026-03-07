@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -114,22 +115,44 @@ class AutoEditTwoPassRulesTest(unittest.TestCase):
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
     def test_step15_keeps_remove_line_and_blocks_merge(self, mock_chat) -> None:
         mock_chat.side_effect = [
-            "\n".join(
-                [
-                    "[L0001] 短句一",
-                    f"[L0002] {REMOVE_TOKEN}",
-                    "[L0003] 短句二",
-                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
-                ]
+            json.dumps(
+                {
+                    "decisions": [
+                        {"line_id": 1, "action": "KEEP", "reason": "保留", "confidence": 0.9},
+                        {"line_id": 2, "action": "REMOVE", "reason": "删除", "confidence": 0.95},
+                        {"line_id": 3, "action": "KEEP", "reason": "保留", "confidence": 0.9},
+                        {"line_id": 4, "action": "KEEP", "reason": "保留", "confidence": 0.9},
+                    ]
+                },
+                ensure_ascii=False,
             ),
-            "\n".join(
-                [
-                    "[L0001] 短句一",
-                    "[L0002] 这句要删除",
-                    "[L0003] 短句二",
-                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
-                ]
+            json.dumps({"needs_revision": False, "issues": []}, ensure_ascii=False),
+            json.dumps(
+                {
+                    "lines": [
+                        {
+                            "line_id": 1,
+                            "text": "短句一",
+                            "reason": "保留",
+                            "confidence": 0.9,
+                        },
+                        {
+                            "line_id": 3,
+                            "text": "短句二",
+                            "reason": "保留",
+                            "confidence": 0.93,
+                        },
+                        {
+                            "line_id": 4,
+                            "text": "这句很长不需要合并因为已经超过二十字阈值",
+                            "reason": "保留",
+                            "confidence": 0.93,
+                        },
+                    ]
+                },
+                ensure_ascii=False,
             ),
+            json.dumps({"needs_revision": False, "issues": []}, ensure_ascii=False),
         ]
         segments = [
             {"id": 1, "start": 0.0, "end": 1.0, "duration": 1.0, "text": "短句一"},
@@ -152,6 +175,7 @@ class AutoEditTwoPassRulesTest(unittest.TestCase):
         self.assertEqual(subs[0].content, "短句一")
         self.assertTrue(subs[1].content.startswith(REMOVE_TOKEN))
         self.assertEqual(subs[2].content, "短句二，这句很长不需要合并因为已经超过二十字阈值")
+        self.assertTrue(result["step1_lines"][1]["ai_suggest_remove"])
 
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
     def test_optimize_pass_strips_trailing_punctuation_for_non_question(self, mock_chat) -> None:

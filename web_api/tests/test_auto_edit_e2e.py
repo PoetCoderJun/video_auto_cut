@@ -1,24 +1,14 @@
-"""端到端测试：Step 1 (with chunk) -> Step 1.5 -> Step 2
+from __future__ import annotations
 
-测试完整的字幕优化流程：
-1. Step 1: LLM 删除重复行
-2. Step 1.5: 合并短句字幕（<20字）
-3. Step 2: LLM 润色字幕
-"""
-
+import json
 import unittest
 from unittest.mock import patch
 
-from video_auto_cut.editing.auto_edit import (
-    AutoEdit,
-    REMOVE_TOKEN,
-    AUTO_EDIT_CHUNK_LINES,
-)
+from video_auto_cut.editing.auto_edit import AUTO_EDIT_CHUNK_LINES, AutoEdit, REMOVE_TOKEN
 
 
 class DummyArgs:
-    """模拟 AutoEdit 需要的参数"""
-    def __init__(self):
+    def __init__(self) -> None:
         self.inputs = []
         self.encoding = "utf-8"
         self.force = False
@@ -26,6 +16,9 @@ class DummyArgs:
         self.auto_edit_merge_gap = 0.5
         self.auto_edit_pad_head = 0.0
         self.auto_edit_pad_tail = 0.0
+        self.auto_edit_topics = False
+        self.topic_strict = False
+        self.topic_output = None
         self.llm_base_url = "http://localhost:8000"
         self.llm_model = "test-model"
         self.llm_api_key = None
@@ -34,198 +27,140 @@ class DummyArgs:
         self.llm_max_tokens = None
 
 
-def make_segments(texts):
-    """Helper: 从文本列表创建 segments"""
+def make_segments(texts: list[str]) -> list[dict[str, object]]:
     segments = []
     start = 0.0
-    for i, text in enumerate(texts):
-        duration = 1.0
-        segments.append({
-            "id": i + 1,
-            "start": start,
-            "end": start + duration,
-            "duration": duration,
-            "text": text,
-        })
-        start += duration + 0.2
+    for index, text in enumerate(texts, start=1):
+        segments.append(
+            {
+                "id": index,
+                "start": start,
+                "end": start + 1.0,
+                "duration": 1.0,
+                "text": text,
+            }
+        )
+        start += 1.2
     return segments
 
 
-class TestAutoEditE2ENonChunked(unittest.TestCase):
-    """非 chunked 模式的端到端测试（行数 <= AUTO_EDIT_CHUNK_LINES）"""
+def remove_payload(actions: list[tuple[int, str, str, float]]) -> str:
+    return json.dumps(
+        {
+            "decisions": [
+                {
+                    "line_id": line_id,
+                    "action": action,
+                    "edited_text": "",
+                    "reason": reason,
+                    "confidence": confidence,
+                }
+                for line_id, action, reason, confidence in actions
+            ]
+        },
+        ensure_ascii=False,
+    )
 
-    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_basic_flow(self, mock_chat):
-        """测试基本流程：删除 -> 合并 -> 润色"""
-        # 准备数据：5行，包含重复和短句
-        segments = make_segments([
-            "前面这句说错了",           # 将被删除（重复）
-            "后面这句是正确表达",       # 保留（8字，短）
-            "短句",                     # 短（<20），将合并
-            "继续短",                   # 短（<20），将合并
-            "这句很长不需要合并因为已经超过二十字阈值",  # 长，停止合并
-        ])
-        
-        # Mock LLM 调用
-        mock_chat.side_effect = [
-            # Step 1: remove pass - 删除第1行（重复）
-            "\n".join([
-                f"[L0001] {REMOVE_TOKEN}",
-                "[L0002] 后面这句是正确表达",
-                "[L0003] 短句",
-                "[L0004] 继续短",
-                "[L0005] 这句很长不需要合并因为已经超过二十字阈值",
-            ]),
-            # Step 2: optimize pass - 润色（输入5行，输出5行）
-            "\n".join([
-                "[L0001] 前面这句说错了",  # LLM 尝试恢复，但会被忽略
-                "[L0002] 后面这句是正确表达",
-                "[L0003] 短句",
-                "[L0004] 继续短",
-                "[L0005] 这句很长不需要合并因为已经超过二十字阈值",
-            ]),
-        ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        
-        subs = result["optimized_subs"]
-        
-        # 验证：
-        # - L1 被标记为删除并保留
-        # - remove 行不参与合并；L2-L5 在 remove 之后持续合并直到阈值
-        # L2(8)+L3(2)+L4(3)+L5(20)=33>=20
-        self.assertEqual(len(subs), 2)
-        self.assertTrue(subs[0].content.startswith(REMOVE_TOKEN))
-        self.assertEqual(
-            subs[1].content, 
-            "后面这句是正确表达，短句，继续短，这句很长不需要合并因为已经超过二十字阈值"
-        )
 
-    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_with_merge(self, mock_chat):
-        """测试短句合并功能"""
-        segments = make_segments([
-            "大家好",           # 3字 - 短
-            "今天我们要聊",     # 6字 - 短
-            "一个话题",         # 4字 - 短
-            "关于如何提高",     # 6字 - 短（累计22字>=20，停止）
-            "效率的方法",       # 5字 - 短
-            "谢谢观看",         # 4字 - 短
-        ])
-        
-        mock_chat.side_effect = [
-            # Step 1: 不删除任何行
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
-            # Step 2: 润色（保持原样）
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
-        ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        
-        subs = result["optimized_subs"]
-        
-        # L1-L4: 3+6+4+6=19字 + 3个逗号=22字 >=20，合并成1行
-        # L5-L6: 5+4=9字 + 1个逗号=10字 <20，但无更多行，合并成1行
-        self.assertEqual(len(subs), 2)
-        
-        # 验证第1行是 L1-L4 合并
-        expected_merged = "大家好，今天我们要聊，一个话题，关于如何提高"
-        self.assertEqual(subs[0].content, expected_merged)
-        # 时间戳应该覆盖 L1-L4
-        self.assertAlmostEqual(subs[0].start.total_seconds(), 0.0)
-        self.assertAlmostEqual(subs[0].end.total_seconds(), 4.6)  # L4 的 end
-        
-        # 验证第2行是 L5-L6 合并
-        self.assertEqual(subs[1].content, "效率的方法，谢谢观看")
+def remove_payload_with_text(
+    actions: list[tuple[int, str, str, str, float]]
+) -> str:
+    return json.dumps(
+        {
+            "decisions": [
+                {
+                    "line_id": line_id,
+                    "action": action,
+                    "edited_text": edited_text,
+                    "reason": reason,
+                    "confidence": confidence,
+                }
+                for line_id, action, edited_text, reason, confidence in actions
+            ]
+        },
+        ensure_ascii=False,
+    )
 
-    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_remove_then_merge(self, mock_chat):
-        """测试删除后再合并的场景"""
-        segments = make_segments([
-            "这句要删除",       # 将被删除
-            "短句一",           # 短
-            "短句二",           # 短
-            "这句很长不需要合并因为已经超过二十字阈值",  # 长
-        ])
-        
-        mock_chat.side_effect = [
-            # Step 1: 删除第1行
-            "\n".join([
-                f"[L0001] {REMOVE_TOKEN}",
-                "[L0002] 短句一",
-                "[L0003] 短句二",
-                "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
-            ]),
-            # Step 2: 润色（输入4行，输出4行）
-            "\n".join([
-                "[L0001] 这句要删除",  # LLM 尝试恢复
-                "[L0002] 短句一",
-                "[L0003] 短句二",
-                "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
-            ]),
-        ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        
-        subs = result["optimized_subs"]
-        
-        # remove 行保留；L2+L3+L4 合并（4+4+20=28>=20）
-        self.assertEqual(len(subs), 2)
-        self.assertTrue(subs[0].content.startswith(REMOVE_TOKEN))
-        self.assertEqual(
-            subs[1].content, 
-            "短句一，短句二，这句很长不需要合并因为已经超过二十字阈值"
-        )
 
+def critique_payload(needs_revision: bool, issues: list[dict[str, object]] | None = None) -> str:
+    return json.dumps(
+        {
+            "needs_revision": needs_revision,
+            "issues": issues or [],
+        },
+        ensure_ascii=False,
+    )
+
+
+def polish_payload(lines: list[tuple[int, str, str, float]]) -> str:
+    return json.dumps(
+        {
+            "lines": [
+                {
+                    "line_id": line_id,
+                    "text": text,
+                    "reason": reason,
+                    "confidence": confidence,
+                }
+                for line_id, text, reason, confidence in lines
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+
+class AutoEditPiAgentE2ETest(unittest.TestCase):
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_remove_line_kept_and_blocks_cross_merge(self, mock_chat):
-        """Step 1.5 must keep remove line and never merge across it."""
+    def test_non_chunked_flow_returns_step1_lines_and_polished_groups(self, mock_chat) -> None:
         segments = make_segments(
             [
-                "短句一",
-                "这句要删除",
-                "短句二",
+                "前面这句说错了",
+                "后面这句是正确表达",
+                "短句",
+                "继续短",
                 "这句很长不需要合并因为已经超过二十字阈值",
             ]
         )
-
         mock_chat.side_effect = [
-            "\n".join(
+            remove_payload_with_text(
                 [
-                    "[L0001] 短句一",
-                    f"[L0002] {REMOVE_TOKEN}",
-                    "[L0003] 短句二",
-                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
+                    (1, "REMOVE", "", "被后句覆盖", 0.95),
+                    (2, "KEEP", "后面这句是正确表达", "最终版本", 0.92),
+                    (3, "KEEP", "短句", "保留", 0.90),
+                    (4, "KEEP", "继续短", "保留", 0.90),
+                    (5, "KEEP", "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.90),
                 ]
             ),
-            "\n".join(
+            critique_payload(False),
+            polish_payload(
                 [
-                    "[L0001] 短句一",
-                    "[L0002] 这句要删除",
-                    "[L0003] 短句二",
-                    "[L0004] 这句很长不需要合并因为已经超过二十字阈值",
+                    (2, "后面这句是正确表达", "保留", 0.94),
+                    (3, "短句", "保留", 0.94),
+                    (4, "继续短", "保留", 0.94),
+                    (5, "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.94),
                 ]
             ),
+            critique_payload(False),
         ]
 
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        subs = result["optimized_subs"]
+        result = AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=10.0)
 
-        self.assertEqual(len(subs), 3)
-        self.assertEqual(subs[0].content, "短句一")
-        self.assertTrue(subs[1].content.startswith(REMOVE_TOKEN))
+        self.assertEqual(len(result["optimized_subs"]), 2)
+        self.assertTrue(result["optimized_subs"][0].content.startswith(REMOVE_TOKEN))
         self.assertEqual(
-            subs[2].content,
-            "短句二，这句很长不需要合并因为已经超过二十字阈值",
+            result["optimized_subs"][1].content,
+            "后面这句是正确表达，短句，继续短，这句很长不需要合并因为已经超过二十字阈值",
         )
+        self.assertEqual(len(result["raw_optimized_subs"]), 5)
+        self.assertEqual(len(result["step1_lines"]), 2)
+        self.assertTrue(result["step1_lines"][0]["ai_suggest_remove"])
+        self.assertFalse(result["step1_lines"][1]["ai_suggest_remove"])
+        self.assertTrue(result["debug"]["pi_agent"])
+        self.assertEqual(result["debug"]["merged_groups"][0]["source_line_ids"], [2, 3, 4, 5])
+        self.assertEqual(result["raw_optimized_subs"][1].content, "后面这句是正确表达")
 
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_low_speech_line_marked_remove_and_kept(self, mock_chat):
-        """< Low Speech > should be deterministically removed but still kept as a line."""
+    def test_low_speech_is_forced_removed_in_step1_sidecar(self, mock_chat) -> None:
         segments = make_segments(
             [
                 "< Low Speech >",
@@ -233,175 +168,101 @@ class TestAutoEditE2ENonChunked(unittest.TestCase):
                 "这句很长不需要合并因为已经超过二十字阈值",
             ]
         )
-
-        # 即使 LLM 未输出 remove，规则也应把 low speech 标成 remove。
         mock_chat.side_effect = [
-            "\n".join(
+            remove_payload_with_text(
                 [
-                    "[L0001] < Low Speech >",
-                    "[L0002] 短句一",
-                    "[L0003] 这句很长不需要合并因为已经超过二十字阈值",
+                    (1, "KEEP", "< Low Speech >", "模型漏删", 0.40),
+                    (2, "KEEP", "短句一", "保留", 0.90),
+                    (3, "KEEP", "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.90),
                 ]
             ),
-            "\n".join(
+            critique_payload(False),
+            polish_payload(
                 [
-                    "[L0001] < Low Speech >",
-                    "[L0002] 短句一",
-                    "[L0003] 这句很长不需要合并因为已经超过二十字阈值",
+                    (2, "短句一", "保留", 0.93),
+                    (3, "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.93),
                 ]
             ),
+            critique_payload(False),
         ]
 
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        subs = result["optimized_subs"]
+        result = AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=10.0)
 
-        self.assertEqual(len(subs), 2)
-        self.assertTrue(subs[0].content.startswith(REMOVE_TOKEN))
-        self.assertEqual(subs[1].content, "短句一，这句很长不需要合并因为已经超过二十字阈值")
-
-
-class TestAutoEditE2EChunked(unittest.TestCase):
-    """Chunked 模式的端到端测试（行数 > AUTO_EDIT_CHUNK_LINES）"""
+        self.assertTrue(result["step1_lines"][0]["ai_suggest_remove"])
+        self.assertEqual(len(result["optimized_subs"]), 2)
+        self.assertTrue(result["optimized_subs"][0].content.startswith(REMOVE_TOKEN))
+        self.assertEqual(
+            result["optimized_subs"][1].content,
+            "短句一，这句很长不需要合并因为已经超过二十字阈值",
+        )
+        self.assertEqual(len(result["raw_optimized_subs"]), 3)
+        self.assertEqual(result["raw_optimized_subs"][1].content, "短句一")
 
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_chunked_then_merge(self, mock_chat):
-        """测试 chunked 处理后再合并"""
-        # 创建超过 AUTO_EDIT_CHUNK_LINES 行的数据
-        chunk_size = AUTO_EDIT_CHUNK_LINES  # 30
-        total_lines = chunk_size + 10  # 40行，会分成2个 chunk
-        
-        segments = make_segments([
-            "短句" if i % 2 == 0 else "这句很长不需要合并因为已经超过二十字阈值"
-            for i in range(total_lines)
-        ])
-        
-        # 准备 mock 返回值
-        # 每个 chunk 会调用 2 次 LLM（remove + optimize）
-        def make_chunk_response(start_idx, count):
-            """为一个 chunk 创建 LLM 响应"""
-            # remove pass - 删除所有偶数行
-            remove_lines = []
-            for i in range(count):
-                line_num = start_idx + i
-                if (start_idx + i) % 2 == 0:  # 偶数行删除
-                    remove_lines.append(f"[L{i+1:04d}] {REMOVE_TOKEN}")
-                else:
-                    remove_lines.append(f"[L{i+1:04d}] 这句很长不需要合并因为已经超过二十字阈值")
-            
-            # optimize pass - 保持原样（只返回保留的行）
-            optimize_lines = [
-                f"[L{i+1:04d}] 这句很长不需要合并因为已经超过二十字阈值"
-                for i in range(count) if (start_idx + i) % 2 != 0
+    def test_chunked_flow_runs_boundary_review_and_global_polish(self, mock_chat) -> None:
+        total_lines = AUTO_EDIT_CHUNK_LINES + 10
+        segments = make_segments(
+            [
+                "前句试探" if index % 2 == 0 else "这句很长不需要合并因为已经超过二十字阈值"
+                for index in range(total_lines)
             ]
-            
-            return "\n".join(remove_lines), "\n".join(optimize_lines)
-        
-        # Chunk 1: 第1-34行（30行core + 4行overlap）
-        remove1, optimize1 = make_chunk_response(1, 34)
-        # Chunk 2: 第27-40行（10行core + 4行左overlap）
-        remove2, optimize2 = make_chunk_response(27, 14)
-        
-        mock_chat.side_effect = [
-            remove1, optimize1,   # Chunk 1
-            remove2, optimize2,   # Chunk 2
+        )
+        first_chunk_actions = []
+        for line_id in range(1, 35):
+            action = "REMOVE" if line_id % 2 == 1 else "KEEP"
+            text = "前句试探" if line_id % 2 == 1 else "这句很长不需要合并因为已经超过二十字阈值"
+            first_chunk_actions.append((line_id, action, text if action == "KEEP" else "", "chunk1", 0.9))
+        second_chunk_actions = []
+        for line_id in range(27, 41):
+            action = "REMOVE" if line_id % 2 == 1 else "KEEP"
+            text = "前句试探" if line_id % 2 == 1 else "这句很长不需要合并因为已经超过二十字阈值"
+            second_chunk_actions.append((line_id, action, text if action == "KEEP" else "", "chunk2", 0.9))
+        kept_even_ids = [line_id for line_id in range(1, total_lines + 1) if line_id % 2 == 0]
+        polished_lines = [
+            (line_id, "这句很长不需要合并因为已经超过二十字阈值", "保留长句", 0.95)
+            for line_id in kept_even_ids
         ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=50.0)
-        
-        subs = result["optimized_subs"]
-        
-        # 验证：
-        # - 原始40行中，偶数行会被标记删除并保留
-        # - remove 行作为边界，奇数长句不再与其他行合并
-        # - 最终保留40行（20 remove + 20 长句）
-        self.assertEqual(len(subs), 40)
+        mock_chat.side_effect = [
+            remove_payload_with_text(first_chunk_actions),
+            remove_payload_with_text(second_chunk_actions),
+            json.dumps(
+                {
+                    "dropped_line_ids": [29],
+                    "reason": "后一个 chunk 的 overlap 更可信",
+                },
+                ensure_ascii=False,
+            ),
+            polish_payload(polished_lines),
+            critique_payload(False),
+        ]
 
-        remove_count = sum(1 for sub in subs if sub.content.startswith(REMOVE_TOKEN))
-        self.assertEqual(remove_count, 20)
+        result = AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=50.0)
 
-
-class TestAutoEditE2EEdgeCases(unittest.TestCase):
-    """边界情况的端到端测试"""
+        self.assertEqual(len(result["optimized_subs"]), total_lines - 1)
+        self.assertTrue(result["debug"]["chunked"])
+        self.assertEqual(result["debug"]["chunk_count"], 2)
+        self.assertTrue(result["optimized_subs"][0].content.startswith(REMOVE_TOKEN))
+        self.assertEqual(result["optimized_subs"][1].content, "这句很长不需要合并因为已经超过二十字阈值")
+        self.assertEqual(len(result["step1_lines"]), total_lines - 1)
+        self.assertTrue(result["step1_lines"][0]["ai_suggest_remove"])
+        self.assertFalse(result["step1_lines"][1]["ai_suggest_remove"])
 
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_all_short_lines(self, mock_chat):
-        """测试全是短句的情况"""
-        segments = make_segments([
-            "短句一",
-            "短句二", 
-            "短句三",
-            "短句四",
-        ])
-        
+    def test_all_removed_raises_runtime_error(self, mock_chat) -> None:
+        segments = make_segments(["这句要删除", "这句也要删除"])
         mock_chat.side_effect = [
-            # Step 1
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
-            # Step 2
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
+            remove_payload_with_text(
+                [
+                    (1, "REMOVE", "", "删除", 0.95),
+                    (2, "REMOVE", "", "删除", 0.95),
+                ]
+            ),
+            critique_payload(False),
         ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        
-        subs = result["optimized_subs"]
-        
-        # 所有短句持续合并，直到最后一行
-        # 3+3+3+3=12字 < 20，所以全部合并成1行
-        self.assertEqual(len(subs), 1)
-        self.assertEqual(subs[0].content, "短句一，短句二，短句三，短句四")
 
-    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_all_long_lines(self, mock_chat):
-        """测试全是长句的情况（不需要合并）"""
-        segments = make_segments([
-            "这句很长不需要合并因为已经超过二十字阈值第一行",
-            "这句很长不需要合并因为已经超过二十字阈值第二行",
-            "这句很长不需要合并因为已经超过二十字阈值第三行",
-        ])
-        
-        mock_chat.side_effect = [
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
-            "\n".join([f"[L{i+1:04d}] {seg['text']}" for i, seg in enumerate(segments)]),
-        ]
-        
-        editor = AutoEdit(DummyArgs())
-        result = editor._auto_edit_segments(segments, total_length=10.0)
-        
-        subs = result["optimized_subs"]
-        
-        # 所有行都 >=20字，不需要合并
-        self.assertEqual(len(subs), 3)
-
-    @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
-    def test_e2e_all_removed(self, mock_chat):
-        """测试所有行都被删除的情况"""
-        segments = make_segments([
-            "这句要删除",
-            "这句也要删除",
-        ])
-        
-        # 即使全部删除，Step 2 仍会被调用（返回空会报错）
-        # 实际上在 _auto_edit_segment_chunk 中，如果都删除了
-        # kept_segments 为空，会在 _auto_edit_segments 中抛出异常
-        mock_chat.side_effect = [
-            "\n".join([
-                f"[L0001] {REMOVE_TOKEN}",
-                f"[L0002] {REMOVE_TOKEN}",
-            ]),
-            "\n".join([
-                "[L0001] 这句要删除",
-                "[L0002] 这句也要删除",
-            ]),
-        ]
-        
-        editor = AutoEdit(DummyArgs())
-        
-        # 应该抛出异常
         with self.assertRaises(RuntimeError) as ctx:
-            editor._auto_edit_segments(segments, total_length=5.0)
-        
+            AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
+
         self.assertIn("All segments removed", str(ctx.exception))
 
 

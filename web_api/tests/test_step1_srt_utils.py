@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from web_api.utils import srt_utils
-from web_api.utils.srt_utils import build_step1_lines_from_srt
+from web_api.utils.srt_utils import build_step1_lines_from_json, build_step1_lines_from_srt
 
 
 class BuildStep1LinesFromSrtTest(unittest.TestCase):
@@ -70,6 +70,43 @@ class BuildStep1LinesFromSrtTest(unittest.TestCase):
         self.assertTrue(lines[0]["user_final_remove"])
         self.assertEqual(lines[1]["optimized_text"], "后一句保留")
         self.assertFalse(lines[1]["user_final_remove"])
+
+    def test_build_step1_lines_from_json_sidecar(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sidecar = Path(tmpdir) / "optimized.step1.json"
+            sidecar.write_text(
+                """
+                {
+                  "lines": [
+                    {
+                      "line_id": 2,
+                      "start": 1.1,
+                      "end": 2.5,
+                      "original_text": "后一句保留",
+                      "optimized_text": "后一句保留",
+                      "ai_suggest_remove": false,
+                      "user_final_remove": false
+                    },
+                    {
+                      "line_id": 1,
+                      "start": 0.0,
+                      "end": 1.0,
+                      "original_text": "前一句删掉",
+                      "optimized_text": "前一句删掉",
+                      "ai_suggest_remove": true,
+                      "user_final_remove": true
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+
+            lines = build_step1_lines_from_json(sidecar)
+
+        self.assertEqual([line["line_id"] for line in lines], [1, 2])
+        self.assertTrue(lines[0]["ai_suggest_remove"])
+        self.assertEqual(lines[1]["optimized_text"], "后一句保留")
 
 
 if __name__ == "__main__":

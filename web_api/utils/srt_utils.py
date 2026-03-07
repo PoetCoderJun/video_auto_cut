@@ -46,6 +46,31 @@ def build_step1_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str
     return lines
 
 
+def build_step1_lines_from_json(source_json: Path) -> list[dict[str, Any]]:
+    payload = json.loads(source_json.read_text(encoding="utf-8"))
+    lines = payload.get("lines") if isinstance(payload, dict) else payload
+    if not isinstance(lines, list):
+        raise RuntimeError(f"invalid step1 lines payload: {source_json}")
+
+    normalized: list[dict[str, Any]] = []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        normalized.append(
+            {
+                "line_id": int(line["line_id"]),
+                "start": float(line["start"]),
+                "end": float(line["end"]),
+                "original_text": str(line.get("original_text", "")).strip(),
+                "optimized_text": str(line.get("optimized_text", "")).strip(),
+                "ai_suggest_remove": bool(line.get("ai_suggest_remove", False)),
+                "user_final_remove": bool(line.get("user_final_remove", False)),
+            }
+        )
+    normalized.sort(key=lambda item: item["line_id"])
+    return normalized
+
+
 def write_final_step1_srt(lines: list[dict[str, Any]], output_path: Path, encoding: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     subtitles: list[srt.Subtitle] = []

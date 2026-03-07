@@ -10,6 +10,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import srt
 
 from . import llm_client as llm_utils
+from .pi_agent_boundary import PiAgentBoundaryReview, apply_boundary_review
+from .pi_agent_chunking import build_chunk_windows
+from .pi_agent_merge import build_merged_groups
+from .pi_agent_models import ChunkExecutionState
+from .pi_agent_polish import PiAgentPolishLoop
+from .pi_agent_remove import PiAgentRemoveLoop
 from .topic_segment import TopicSegmenter
 
 
@@ -25,6 +31,7 @@ TRAILING_LINE_PUNCTUATION = "，。、；：!！"
 AUTO_EDIT_CHUNK_LINES = 30
 AUTO_EDIT_CHUNK_OVERLAP_LINES = 4
 MERGE_SHORT_LINES_THRESHOLD = 20  # 字数阈值：低于此值的短句将尝试合并
+PI_AGENT_GROUP_BATCH_SIZE = 30
 
 
 @dataclass
@@ -311,6 +318,89 @@ def _write_optimized_srt(path: str, subs: List[srt.Subtitle], encoding: str):
         f.write(srt.compose(subs, reindex=False).encode(encoding, "replace"))
 
 
+def _build_step1_lines(
+    segments: List[Dict[str, Any]],
+    decisions: List[Any],
+) -> List[Dict[str, Any]]:
+    decision_map = {int(decision.line_id): decision for decision in decisions}
+    lines: List[Dict[str, Any]] = []
+    for segment in segments:
+        line_id = int(segment.get("id") or 0)
+        decision = decision_map.get(line_id)
+        original_text = (segment.get("text") or "").strip()
+        optimized_text = (decision.current_text if decision else original_text).strip()
+        ai_suggest_remove = bool(decision and decision.remove_action == "REMOVE")
+        lines.append(
+            {
+                "line_id": line_id,
+                "start": float(segment.get("start") or 0.0),
+                "end": float(segment.get("end") or 0.0),
+                "original_text": original_text,
+                "optimized_text": optimized_text or original_text,
+                "ai_suggest_remove": ai_suggest_remove,
+                "user_final_remove": ai_suggest_remove,
+            }
+        )
+    lines.sort(key=lambda item: item["line_id"])
+    return lines
+
+
+def _strip_remove_token(text: str) -> str:
+    value = (text or "").strip()
+    if not value.startswith(REMOVE_TOKEN):
+        return value
+    return value[len(REMOVE_TOKEN) :].strip()
+
+
+def _build_step1_lines_from_subtitles(subtitles: List[srt.Subtitle]) -> List[Dict[str, Any]]:
+    lines: List[Dict[str, Any]] = []
+    for idx, subtitle in enumerate(subtitles, start=1):
+        line_id = int(subtitle.index) if int(subtitle.index) > 0 else idx
+        raw_text = (subtitle.content or "").strip()
+        ai_suggest_remove = _is_remove_line(raw_text)
+        text = _strip_remove_token(raw_text)
+        lines.append(
+            {
+                "line_id": line_id,
+                "start": float(subtitle.start.total_seconds()),
+                "end": float(subtitle.end.total_seconds()),
+                "original_text": text,
+                "optimized_text": text,
+                "ai_suggest_remove": ai_suggest_remove,
+                "user_final_remove": ai_suggest_remove,
+            }
+        )
+    lines.sort(key=lambda item: item["line_id"])
+    return lines
+
+
+def _build_optimized_subtitles(
+    segments: List[Dict[str, Any]],
+    decisions: List[Any],
+) -> List[srt.Subtitle]:
+    decision_map = {int(decision.line_id): decision for decision in decisions}
+    subtitles: List[srt.Subtitle] = []
+    for segment in segments:
+        line_id = int(segment.get("id") or 0)
+        decision = decision_map.get(line_id)
+        original_text = (segment.get("text") or "").strip()
+        if decision is None:
+            content = _normalize_line_text(original_text)
+        elif decision.remove_action == "REMOVE":
+            content = f"{REMOVE_TOKEN} {decision.current_text or original_text}".strip()
+        else:
+            content = _normalize_line_text(decision.current_text or original_text)
+        subtitles.append(
+            srt.Subtitle(
+                index=line_id,
+                start=datetime.timedelta(seconds=float(segment.get("start") or 0.0)),
+                end=datetime.timedelta(seconds=float(segment.get("end") or 0.0)),
+                content=content,
+            )
+        )
+    return subtitles
+
+
 class AutoEdit:
     def __init__(self, args):
         self.args = args
@@ -336,6 +426,18 @@ class AutoEdit:
             raise RuntimeError(
                 "LLM config missing. Set --llm-base-url and --llm-model to use auto-edit LLM."
             )
+        self.remove_loop = PiAgentRemoveLoop(
+            self.llm_config,
+            chat_completion_fn=llm_utils.chat_completion,
+        )
+        self.polish_loop = PiAgentPolishLoop(
+            self.llm_config,
+            chat_completion_fn=llm_utils.chat_completion,
+        )
+        self.boundary_reviewer = PiAgentBoundaryReview(
+            self.llm_config,
+            chat_completion_fn=llm_utils.chat_completion,
+        )
 
         self.topic_segmenter = None
         if bool(getattr(self.args, "auto_edit_topics", False)):
@@ -350,6 +452,7 @@ class AutoEdit:
 
             base, _ = os.path.splitext(input_path)
             optimized_srt = base + ".optimized.srt"
+            optimized_raw_srt = base + ".optimized.raw.srt"
             cache_dir = Path.cwd() / ".cache" / "auto_edit"
             cache_dir.mkdir(parents=True, exist_ok=True)
             cache_base = cache_dir / os.path.basename(base)
@@ -361,9 +464,17 @@ class AutoEdit:
 
             result = self._auto_edit_segments(segments, total_length)
             _write_optimized_srt(optimized_srt, result["optimized_subs"], self.args.encoding)
+            _write_optimized_srt(
+                optimized_raw_srt,
+                result["raw_optimized_subs"],
+                self.args.encoding,
+            )
             logging.info(f"Saved optimized SRT to {optimized_srt}")
+            logging.info(f"Saved raw optimized SRT to {optimized_raw_srt}")
             _write_json(edl_json, result["edl"])
             _write_json(debug_json, result["debug"])
+            step1_json = str(Path(optimized_srt).with_suffix(".step1.json"))
+            _write_json(step1_json, {"lines": result["step1_lines"]})
 
             if self.topic_segmenter:
                 topic_output = self._resolve_topic_output(optimized_srt)
@@ -379,117 +490,156 @@ class AutoEdit:
     def _auto_edit_segments(
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
     ) -> Dict[str, Any]:
-        # 先执行删除+润色（可能分 chunk）
-        if len(segments) <= AUTO_EDIT_CHUNK_LINES:
-            chunk_result = self._auto_edit_segment_chunk(segments)
-            if not chunk_result["kept_segments"]:
-                raise RuntimeError("All segments removed. Check LLM output.")
-            # Step 3: 合并短句（在删除+润色完成后）
-            # 从 optimized_subs 中提取 segment 信息（与 subs 一一对应）
-            segment_infos = [
-                {"start": seg["start"], "end": seg["end"]}
-                for seg in segments
-            ]
-            merged_subs, merged_segments = self._merge_short_lines_in_subs(
-                chunk_result["optimized_subs"], 
-                segment_infos
-            )
-            edl = _segments_to_edl(merged_segments, self.cfg, total_length)
-            return {
-                "optimized_subs": merged_subs,
-                "edl": edl,
-                "debug": chunk_result["debug"],
-            }
-
-        logging.info(
-            "[auto_edit] segment count=%d exceeds chunk limit=%d, processing in chunks (overlap=%d)",
-            len(segments),
-            AUTO_EDIT_CHUNK_LINES,
-            AUTO_EDIT_CHUNK_OVERLAP_LINES,
-        )
-        optimized_subs_all: List[srt.Subtitle] = []
-        kept_segments_all: List[Dict[str, Any]] = []
-        chunk_debug: List[Dict[str, Any]] = []
-
-        for chunk_index, start in enumerate(range(0, len(segments), AUTO_EDIT_CHUNK_LINES), start=1):
-            end = min(start + AUTO_EDIT_CHUNK_LINES, len(segments))
-            left_overlap = min(AUTO_EDIT_CHUNK_OVERLAP_LINES, start)
-            right_overlap = min(AUTO_EDIT_CHUNK_OVERLAP_LINES, len(segments) - end)
-            context_start = start - left_overlap
-            context_end = end + right_overlap
-            seg_chunk = segments[context_start:context_end]
-            core_offset = left_overlap
-            core_count = end - start
-            logging.info(
-                "[auto_edit] chunk %d core=[%d,%d] core_count=%d context=[%d,%d] context_count=%d",
-                chunk_index,
-                start + 1,
-                end,
-                core_count,
-                context_start + 1,
-                context_end,
-                len(seg_chunk),
-            )
-            try:
-                chunk_result = self._auto_edit_segment_chunk(seg_chunk)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Auto-edit chunk failed at lines [{start + 1}, {end}]: {exc}"
-                ) from exc
-
-            core_optimized_subs = chunk_result["optimized_subs"][core_offset : core_offset + core_count]
-            core_segments = seg_chunk[core_offset : core_offset + core_count]
-            if len(core_optimized_subs) != core_count or len(core_segments) != core_count:
-                raise RuntimeError(
-                    f"Chunk core slice mismatch at lines [{start + 1}, {end}]."
-                )
-
-            optimized_subs_all.extend(core_optimized_subs)
-            for seg, sub in zip(core_segments, core_optimized_subs):
-                # 暂不过滤，保留所有行用于后续合并
-                kept_segments_all.append(
-                    {
-                        "start": float(seg.get("start") or 0.0),
-                        "end": float(seg.get("end") or 0.0),
-                        "content": sub.content,  # 保存内容用于合并判断
-                    }
-                )
-            chunk_debug.append(
-                {
-                    "chunk_index": chunk_index,
-                    "line_start": start + 1,
-                    "line_end": end,
-                    "line_count": core_count,
-                    "context_line_start": context_start + 1,
-                    "context_line_end": context_end,
-                    "context_line_count": len(seg_chunk),
-                    "context_left_overlap": left_overlap,
-                    "context_right_overlap": right_overlap,
-                    "debug": chunk_result["debug"],
-                }
-            )
-
-        if not kept_segments_all:
+        chunk_states = self._run_pi_agent_remove_states(segments)
+        final_decisions = self._collect_core_decisions(segments, chunk_states)
+        kept_decisions = [decision for decision in final_decisions if decision.remove_action == "KEEP"]
+        if not kept_decisions:
             raise RuntimeError("All segments removed. Check LLM output.")
 
-        # Step 3: 合并短句（在所有 chunk 处理完成后）
-        merged_subs, merged_segments = self._merge_short_lines_in_subs(
-            optimized_subs_all,
-            [{"start": s["start"], "end": s["end"]} for s in kept_segments_all]
+        polished_decisions, polish_debug = self._polish_decisions(final_decisions)
+        merged_groups = build_merged_groups(
+            segments,
+            polished_decisions,
+            threshold=MERGE_SHORT_LINES_THRESHOLD,
         )
+        if not merged_groups:
+            raise RuntimeError("All segments removed. Check LLM output.")
 
+        raw_optimized_subs = _build_optimized_subtitles(segments, polished_decisions)
+        merged_optimized_subs, merged_segments = self._merge_short_lines_in_subs(
+            raw_optimized_subs,
+            segments,
+            threshold=MERGE_SHORT_LINES_THRESHOLD,
+        )
         edl = _segments_to_edl(merged_segments, self.cfg, total_length)
         return {
-            "optimized_subs": merged_subs,
+            "optimized_subs": merged_optimized_subs,
+            "raw_optimized_subs": raw_optimized_subs,
             "edl": edl,
+            "step1_lines": _build_step1_lines_from_subtitles(merged_optimized_subs),
             "debug": {
-                "chunked": True,
+                "pi_agent": True,
+                "chunked": len(chunk_states) > 1,
                 "chunk_size": AUTO_EDIT_CHUNK_LINES,
                 "chunk_overlap_lines": AUTO_EDIT_CHUNK_OVERLAP_LINES,
-                "chunk_count": len(chunk_debug),
-                "chunks": chunk_debug,
+                "chunk_count": len(chunk_states),
+                "chunks": [
+                    {
+                        "window": state.window.to_dict(),
+                        "decisions": [decision.to_dict() for decision in state.decisions],
+                    }
+                    for state in chunk_states
+                ],
+                "merged_groups": [group.to_dict() for group in merged_groups],
+                "raw_optimized_subs": [
+                    {
+                        "index": int(sub.index),
+                        "start": float(sub.start.total_seconds()),
+                        "end": float(sub.end.total_seconds()),
+                        "content": sub.content,
+                    }
+                    for sub in raw_optimized_subs
+                ],
+                "merged_optimized_subs": [
+                    {
+                        "index": int(sub.index),
+                        "start": float(sub.start.total_seconds()),
+                        "end": float(sub.end.total_seconds()),
+                        "content": sub.content,
+                    }
+                    for sub in merged_optimized_subs
+                ],
+                "output_decisions": [decision.to_dict() for decision in polished_decisions],
+                "polish": polish_debug,
             },
         }
+
+    def _run_pi_agent_remove_states(
+        self, segments: List[Dict[str, Any]]
+    ) -> List[ChunkExecutionState]:
+        windows = build_chunk_windows(segments)
+        if not windows:
+            return []
+
+        chunk_states: List[ChunkExecutionState] = []
+        for window in windows:
+            seg_chunk = segments[window.context_start - 1 : window.context_end]
+            remove_result = self.remove_loop.run(seg_chunk)
+            normalized_decisions = []
+            for decision in remove_result.decisions:
+                if _is_no_speech_text(decision.original_text):
+                    normalized_decisions.append(
+                        type(decision)(
+                            line_id=decision.line_id,
+                            original_text=decision.original_text,
+                            current_text=decision.current_text,
+                            remove_action="REMOVE",
+                            reason="No-speech placeholder",
+                            confidence=1.0,
+                            source_line_ids=list(decision.source_line_ids),
+                        )
+                    )
+                else:
+                    normalized_decisions.append(decision)
+            chunk_states.append(
+                ChunkExecutionState(
+                    window=window,
+                    decisions=normalized_decisions,
+                    merged_groups=[],
+                    core_line_ids=[
+                        int(seg.get("id") or 0)
+                        for seg in segments[window.core_start - 1 : window.core_end]
+                    ],
+                )
+            )
+
+        for index in range(1, len(chunk_states)):
+            previous_state, current_state = apply_boundary_review(
+                chunk_states[index - 1],
+                chunk_states[index],
+                self.boundary_reviewer.run(chunk_states[index - 1], chunk_states[index]),
+            )
+            chunk_states[index - 1] = previous_state
+            chunk_states[index] = current_state
+
+        return chunk_states
+
+    def _collect_core_decisions(
+        self,
+        segments: List[Dict[str, Any]],
+        chunk_states: List[ChunkExecutionState],
+    ) -> List[Any]:
+        decision_map: Dict[int, Any] = {}
+        for state in chunk_states:
+            core_ids = set(state.core_line_ids)
+            for decision in state.decisions:
+                if decision.line_id in core_ids:
+                    decision_map[decision.line_id] = decision
+
+        decisions: List[Any] = []
+        for segment in segments:
+            line_id = int(segment.get("id") or 0)
+            if line_id in decision_map:
+                decisions.append(decision_map[line_id])
+        return decisions
+
+    def _polish_decisions(
+        self,
+        decisions: List[Any],
+    ) -> Tuple[List[Any], List[Dict[str, Any]]]:
+        keep_decisions = [decision for decision in decisions if decision.remove_action == "KEEP"]
+        if not keep_decisions:
+            return decisions, []
+
+        decision_map = {decision.line_id: decision for decision in decisions}
+        debug_payloads: List[Dict[str, Any]] = []
+        for start in range(0, len(keep_decisions), PI_AGENT_GROUP_BATCH_SIZE):
+            batch = keep_decisions[start : start + PI_AGENT_GROUP_BATCH_SIZE]
+            result = self.polish_loop.run(batch)
+            for polished in result.decisions:
+                decision_map[polished.line_id] = polished
+            debug_payloads.append(result.debug)
+        return [decision_map[decision.line_id] for decision in decisions], debug_payloads
 
     def _auto_edit_segment_chunk(self, segments: List[Dict[str, Any]]) -> Dict[str, Any]:
         tagged_text = _segments_to_tagged_text(segments)
