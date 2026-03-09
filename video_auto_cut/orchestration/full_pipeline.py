@@ -11,7 +11,6 @@ from typing import Optional
 from .pipeline_service import (
     PipelineOptions,
     run_auto_edit,
-    run_render,
     run_transcribe,
 )
 
@@ -93,10 +92,6 @@ def _resolve_llm_api_key(args: argparse.Namespace) -> Optional[str]:
 
 def _build_pipeline_options(
     args: argparse.Namespace,
-    *,
-    render_output: str | None = None,
-    render_cut_srt_output: str | None = None,
-    render_topics_input: str | None = None,
 ) -> PipelineOptions:
     return PipelineOptions(
         encoding=args.encoding,
@@ -129,31 +124,16 @@ def _build_pipeline_options(
         auto_edit_pad_tail=float(args.auto_edit_pad_tail),
         bitrate=args.bitrate,
         cut_merge_gap=float(args.cut_merge_gap),
-        render_output=render_output,
-        render_cut_srt_output=render_cut_srt_output,
-        render_fps=args.render_fps,
-        render_preview=bool(args.render_preview),
-        render_codec=args.render_codec,
-        render_crf=args.render_crf,
-        render_topics=bool(args.render_topics),
-        render_topics_input=render_topics_input,
         topic_output=args.topic_output,
         topic_strict=bool(args.topic_strict),
         topic_max_topics=int(args.topic_max_topics),
         topic_title_max_chars=int(args.topic_title_max_chars),
-        topic_summary_max_chars=int(args.topic_summary_max_chars),
     )
-
-
-def _resolve_render_output_path(args: argparse.Namespace, video_path: Path) -> Path:
-    if args.render_output:
-        return Path(args.render_output).expanduser().resolve()
-    return video_path.with_name(f"{video_path.stem}_remotion.mp4")
 
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run full pipeline: transcribe -> auto-edit -> remotion render."
+        description="Run full pipeline: transcribe -> auto-edit."
     )
     parser.add_argument("video", type=str, help="Input video path")
 
@@ -169,13 +149,6 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Skip auto-edit step (expects existing .optimized.srt)",
     )
-    parser.add_argument(
-        "--skip-render",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Skip render step",
-    )
-
     parser.add_argument("--encoding", type=str, default="utf-8")
     parser.add_argument(
         "--force",
@@ -254,25 +227,9 @@ def _parse_args() -> argparse.Namespace:
 
     parser.add_argument("--bitrate", type=str, default="10m")
     parser.add_argument("--cut-merge-gap", type=float, default=0.0)
-    parser.add_argument("--render-output", type=str, default=None)
-    parser.add_argument("--render-cut-srt-output", type=str, default=None)
-    parser.add_argument("--render-fps", type=float, default=None)
-    parser.add_argument(
-        "--render-preview",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument("--render-codec", type=str, default=None)
-    parser.add_argument("--render-crf", type=int, default=None)
-    parser.add_argument(
-        "--render-topics",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
     parser.add_argument("--topic-output", type=str, default=None)
-    parser.add_argument("--topic-max-topics", type=int, default=8)
+    parser.add_argument("--topic-max-topics", type=int, default=5)
     parser.add_argument("--topic-title-max-chars", type=int, default=6)
-    parser.add_argument("--topic-summary-max-chars", type=int, default=6)
     parser.add_argument(
         "--topic-strict",
         action=argparse.BooleanOptionalAction,
@@ -294,11 +251,10 @@ def main() -> None:
 
     srt_path = video_path.with_suffix(".srt")
     optimized_path = srt_path.with_name(f"{srt_path.stem}.optimized.srt")
-    render_output_path = _resolve_render_output_path(args, video_path)
 
     if not args.skip_transcribe:
         if srt_path.exists() and not args.force:
-            logging.info("Step 1/3: skip transcribe (exists): %s", srt_path)
+            logging.info("Step 1/2: skip transcribe (exists): %s", srt_path)
         else:
             options = _build_pipeline_options(args)
             srt_path = run_transcribe(video_path, options)
@@ -309,7 +265,7 @@ def main() -> None:
 
     if not args.skip_auto_edit:
         if optimized_path.exists() and not args.force:
-            logging.info("Step 2/3: skip auto edit (exists): %s", optimized_path)
+            logging.info("Step 2/2: skip auto edit (exists): %s", optimized_path)
         else:
             options = _build_pipeline_options(args)
             optimized_path = run_auto_edit(srt_path, options)
@@ -317,17 +273,6 @@ def main() -> None:
         raise FileNotFoundError(
             f"Missing optimized SRT while --skip-auto-edit is set: {optimized_path}"
         )
-
-    if not args.skip_render:
-        if render_output_path.exists() and not args.force:
-            logging.info("Step 3/3: skip remotion render (exists): %s", render_output_path)
-        else:
-            options = _build_pipeline_options(
-                args,
-                render_output=str(render_output_path),
-                render_cut_srt_output=args.render_cut_srt_output,
-            )
-            run_render(video_path, optimized_path, options)
 
     logging.info("Done")
     logging.info("SRT: %s", srt_path)

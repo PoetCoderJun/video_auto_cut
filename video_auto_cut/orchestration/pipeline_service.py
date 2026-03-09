@@ -45,6 +45,7 @@ class PipelineOptions:
 
     llm_base_url: str | None = None
     llm_model: str | None = None
+    topic_llm_model: str | None = None
     llm_api_key: str | None = None
     llm_timeout: int = 300
     llm_temperature: float = 0.2
@@ -56,21 +57,11 @@ class PipelineOptions:
 
     bitrate: str = "10m"
     cut_merge_gap: float = 0.0
-    render_output: str | None = None
-    render_cut_srt_output: str | None = None
-    render_fps: float | None = None
-    render_preview: bool = False
-    render_codec: str | None = None
-    render_crf: int | None = None
-    render_topics: bool = True
-    render_topics_input: str | None = None
 
     topic_output: str | None = None
     topic_strict: bool = False
-    topic_max_topics: int = 8
+    topic_max_topics: int = 5
     topic_title_max_chars: int = 6
-    topic_summary_max_chars: int = 6
-    topic_generate_summary: bool = True
 
 
 RenderProgressCallback = Callable[[str, Optional[float]], None]
@@ -159,46 +150,13 @@ def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleName
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
         topic_title_max_chars=int(options.topic_title_max_chars),
-        topic_summary_max_chars=int(options.topic_summary_max_chars),
-    )
-
-
-def build_render_args(
-    video_path: Path, optimized_srt_path: Path, options: PipelineOptions
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        inputs=[str(video_path), str(optimized_srt_path)],
-        encoding=options.encoding,
-        bitrate=options.bitrate,
-        cut_merge_gap=float(options.cut_merge_gap),
-        render=True,
-        render_output=options.render_output,
-        render_cut_srt_output=options.render_cut_srt_output,
-        render_topics=bool(options.render_topics),
-        render_topics_input=options.render_topics_input,
-        render_fps=options.render_fps,
-        render_preview=bool(options.render_preview),
-        render_codec=options.render_codec,
-        render_crf=options.render_crf,
-        topic_output=options.topic_output,
-        topic_strict=bool(options.topic_strict),
-        topic_max_topics=int(options.topic_max_topics),
-        topic_title_max_chars=int(options.topic_title_max_chars),
-        topic_summary_max_chars=int(options.topic_summary_max_chars),
-        llm_base_url=options.llm_base_url,
-        llm_model=options.llm_model,
-        llm_api_key=options.llm_api_key,
-        llm_timeout=int(options.llm_timeout),
-        llm_temperature=float(options.llm_temperature),
-        llm_max_tokens=(
-            int(options.llm_max_tokens) if options.llm_max_tokens is not None else None
-        ),
     )
 
 
 def build_topic_args(
     srt_path: Path, output_path: Path, options: PipelineOptions
 ) -> SimpleNamespace:
+    topic_llm_model = options.topic_llm_model or options.llm_model
     return SimpleNamespace(
         inputs=[str(srt_path)],
         encoding=options.encoding,
@@ -206,10 +164,8 @@ def build_topic_args(
         topic_strict=bool(options.topic_strict),
         topic_max_topics=int(options.topic_max_topics),
         topic_title_max_chars=int(options.topic_title_max_chars),
-        topic_summary_max_chars=int(options.topic_summary_max_chars),
-        topic_generate_summary=bool(options.topic_generate_summary),
         llm_base_url=options.llm_base_url,
-        llm_model=options.llm_model,
+        llm_model=topic_llm_model,
         llm_api_key=options.llm_api_key,
         llm_timeout=int(options.llm_timeout),
         llm_temperature=float(options.llm_temperature),
@@ -275,6 +231,7 @@ def run_topic_segmentation_from_optimized_srt(
         output_srt_path=str(cut_srt_output_path),
         encoding=options.encoding,
         merge_gap_s=float(options.cut_merge_gap),
+        preserve_input_indices=False,
     )
 
     topic_args = build_topic_args(cut_srt_output_path, topics_output_path, options)
@@ -284,37 +241,3 @@ def run_topic_segmentation_from_optimized_srt(
     if not topics_output_path.exists():
         raise RuntimeError(f"Topic segmentation did not produce output: {topics_output_path}")
     return topics_output_path
-
-
-def run_render(
-    video_path: Path,
-    optimized_srt_path: Path,
-    options: PipelineOptions,
-    *,
-    progress_callback: RenderProgressCallback | None = None,
-) -> None:
-    from video_auto_cut.rendering.remotion_renderer import RemotionRenderer
-
-    if options.render_topics and not options.render_topics_input:
-        require_llm(options, "Render topic segmentation")
-    logging.info("Step 3/3: remotion render")
-    args = build_render_args(video_path, optimized_srt_path, options)
-    if progress_callback is not None:
-        setattr(args, "render_progress_callback", progress_callback)
-    RemotionRenderer(args).run()
-
-
-def warm_render_cut_cache(
-    video_path: Path,
-    optimized_srt_path: Path,
-    options: PipelineOptions,
-    *,
-    progress_callback: RenderProgressCallback | None = None,
-) -> str:
-    from video_auto_cut.rendering.remotion_renderer import RemotionRenderer
-
-    args = build_render_args(video_path, optimized_srt_path, options)
-    if progress_callback is not None:
-        setattr(args, "render_progress_callback", progress_callback)
-    renderer = RemotionRenderer(args)
-    return renderer.warmup_cut_video()

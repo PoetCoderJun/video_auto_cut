@@ -2,6 +2,12 @@ import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 
+import {
+  getResponsiveOverlayTypography,
+  shouldShowProgressSegmentLabel,
+  wrapCaptionText,
+} from "./typography";
+
 export type RenderCaption = {
   index: number;
   start: number;
@@ -11,7 +17,6 @@ export type RenderCaption = {
 
 export type RenderTopic = {
   title: string;
-  summary: string;
   start: number;
   end: number;
 };
@@ -52,100 +57,6 @@ const clamp = (value: number, min = 0, max = 1): number => {
   return value;
 };
 
-/** Typography scales by short edge so portrait / high-res variants remain readable. */
-const BASE_SHORT_EDGE = 1080;
-const MIN_UI_SCALE = 0.6;
-const MAX_UI_SCALE = 2.4;
-const SUBTITLE_FONT_SIZE_BASE = 44;
-const SUBTITLE_MAX_WIDTH_RATIO = 0.9;
-const SUBTITLE_SAFE_WIDTH_RATIO = 0.86;
-const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
-const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:]/;
-
-const charUnits = (char: string): number => {
-  if (char === " " || char === "\t") return 0.35;
-  if (BREAK_PUNCT_RE.test(char)) return 0.6;
-  if (/[0-9A-Za-z]/.test(char)) return 0.56;
-  if (CJK_RE.test(char)) return 1;
-  return 0.75;
-};
-
-const measureUnits = (text: string): number => {
-  let total = 0;
-  for (const char of text) total += charUnits(char);
-  return total;
-};
-
-const findLastBreakPos = (text: string): number => {
-  for (let i = text.length - 1; i >= 0; i -= 1) {
-    if (BREAK_PUNCT_RE.test(text[i])) return i + 1;
-  }
-  return -1;
-};
-
-const wrapSoftLine = (text: string, maxUnits: number): string[] => {
-  if (!text) return [""];
-
-  const wrapped: string[] = [];
-  let line = "";
-  let units = 0;
-  let lastBreakPos = -1;
-  const minBreakPrefix = Math.max(4, Math.floor(maxUnits * 0.45));
-
-  for (const char of text) {
-    const nextUnits = charUnits(char);
-    if (line && BREAK_PUNCT_RE.test(char) && units + nextUnits > maxUnits) {
-      line += char;
-      units += nextUnits;
-      lastBreakPos = line.length;
-      wrapped.push(line);
-      line = "";
-      units = 0;
-      lastBreakPos = -1;
-      continue;
-    }
-    while (line && units + nextUnits > maxUnits) {
-      const breakPos = lastBreakPos >= minBreakPrefix ? lastBreakPos : -1;
-      if (breakPos > 0 && breakPos < line.length) {
-        wrapped.push(line.slice(0, breakPos));
-        line = line.slice(breakPos).trimStart();
-      } else {
-        wrapped.push(line);
-        line = "";
-      }
-      units = measureUnits(line);
-      lastBreakPos = findLastBreakPos(line);
-    }
-
-    if (!line && char === " ") continue;
-    line += char;
-    units += nextUnits;
-    if (BREAK_PUNCT_RE.test(char)) lastBreakPos = line.length;
-  }
-
-  if (line) wrapped.push(line);
-  return wrapped.length > 0 ? wrapped : [""];
-};
-
-const wrapCaptionText = (rawText: string, width: number, fontSize: number): string => {
-  const normalized = (rawText || "").replace(/\r\n?/g, "\n").trim();
-  if (!normalized) return "";
-
-  const usableWidth = Math.max(280, width * SUBTITLE_MAX_WIDTH_RATIO);
-  const maxUnits = Math.max(
-    10,
-    Math.floor((usableWidth * SUBTITLE_SAFE_WIDTH_RATIO) / fontSize)
-  );
-
-  const lines: string[] = [];
-  for (const hardLine of normalized.split("\n")) {
-    const trimmed = hardLine.trim();
-    if (!trimmed) continue;
-    lines.push(...wrapSoftLine(trimmed, maxUnits));
-  }
-  return lines.join("\n");
-};
-
 const round = (n: number) => Math.round(n);
 
 export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
@@ -159,9 +70,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   subtitleTheme = "box-white-on-black",
 }) => {
   const frame = useCurrentFrame();
-  const shortEdge = Math.max(1, Math.min(width, height));
-  const scale = clamp(shortEdge / BASE_SHORT_EDGE, MIN_UI_SCALE, MAX_UI_SCALE);
-  const subtitleFontSize = round(SUBTITLE_FONT_SIZE_BASE * scale);
+  const typography = useMemo(() => getResponsiveOverlayTypography({width, height}), [width, height]);
 
   const scaledStyles = useMemo(() => {
     return {
@@ -169,16 +78,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         position: "absolute" as const,
         left: 0,
         right: 0,
-        bottom: round(80 * scale),
+        bottom: typography.subtitleBottom,
         display: "flex" as const,
         justifyContent: "center" as const,
         pointerEvents: "none" as const,
-        paddingLeft: round(24 * scale),
-        paddingRight: round(24 * scale),
+        paddingLeft: typography.subtitleSidePadding,
+        paddingRight: typography.subtitleSidePadding,
       },
       subtitleBox: {
         color: "#ffffff",
-        fontSize: subtitleFontSize,
+        fontSize: typography.subtitleFontSize,
         fontWeight: 700,
         lineHeight: 1.35,
         textAlign: "center" as const,
@@ -186,50 +95,50 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         whiteSpace: "pre" as const,
         wordBreak: "keep-all" as const,
         overflowWrap: "normal" as const,
-        maxWidth: "90%",
+        maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
       },
       chapterWrap: {
         position: "absolute" as const,
-        top: round(28 * scale),
-        left: round(28 * scale),
-        right: round(28 * scale),
+        top: typography.chapterTop,
+        left: typography.chapterInsetX,
+        right: typography.chapterInsetX,
         pointerEvents: "none" as const,
       },
       chapterCard: {
         display: "inline-flex" as const,
         flexDirection: "column" as const,
-        gap: round(6 * scale),
-        minWidth: round(300 * scale),
-        maxWidth: "70%",
-        padding: `${round(12 * scale)}px ${round(14 * scale)}px`,
-        borderRadius: round(12 * scale),
+        gap: typography.chapterGap,
+        minWidth: typography.chapterCardMinWidth,
+        maxWidth: `${round(typography.chapterCardMaxWidthRatio * 100)}%`,
+        padding: `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`,
+        borderRadius: typography.chapterCardRadius,
         backgroundColor: "rgba(8, 12, 20, 0.74)",
         border: "1px solid rgba(255, 255, 255, 0.2)",
       },
       chapterMeta: {
-        fontSize: round(18 * scale),
+        fontSize: typography.chapterMetaFontSize,
         fontWeight: 700,
         color: "#8ee0ff",
       },
       chapterTitle: {
-        fontSize: round(32 * scale),
+        fontSize: typography.chapterTitleFontSize,
         lineHeight: 1.2,
         fontWeight: 800,
         color: "#ffffff",
       },
       progressWrap: {
         position: "absolute" as const,
-        left: round(28 * scale),
-        right: round(28 * scale),
-        bottom: round(14 * scale),
-        height: round(42 * scale),
+        left: typography.progressInsetX,
+        right: typography.progressInsetX,
+        bottom: typography.progressBottom,
+        height: typography.progressHeight,
         pointerEvents: "none" as const,
       },
       progressTrack: {
         position: "relative" as const,
         width: "100%",
         height: "100%",
-        borderRadius: round(12 * scale),
+        borderRadius: typography.progressRadius,
         overflow: "hidden" as const,
         backgroundColor: "rgba(16, 22, 30, 0.42)",
         border: "1px solid rgba(255, 255, 255, 0.22)",
@@ -254,8 +163,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       },
       progressSegmentLabel: {
         maxWidth: "94%",
-        padding: `0 ${round(4 * scale)}px`,
-        fontSize: round(13 * scale),
+        padding: `0 ${typography.progressLabelPaddingX}px`,
+        fontSize: typography.progressLabelFontSize,
         fontWeight: 700,
         lineHeight: 1.2,
         whiteSpace: "nowrap" as const,
@@ -264,15 +173,20 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         color: "rgba(238, 244, 255, 0.9)",
       },
     };
-  }, [scale, subtitleFontSize]);
+  }, [typography]);
 
   const wrappedCaptions = useMemo(
     () =>
       captions.map((caption) => ({
         ...caption,
-        wrappedText: wrapCaptionText(caption.text, width, subtitleFontSize),
+        wrappedText: wrapCaptionText(caption.text, {
+          width,
+          fontSize: typography.subtitleFontSize,
+          maxWidthRatio: typography.subtitleMaxWidthRatio,
+          safeWidthRatio: typography.subtitleSafeWidthRatio,
+        }),
       })),
-    [captions, width, subtitleFontSize]
+    [captions, typography, width]
   );
 
   const timelineSegments = useMemo((): TimelineSegment[] => {
@@ -366,9 +280,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   }, [normalizedTopics, totalDuration]);
 
   const subtitleStyleOverrides = useMemo(() => {
-    const p = round(8 * scale);
-    const px = round(14 * scale);
-    const br = round(10 * scale);
+    const p = typography.subtitlePaddingY;
+    const px = typography.subtitlePaddingX;
+    const br = typography.subtitleRadius;
     switch (subtitleTheme) {
       case "text-black":
         return {
@@ -392,7 +306,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           backgroundColor: "rgba(255, 255, 255, 0.92)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: "90%",
+          maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
           textShadow: "none",
         } as React.CSSProperties;
       case "box-white-on-black":
@@ -402,11 +316,13 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           backgroundColor: "rgba(0, 0, 0, 0.82)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: "90%",
+          maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
           textShadow: "none",
         } as React.CSSProperties;
     }
-  }, [subtitleTheme, scale]);
+  }, [subtitleTheme, typography]);
+
+  const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
 
   return (
     <AbsoluteFill style={{backgroundColor: "black"}}>
@@ -449,7 +365,13 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
                   color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
                 }}
               >
-                {segment.title}
+                {shouldShowProgressSegmentLabel({
+                  containerWidth: progressInnerWidth,
+                  segmentRatio: segment.endRatio - segment.startRatio,
+                  typography,
+                })
+                  ? segment.title
+                  : ""}
               </div>
             </div>
           ))}

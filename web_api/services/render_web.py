@@ -59,7 +59,7 @@ def build_web_render_config(
         resolved_duration_s = _resolve_duration(duration_sec, captions, segments)
         duration_in_frames = max(1, int(math.ceil(resolved_duration_s * resolved_fps)))
 
-    output_name = f"{job_id}_remotion.mp4"
+    output_name = f"{job_id}_export.mp4"
     input_props: dict[str, Any] = {
         # Always replaced by browser-side blob URL in frontend.
         "src": "",
@@ -139,11 +139,9 @@ def _normalize_topic(raw: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     title = str(raw.get("title") or "").strip() or "章节"
-    summary = str(raw.get("summary") or "").strip()
 
     return {
         "title": title,
-        "summary": summary,
         "start": round(start, 3),
         "end": round(end, 3),
     }

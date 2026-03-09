@@ -135,8 +135,7 @@ MVP 只保留 11 个错误码：
 | `/jobs/{job_id}/step2/run` | `POST` | 运行 Step2 |
 | `/jobs/{job_id}/step2` | `GET` | 获取 Step2 结果 |
 | `/jobs/{job_id}/step2/confirm` | `PUT` | 提交并确认 Step2 |
-| `/jobs/{job_id}/render/run` | `POST` | 启动渲染 |
-| `/jobs/{job_id}/download` | `GET` | 下载最终视频 |
+| `/jobs/{job_id}/render/config` | `GET` | 获取浏览器导出配置 |
 
 ## 6. 关键接口定义
 
@@ -335,10 +334,17 @@ Authorization: Bearer <clerk_session_jwt>
 }
 ```
 
-## 6.6 启动渲染与下载
+## 6.6 获取浏览器导出配置
 
-1) `POST /jobs/{job_id}/render/run`  
-前置状态：`STEP2_CONFIRMED`
+`GET /jobs/{job_id}/render/config`  
+前置状态：`STEP2_CONFIRMED` 或 `SUCCEEDED`
+
+查询参数：
+
+- `width`
+- `height`
+- `fps`
+- `duration_sec`
 
 响应：
 
@@ -346,17 +352,30 @@ Authorization: Bearer <clerk_session_jwt>
 {
   "request_id": "req_8",
   "data": {
-    "accepted": true,
-    "status": "RENDER_RUNNING"
+    "render": {
+      "output_name": "job_01_export.mp4",
+      "composition": {
+        "id": "StitchVideoWeb",
+        "fps": 30,
+        "width": 1080,
+        "height": 1920,
+        "durationInFrames": 900
+      },
+      "input_props": {
+        "src": "",
+        "captions": [],
+        "segments": [],
+        "topics": [],
+        "fps": 30,
+        "width": 1080,
+        "height": 1920
+      }
+    }
   }
 }
 ```
 
-2) `GET /jobs/{job_id}/download`  
-前置状态：`SUCCEEDED`  
-响应：视频文件流（`video/mp4`）  
-说明：默认会刷新该任务的清理计时（不立即删除文件），由 TTL 清理器异步删除。  
-可选参数：`cleanup=0` 表示本次下载不刷新清理计时。
+说明：最终视频由浏览器本地导出并直接下载，不再提供服务端 `render/run` 或 `download` 接口。
 
 ## 7. 前端最小联调顺序
 
@@ -366,11 +385,10 @@ Authorization: Bearer <clerk_session_jwt>
 4. `GET /jobs/{job_id}/step1` -> 编辑 -> `PUT /jobs/{job_id}/step1/confirm`
 5. `POST /jobs/{job_id}/step2/run` + 轮询 `GET /jobs/{job_id}`
 6. `GET /jobs/{job_id}/step2` -> 编辑 -> `PUT /jobs/{job_id}/step2/confirm`
-7. `POST /jobs/{job_id}/render/run` + 轮询 `GET /jobs/{job_id}`
-8. `GET /jobs/{job_id}/download`
+7. `GET /jobs/{job_id}/render/config`，浏览器本地导出并下载
 
 ## 8. 与当前代码模块映射
 
 - Step1：`video_auto_cut/asr/transcribe.py` + `video_auto_cut/editing/auto_edit.py`
 - Step2：`video_auto_cut/editing/topic_segment.py`
-- Render：`video_auto_cut/rendering/remotion_renderer.py`
+- Render：`web_api/services/render_web.py` + `web_frontend/lib/remotion/stitch-video-web.tsx`
