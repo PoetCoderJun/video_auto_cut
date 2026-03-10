@@ -28,8 +28,8 @@
 - Prefer small, focused modules in `web_api/services` and `web_frontend/components`.
 
 ## Testing Guidelines
-- Current automated tests exist mainly in `autocut/test/` (unittest style).
-- Run: `python -m unittest discover autocut/test -p "test_*.py"`.
+- Current automated tests exist mainly in `web_api/tests/` (unittest style).
+- Run: `python -m unittest discover web_api/tests -p "test_*.py"`.
 - For web changes, always run:
   - `cd web_frontend && npx tsc --noEmit`
   - `npm --prefix web_frontend run build`
