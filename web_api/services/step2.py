@@ -124,16 +124,8 @@ def run_step2(job_id: str) -> None:
     _ensure_full_line_coverage(chapters, kept_line_ids)
     push(PROGRESS_STEP2_READY - 1)
 
-    final_topics = dirs["step2"] / "final_topics.json"
-    replace_step2_chapters(job_id, chapters)
-    write_topics_json(chapters, final_topics)
-
-    upsert_job_files(
-        job_id,
-        topics_path=str(generated_topics),
-        final_topics_path=str(final_topics),
-    )
-    update_job(job_id, status=JOB_STATUS_STEP2_READY, progress=PROGRESS_STEP2_READY)
+    upsert_job_files(job_id, topics_path=str(generated_topics))
+    confirm_step2(job_id, chapters)
 
 
 def _load_chapters(path: Path) -> list[dict[str, Any]]:
@@ -159,14 +151,10 @@ def _load_chapters(path: Path) -> list[dict[str, Any]]:
             line_ids = topic.get("segment_ids") if isinstance(topic.get("segment_ids"), list) else []
 
         title = str(topic.get("title") or "").strip() or f"章节{idx}"
-        raw_summary = str(topic.get("summary") or title or "").strip()
-        summary = title if (not raw_summary or raw_summary == title) else raw_summary
-
         chapters.append(
             {
                 "chapter_id": idx,
                 "title": title,
-                "summary": summary,
                 "start": start,
                 "end": end,
                 "line_ids": [int(item) for item in line_ids if isinstance(item, (int, float))],
@@ -188,13 +176,10 @@ def confirm_step2(job_id: str, chapters: list[dict[str, Any]]) -> list[dict[str,
         line_ids_raw = chapter.get("line_ids") or []
         line_ids = [int(item) for item in line_ids_raw if isinstance(item, (int, float))]
         title = str(chapter.get("title", "")).strip() or f"章节{idx}"
-        raw_summary = str(chapter.get("summary", "")).strip()
-        summary = title if (not raw_summary or raw_summary == title) else raw_summary
         normalized.append(
             {
                 "chapter_id": int(chapter.get("chapter_id", idx)),
                 "title": title,
-                "summary": summary,
                 "start": start,
                 "end": end,
                 "line_ids": line_ids,

@@ -333,6 +333,7 @@ export default function HomePageClient() {
           key={jobId}
           jobId={jobId}
           onBackHome={handleBackHome}
+          onSwitchJob={saveJobId}
         />
       </div>
     );

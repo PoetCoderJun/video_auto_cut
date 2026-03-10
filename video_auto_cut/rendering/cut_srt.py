@@ -73,7 +73,13 @@ def build_remapped_captions(
     return captions
 
 
-def write_cut_srt(captions: List[Dict[str, Any]], output_srt_path: str, encoding: str) -> str:
+def write_cut_srt(
+    captions: List[Dict[str, Any]],
+    output_srt_path: str,
+    encoding: str,
+    *,
+    preserve_input_indices: bool = True,
+) -> str:
     output_path = Path(output_srt_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -86,12 +92,15 @@ def write_cut_srt(captions: List[Dict[str, Any]], output_srt_path: str, encoding
         text = str(cap.get("text") or "").strip()
         if not text:
             continue
-        raw_index = cap.get("index")
-        try:
-            sub_index = int(raw_index)
-        except Exception:
-            sub_index = idx
-        if sub_index <= 0:
+        if preserve_input_indices:
+            raw_index = cap.get("index")
+            try:
+                sub_index = int(raw_index)
+            except Exception:
+                sub_index = idx
+            if sub_index <= 0:
+                sub_index = idx
+        else:
             sub_index = idx
         subs.append(
             srt.Subtitle(
@@ -113,6 +122,8 @@ def build_cut_srt_from_optimized_srt(
     output_srt_path: str,
     encoding: str,
     merge_gap_s: float,
+    *,
+    preserve_input_indices: bool = True,
 ) -> Dict[str, Any]:
     kept_subs = load_kept_subtitles(source_srt_path, encoding)
     if not kept_subs:
@@ -123,7 +134,12 @@ def build_cut_srt_from_optimized_srt(
     if not captions:
         raise RuntimeError("No captions available after remapping subtitle timeline.")
 
-    cut_srt_path = write_cut_srt(captions, output_srt_path, encoding)
+    cut_srt_path = write_cut_srt(
+        captions,
+        output_srt_path,
+        encoding,
+        preserve_input_indices=preserve_input_indices,
+    )
     return {
         "cut_srt_path": cut_srt_path,
         "kept_subtitles": kept_subs,

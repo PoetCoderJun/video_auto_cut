@@ -1,13 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
-import { Inter as FontSans } from "next/font/google";
-import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
-
-const fontSans = FontSans({
-  subsets: ["latin"],
-  variable: "--font-sans",
-});
 
 const siteName = "AI 视频智能剪辑";
 const siteDescription =
@@ -57,12 +50,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body
-        className={cn(
-          "min-h-screen bg-background font-sans antialiased",
-          fontSans.variable
-        )}
-      >
+      <body className="min-h-screen bg-background font-sans antialiased">
         {children}
         <Toaster />
       </body>

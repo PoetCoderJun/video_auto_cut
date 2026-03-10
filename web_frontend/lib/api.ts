@@ -30,7 +30,6 @@ export type Step1Line = {
 export type Chapter = {
   chapter_id: number;
   title: string;
-  summary: string;
   start: number;
   end: number;
   line_ids: number[];
@@ -50,7 +49,6 @@ export type RenderSegment = {
 
 export type RenderTopic = {
   title: string;
-  summary: string;
   start: number;
   end: number;
 };

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiClientError,
   Chapter,
+  createJob,
   Job,
   RenderMeta,
   Step1Line,
@@ -23,6 +24,11 @@ import {
   loadCachedJobSourceVideo,
   saveCachedJobSourceVideo,
 } from "../lib/video-cache";
+import {
+  mergeJobSnapshot,
+  mergeJobStatus,
+  shouldPollJobStatus,
+} from "../lib/job-status";
 import { STATUS } from "../lib/workflow";
 import {
   StitchVideoWeb,
@@ -52,7 +58,6 @@ import {
   UploadCloud,
   CheckCircle2,
   ArrowRight,
-  Trash2,
   Download,
   FileVideo,
   X,
@@ -65,27 +70,8 @@ function autoResize(target: HTMLTextAreaElement) {
 
 const STEPS = [
   { id: 1, label: "上传视频" },
-  { id: 2, label: "剪辑字幕" },
-  { id: 3, label: "确认章节" },
-  { id: 4, label: "导出视频" },
-];
-
-const CHAPTER_COLORS = [
-  "border-l-blue-500 bg-blue-50/50",
-  "border-l-emerald-500 bg-emerald-50/50",
-  "border-l-amber-500 bg-amber-50/50",
-  "border-l-red-500 bg-red-50/50",
-  "border-l-violet-500 bg-violet-50/50",
-  "border-l-pink-500 bg-pink-50/50",
-];
-
-const CHAPTER_BADGE_COLORS = [
-  "bg-blue-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-red-500",
-  "bg-violet-500",
-  "bg-pink-500",
+  { id: 2, label: "编辑字幕" },
+  { id: 3, label: "导出视频" },
 ];
 
 const SUPPORTED_UPLOAD_EXTENSIONS = [
@@ -118,10 +104,9 @@ function getActiveStep(status: Job["status"]): number {
     case STATUS.STEP1_CONFIRMED:
     case STATUS.STEP2_RUNNING:
     case STATUS.STEP2_READY:
-      return 3;
     case STATUS.STEP2_CONFIRMED:
     case STATUS.SUCCEEDED:
-      return 4;
+      return 3;
     default:
       return 1;
   }
@@ -189,9 +174,11 @@ function getEstimatedDurationFromLines(lines: Step1Line[]): number {
 export default function JobWorkspace({
   jobId,
   onBackHome,
+  onSwitchJob,
 }: {
   jobId: string;
   onBackHome?: () => void;
+  onSwitchJob?: (jobId: string) => void;
 }) {
   const [job, setJob] = useState<Job | null>(null);
   const [lines, setLines] = useState<Step1Line[]>([]);
@@ -209,29 +196,15 @@ export default function JobWorkspace({
     "box-white-on-black"
   );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
   const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
   const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
-
-  const lineToChapterIndex = useMemo(() => {
-    const map: Record<number, number> = {};
-    chapters.forEach((ch, idx) => {
-      ch.line_ids.forEach((lid) => {
-        map[lid] = idx;
-      });
-    });
-    return map;
-  }, [chapters]);
-
-  const keptLines = useMemo(
-    () => lines.filter((l) => !l.user_final_remove),
-    [lines]
-  );
+  const [autoStep2ConfirmTriggered, setAutoStep2ConfirmTriggered] = useState(false);
+  const [autoRenderTriggered, setAutoRenderTriggered] = useState(false);
 
   const refreshJob = useCallback(async () => {
     try {
       const next = await getJob(jobId);
-      setJob(next);
+      setJob((previous) => mergeJobSnapshot(previous, next));
       return next;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -291,11 +264,43 @@ export default function JobWorkspace({
       if (chapters.length === 0) {
         getStep2(jobId).then(setChapters).catch(() => undefined);
       }
-      if (lines.length === 0) {
-        getStep1(jobId).then(setLines).catch(() => undefined);
-      }
     }
-  }, [job, chapters.length, lines.length, jobId]);
+  }, [job, chapters.length, jobId]);
+
+  useEffect(() => {
+    if (
+      !job ||
+      job.status !== STATUS.STEP2_READY ||
+      chapters.length === 0 ||
+      autoStep2ConfirmTriggered ||
+      busy
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    setAutoStep2ConfirmTriggered(true);
+    setError("");
+    setBusy(true);
+    confirmStep2(jobId, chapters)
+      .then((status) => {
+        if (cancelled) return;
+        setJob((previous) => mergeJobStatus(previous, status));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "自动确认章节失败，请重试。");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBusy(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job, chapters, autoStep2ConfirmTriggered, jobId, busy]);
 
   useEffect(() => {
     return () => {
@@ -310,6 +315,8 @@ export default function JobWorkspace({
     setRenderProgress(0);
     setAutoStep1Triggered(false);
     setAutoStep2Triggered(false);
+    setAutoStep2ConfirmTriggered(false);
+    setAutoRenderTriggered(false);
     setRenderDownloadUrl((previous) => {
       if (previous) URL.revokeObjectURL(previous);
       return null;
@@ -368,17 +375,19 @@ export default function JobWorkspace({
       }
       setBusy(true);
       try {
+        const nextJob = await createJob();
         const audioFile = await extractAudioForAsr(file);
-        const uploadedJob = await uploadAudioDirectToOss(jobId, audioFile);
-        void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
-        setJob(uploadedJob);
+        const uploadedJob = await uploadAudioDirectToOss(nextJob.job_id, audioFile);
+        await saveCachedJobSourceVideo(nextJob.job_id, file).catch(() => undefined);
+        onSwitchJob?.(nextJob.job_id);
+        setJob((previous) => mergeJobSnapshot(previous, uploadedJob));
       } catch (err) {
         setError(err instanceof Error ? err.message : "音频提取或上传失败，请重试。");
       } finally {
         setBusy(false);
       }
     },
-    [jobId]
+    [onSwitchJob]
   );
 
   useEffect(() => {
@@ -397,7 +406,7 @@ export default function JobWorkspace({
     runStep1(jobId)
       .then((step1Result) => {
         if (cancelled) return;
-        setJob(step1Result.job);
+        setJob((previous) => mergeJobSnapshot(previous, step1Result.job));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -434,7 +443,7 @@ export default function JobWorkspace({
     runStep2(jobId)
       .then((step2Result) => {
         if (cancelled) return;
-        setJob(step2Result.job);
+        setJob((previous) => mergeJobSnapshot(previous, step2Result.job));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -455,14 +464,15 @@ export default function JobWorkspace({
     setAutoStep2Triggered(false);
   }, [job, busy]);
 
+  const handleRetryStep2ConfirmAutoRun = useCallback(() => {
+    if (!job || job.status !== STATUS.STEP2_READY || busy) return;
+    setError("");
+    setAutoStep2ConfirmTriggered(false);
+  }, [job, busy]);
+
   useEffect(() => {
     if (!job) return;
-    const isTransitional =
-      job.status === STATUS.UPLOAD_READY ||
-      job.status === STATUS.STEP1_RUNNING ||
-      job.status === STATUS.STEP1_CONFIRMED ||
-      job.status === STATUS.STEP2_RUNNING;
-    if (!isTransitional) return;
+    if (!shouldPollJobStatus(job.status)) return;
 
     const timer = setInterval(() => {
       refreshJob().catch(() => undefined);
@@ -487,22 +497,9 @@ export default function JobWorkspace({
     setBusy(true);
     try {
       const status = await confirmStep1(jobId, lines);
-      setJob((previous) => (previous ? { ...previous, status } : previous));
+      setJob((previous) => mergeJobStatus(previous, status));
       const step2Result = await runStep2(jobId);
-      setJob(step2Result.job);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "保存失败，请重试。");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleConfirmStep2 = async () => {
-    setError("");
-    setBusy(true);
-    try {
-      const status = await confirmStep2(jobId, chapters);
-      setJob((previous) => (previous ? { ...previous, status } : previous));
+      setJob((previous) => mergeJobSnapshot(previous, step2Result.job));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败，请重试。");
     } finally {
@@ -752,6 +749,7 @@ export default function JobWorkspace({
       autoDownloadLink.click();
       document.body.removeChild(autoDownloadLink);
       setRenderProgress(100);
+      setJob((previous) => mergeJobStatus(previous, STATUS.SUCCEEDED));
     } catch (err) {
       setError(err instanceof Error ? err.message : "浏览器导出失败，请重试。");
     } finally {
@@ -761,6 +759,27 @@ export default function JobWorkspace({
       setRenderBusy(false);
     }
   }, [jobId, selectedFile, subtitleTheme]);
+
+  useEffect(() => {
+    if (
+      !job ||
+      job.status !== STATUS.STEP2_CONFIRMED ||
+      autoRenderTriggered ||
+      renderBusy ||
+      renderDownloadUrl
+    ) {
+      return;
+    }
+
+    setAutoRenderTriggered(true);
+    void handleStartRender();
+  }, [
+    autoRenderTriggered,
+    handleStartRender,
+    job,
+    renderBusy,
+    renderDownloadUrl,
+  ]);
 
   useEffect(() => {
     if (renderBusy) return;
@@ -775,49 +794,6 @@ export default function JobWorkspace({
   const updateLine = (lineId: number, patch: Partial<Step1Line>) => {
     setLines((prev) =>
       prev.map((line) => (line.line_id === lineId ? { ...line, ...patch } : line))
-    );
-  };
-
-  const updateChapter = (chapterId: number, patch: Partial<Chapter>) => {
-    setChapters((prev) =>
-      prev.map((chapter) =>
-        chapter.chapter_id === chapterId ? { ...chapter, ...patch } : chapter
-      )
-    );
-  };
-
-  const handleDragStart = (e: React.DragEvent, lineId: number) => {
-    e.dataTransfer.setData("text/plain", lineId.toString());
-    e.dataTransfer.effectAllowed = "move";
-    setDraggedLineId(lineId);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedLineId(null);
-  };
-
-  const handleDropOnLine = (e: React.DragEvent, targetLineId: number) => {
-    e.preventDefault();
-    setDraggedLineId(null);
-
-    const lineIdStr = e.dataTransfer.getData("text/plain");
-    if (!lineIdStr) return;
-    const draggedId = parseInt(lineIdStr, 10);
-    if (draggedId === targetLineId) return;
-
-    const targetChapterIdx = lineToChapterIndex[targetLineId];
-    if (targetChapterIdx === undefined) return;
-    const targetChapter = chapters[targetChapterIdx];
-
-    setChapters((prev) =>
-      prev.map((ch) => {
-        const filtered = ch.line_ids.filter((id) => id !== draggedId);
-        if (ch.chapter_id === targetChapter.chapter_id) {
-          const newIds = [...filtered, draggedId].sort((a, b) => a - b);
-          return { ...ch, line_ids: newIds };
-        }
-        return { ...ch, line_ids: filtered };
-      })
     );
   };
 
@@ -847,7 +823,7 @@ export default function JobWorkspace({
             {STEPS.map((step, idx) => {
               const isCompleted =
                 step.id < activeStep ||
-                (step.id === 4 && job.status === STATUS.SUCCEEDED);
+                (step.id === 3 && job.status === STATUS.SUCCEEDED);
               const isActive =
                 step.id === activeStep && job.status !== STATUS.SUCCEEDED;
               return (
@@ -972,12 +948,15 @@ export default function JobWorkspace({
       )}
 
       {(job.status === STATUS.STEP1_CONFIRMED ||
-        job.status === STATUS.STEP2_RUNNING) && (
+        job.status === STATUS.STEP2_RUNNING ||
+        job.status === STATUS.STEP2_READY) && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
-          <h2 className="text-xl font-semibold">正在生成章节</h2>
+          <h2 className="text-xl font-semibold">
+            {job.status === STATUS.STEP2_READY ? "正在准备导出" : "正在生成章节"}
+          </h2>
           <p className="text-muted-foreground">
-            请等待，处理完成后将自动进入导出步骤。
+            系统会自动采用 AI 章节结果，并直接进入导出步骤。
           </p>
           {job.status === STATUS.STEP1_CONFIRMED && !busy && autoStep2Triggered && (
             <Button
@@ -987,6 +966,16 @@ export default function JobWorkspace({
               onClick={handleRetryStep2AutoRun}
             >
               重新尝试启动章节任务
+            </Button>
+          )}
+          {job.status === STATUS.STEP2_READY && !busy && autoStep2ConfirmTriggered && (
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4"
+              onClick={handleRetryStep2ConfirmAutoRun}
+            >
+              重新尝试进入导出
             </Button>
           )}
         </div>
@@ -1101,7 +1090,7 @@ export default function JobWorkspace({
                       正在保存...
                     </>
                   ) : (
-                    "确认无误，下一步"
+                    "确认无误，开始导出准备"
                   )}
                 </Button>
               </CardContent>
@@ -1110,155 +1099,13 @@ export default function JobWorkspace({
         </div>
       )}
 
-      {/* Step 3: Chapters */}
-      {job.status === STATUS.STEP2_READY && (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">确认视频章节</h2>
-            <p className="text-muted-foreground">
-              拖拽字幕行可调整章节归属，点击标题可编辑。
-            </p>
-          </div>
-
-          <div className="space-y-6">
-            {chapters.map((chapter, chapterIdx) => {
-              const badgeColorClass =
-                CHAPTER_BADGE_COLORS[chapterIdx % CHAPTER_BADGE_COLORS.length];
-              const borderClass =
-                CHAPTER_COLORS[chapterIdx % CHAPTER_COLORS.length];
-              const chapterLines = keptLines.filter((l) =>
-                chapter.line_ids.includes(l.line_id)
-              );
-
-              return (
-                <div
-                  key={chapter.chapter_id}
-                  className={cn(
-                    "relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all",
-                    borderClass
-                  )}
-                >
-                  <div className="flex items-center gap-4 border-b bg-muted/30 p-4">
-                    <Badge
-                      className={cn(
-                        "h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-white hover:bg-opacity-90",
-                        badgeColorClass
-                      )}
-                    >
-                      {chapterIdx + 1}
-                    </Badge>
-                    <input
-                      type="text"
-                      value={chapter.title}
-                      placeholder="章节标题"
-                      onChange={(e) =>
-                        updateChapter(chapter.chapter_id, {
-                          title: e.target.value,
-                        })
-                      }
-                      className="flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground"
-                    />
-                    <Badge variant="outline" className="ml-auto">
-                      {chapterLines.length} 句
-                    </Badge>
-                  </div>
-
-                  <div
-                    className="min-h-[60px] divide-y divide-border/50"
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setDraggedLineId(null);
-                      const lid = parseInt(
-                        e.dataTransfer.getData("text/plain"),
-                        10
-                      );
-                      if (Number.isNaN(lid)) return;
-                      if (chapter.line_ids.includes(lid)) return;
-                      setChapters((prev) =>
-                        prev.map((ch) => {
-                          const filtered = ch.line_ids.filter((id) => id !== lid);
-                          if (ch.chapter_id === chapter.chapter_id) {
-                            return {
-                              ...ch,
-                              line_ids: [...filtered, lid].sort((a, b) => a - b),
-                            };
-                          }
-                          return { ...ch, line_ids: filtered };
-                        })
-                      );
-                    }}
-                  >
-                    {chapterLines.map((l) => {
-                      const isDragged = draggedLineId === l.line_id;
-                      return (
-                        <div
-                          key={l.line_id}
-                          draggable
-                          onDragStart={(e) => handleDragStart(e, l.line_id)}
-                          onDragEnd={handleDragEnd}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                          }}
-                          onDrop={(e) => handleDropOnLine(e, l.line_id)}
-                          className={cn(
-                            "flex cursor-grab items-start gap-3 p-3 text-sm transition-colors active:cursor-grabbing",
-                            isDragged
-                              ? "bg-muted opacity-40"
-                              : "hover:bg-muted/40"
-                          )}
-                        >
-                          <span className="mt-0.5 select-none font-mono text-xs text-muted-foreground">
-                            {formatDuration(l.start)}
-                          </span>
-                          <span className="flex-1 leading-relaxed">
-                            {l.optimized_text}
-                          </span>
-                        </div>
-                      );
-                    })}
-                    {chapterLines.length === 0 && (
-                      <div className="flex h-20 items-center justify-center text-sm text-muted-foreground border-2 border-dashed border-muted m-4 rounded-md">
-                        拖拽字幕行到此章节
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="flex justify-center pt-8">
-            <Button
-              size="lg"
-              className="w-full max-w-sm"
-              onClick={handleConfirmStep2}
-              disabled={chapters.length === 0 || busy}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在保存...
-                </>
-              ) : (
-                "确认章节，进入导出"
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Export */}
+      {/* Step 3: Export */}
       {(job.status === STATUS.STEP2_CONFIRMED || job.status === STATUS.SUCCEEDED) && (
         <div className="mx-auto max-w-lg text-center animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-8">
           <div>
             <h2 className="text-2xl font-bold tracking-tight mb-2">导出视频</h2>
             <p className="text-muted-foreground">
-              请选择字幕样式后，点击“开始导出”。
+              系统会自动开始导出，您也可以调整字幕样式后重新导出。
             </p>
           </div>
 

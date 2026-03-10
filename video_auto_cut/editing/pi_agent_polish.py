@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import llm_client as llm_utils
-from .pi_agent_models import LineDecision
+from .pi_agent_models import LineDecision, MergedGroup
 
 
 TRAILING_LINE_PUNCTUATION = "，。、；：!！."
@@ -14,6 +14,12 @@ TRAILING_LINE_PUNCTUATION = "，。、；：!！."
 @dataclass(frozen=True)
 class PolishLoopResult:
     decisions: list[LineDecision]
+    debug: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ChunkPolishLoopResult:
+    groups: list[MergedGroup]
     debug: dict[str, Any]
 
 
@@ -232,3 +238,203 @@ class PiAgentPolishLoop:
                 continue
             result[line_id] = item
         return result
+
+
+class PiAgentChunkPolishLoop:
+    def __init__(
+        self,
+        llm_config: dict[str, Any],
+        max_iterations: int = 2,
+        chat_completion_fn: Any | None = None,
+    ) -> None:
+        self.llm_config = llm_config
+        self.max_iterations = max_iterations
+        self.chat_completion_fn = chat_completion_fn
+
+    def build_polish_draft_prompt(
+        self,
+        groups: list[MergedGroup],
+    ) -> list[dict[str, str]]:
+        system = (
+            "你是口播润色 PI agent 的 chunk rewrite skill。"
+            "输入已经删掉了重复和废话，每个 chunk 都带有上下文。"
+            "任务：大胆重写每个 chunk，让它更像最终可直接发布的口播文案。"
+            "不要拘泥于原句字面表达，可以在不改变事实的前提下重组语序和表达。"
+            "优先修复明显的ASR错误、术语误识别、病句、残句和口头语。"
+            "允许结合上下文补全高概率缺失的词语或主语，但不能编造新事实。"
+            "不要新增原文没有的新事实、数字、政策或结论。"
+            "保持 chunk 顺序不变。只输出 JSON，不要解释。"
+        )
+        user = (
+            "请重写这些 chunk。\n"
+            '输出格式：{"chunks":[{"chunk_id":2,"text":"...","reason":"...","confidence":0.95}]}\n'
+            "chunks:\n"
+            f"{self._serialize_groups(groups)}"
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def build_polish_critique_prompt(
+        self,
+        groups: list[MergedGroup],
+        draft_payload: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        system = (
+            "你是口播润色 PI agent 的 critique skill。"
+            "检查 chunk 重写结果是否还保留明显 ASR 脏词、坏句、残句，"
+            "是否还不够像可直接发布的口播文案，"
+            "或者过度脑补了原文没有的事实。只输出 JSON，不要解释。"
+        )
+        user = (
+            "请审查这份 chunk rewrite draft。\n"
+            '输出格式：{"needs_revision":true,"issues":[{"chunk_id":2,"message":"..."}]}\n'
+            "source chunks:\n"
+            f"{self._serialize_groups(groups)}\n\n"
+            "draft:\n"
+            f"{json.dumps(draft_payload, ensure_ascii=False)}"
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def build_polish_revise_prompt(
+        self,
+        groups: list[MergedGroup],
+        draft_payload: dict[str, Any],
+        critique_payload: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        system = (
+            "你是口播润色 PI agent 的 revise skill。"
+            "根据 critique 修正整份 chunk rewrite draft。"
+            "目标是让结果更像可直接发布的口播文案，允许大胆重写，但不能改动事实。"
+            "必须覆盖全部 chunk。只输出 JSON，不要解释。"
+        )
+        user = (
+            "请根据 critique 重新给出完整的 chunk 重写结果。\n"
+            '输出格式：{"chunks":[{"chunk_id":2,"text":"...","reason":"...","confidence":0.95}]}\n'
+            "source chunks:\n"
+            f"{self._serialize_groups(groups)}\n\n"
+            "draft:\n"
+            f"{json.dumps(draft_payload, ensure_ascii=False)}\n\n"
+            "critique:\n"
+            f"{json.dumps(critique_payload, ensure_ascii=False)}"
+        )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+    def run(self, groups: list[MergedGroup]) -> ChunkPolishLoopResult:
+        if not groups:
+            return ChunkPolishLoopResult(groups=[], debug={"iterations": 0, "final_source": "empty"})
+
+        draft_payload = self._run_json_prompt(self.build_polish_draft_prompt(groups))
+        final_payload = draft_payload
+        final_source = "draft"
+        critique_payload: dict[str, Any] = {"needs_revision": False, "issues": []}
+        iterations = 0
+
+        for _ in range(self.max_iterations):
+            iterations += 1
+            critique_payload = self._run_json_prompt(
+                self.build_polish_critique_prompt(groups, final_payload)
+            )
+            if not bool(critique_payload.get("needs_revision")):
+                break
+
+            revised_payload = self._run_json_prompt(
+                self.build_polish_revise_prompt(groups, final_payload, critique_payload)
+            )
+            if self._covers_all_chunks(revised_payload, groups):
+                final_payload = revised_payload
+                final_source = "revise"
+                break
+            final_source = "fallback"
+            break
+
+        rewritten_groups = self._build_groups(groups, draft_payload, final_payload, final_source)
+        return ChunkPolishLoopResult(
+            groups=rewritten_groups,
+            debug={
+                "iterations": iterations,
+                "draft": draft_payload,
+                "critique": critique_payload,
+                "final": final_payload,
+                "final_source": final_source,
+            },
+        )
+
+    def _serialize_groups(self, groups: list[MergedGroup]) -> str:
+        return "\n".join(
+            json.dumps(
+                {
+                    "label": f"C{self._chunk_id(group):04d}",
+                    "chunk_id": self._chunk_id(group),
+                    "source_line_ids": list(group.source_line_ids),
+                    "start": group.start,
+                    "end": group.end,
+                    "text": group.text,
+                },
+                ensure_ascii=False,
+            )
+            for group in groups
+        )
+
+    def _run_json_prompt(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        chat_completion_fn = self.chat_completion_fn or llm_utils.chat_completion
+        response = chat_completion_fn(self.llm_config, messages)
+        return _json_loads(response)
+
+    def _covers_all_chunks(self, payload: dict[str, Any], groups: list[MergedGroup]) -> bool:
+        items = payload.get("chunks")
+        if not isinstance(items, list):
+            return False
+        expected = {self._chunk_id(group) for group in groups}
+        seen: set[int] = set()
+        for item in items:
+            if not isinstance(item, dict):
+                return False
+            try:
+                chunk_id = int(item.get("chunk_id"))
+            except (TypeError, ValueError):
+                return False
+            if not str(item.get("text") or "").strip():
+                return False
+            seen.add(chunk_id)
+        return seen == expected
+
+    def _build_groups(
+        self,
+        groups: list[MergedGroup],
+        draft_payload: dict[str, Any],
+        final_payload: dict[str, Any],
+        final_source: str,
+    ) -> list[MergedGroup]:
+        draft_map = self._payload_to_map(draft_payload)
+        final_map = self._payload_to_map(final_payload)
+        use_final = final_source != "fallback"
+        result: list[MergedGroup] = []
+
+        for group in groups:
+            chunk_id = self._chunk_id(group)
+            payload = final_map.get(chunk_id) if use_final else draft_map.get(chunk_id)
+            if payload is None:
+                payload = draft_map.get(chunk_id) or {"text": group.text}
+            result.append(
+                MergedGroup(
+                    source_line_ids=list(group.source_line_ids),
+                    text=_normalize_polished_text(str(payload.get("text") or group.text)),
+                    start=group.start,
+                    end=group.end,
+                )
+            )
+        return result
+
+    def _payload_to_map(self, payload: dict[str, Any]) -> dict[int, dict[str, Any]]:
+        result: dict[int, dict[str, Any]] = {}
+        for item in payload.get("chunks") or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                chunk_id = int(item.get("chunk_id"))
+            except (TypeError, ValueError):
+                continue
+            result[chunk_id] = item
+        return result
+
+    def _chunk_id(self, group: MergedGroup) -> int:
+        return int(group.source_line_ids[0]) if group.source_line_ids else 0

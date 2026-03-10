@@ -109,6 +109,23 @@ def polish_payload(lines: list[tuple[int, str, str, float]]) -> str:
     )
 
 
+def rewrite_payload(chunks: list[tuple[int, str, str, float]]) -> str:
+    return json.dumps(
+        {
+            "chunks": [
+                {
+                    "chunk_id": chunk_id,
+                    "text": text,
+                    "reason": reason,
+                    "confidence": confidence,
+                }
+                for chunk_id, text, reason, confidence in chunks
+            ]
+        },
+        ensure_ascii=False,
+    )
+
+
 class AutoEditPiAgentE2ETest(unittest.TestCase):
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
     def test_non_chunked_flow_returns_step1_lines_and_polished_groups(self, mock_chat) -> None:
@@ -131,13 +148,14 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
                     (5, "KEEP", "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.90),
                 ]
             ),
-            critique_payload(False),
-            polish_payload(
+            rewrite_payload(
                 [
-                    (2, "后面这句是正确表达", "保留", 0.94),
-                    (3, "短句", "保留", 0.94),
-                    (4, "继续短", "保留", 0.94),
-                    (5, "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.94),
+                    (
+                        2,
+                        "后面这句是正确表达，短句继续展开，这句很长不需要合并因为已经超过二十字阈值",
+                        "整段重写",
+                        0.94,
+                    ),
                 ]
             ),
             critique_payload(False),
@@ -149,7 +167,7 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
         self.assertTrue(result["optimized_subs"][0].content.startswith(REMOVE_TOKEN))
         self.assertEqual(
             result["optimized_subs"][1].content,
-            "后面这句是正确表达，短句，继续短，这句很长不需要合并因为已经超过二十字阈值",
+            "后面这句是正确表达，短句继续展开，这句很长不需要合并因为已经超过二十字阈值",
         )
         self.assertEqual(len(result["raw_optimized_subs"]), 5)
         self.assertEqual(len(result["step1_lines"]), 2)
@@ -157,7 +175,10 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
         self.assertFalse(result["step1_lines"][1]["ai_suggest_remove"])
         self.assertTrue(result["debug"]["pi_agent"])
         self.assertEqual(result["debug"]["merged_groups"][0]["source_line_ids"], [2, 3, 4, 5])
-        self.assertEqual(result["raw_optimized_subs"][1].content, "后面这句是正确表达")
+        self.assertEqual(
+            result["debug"]["rewritten_groups"][0]["text"],
+            "后面这句是正确表达，短句继续展开，这句很长不需要合并因为已经超过二十字阈值",
+        )
 
     @patch("video_auto_cut.editing.auto_edit.llm_utils.chat_completion")
     def test_low_speech_is_forced_removed_in_step1_sidecar(self, mock_chat) -> None:
@@ -176,11 +197,9 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
                     (3, "KEEP", "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.90),
                 ]
             ),
-            critique_payload(False),
-            polish_payload(
+            rewrite_payload(
                 [
-                    (2, "短句一", "保留", 0.93),
-                    (3, "这句很长不需要合并因为已经超过二十字阈值", "保留", 0.93),
+                    (2, "短句一，这句很长不需要合并因为已经超过二十字阈值", "整段重写", 0.93),
                 ]
             ),
             critique_payload(False),
@@ -218,8 +237,8 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
             text = "前句试探" if line_id % 2 == 1 else "这句很长不需要合并因为已经超过二十字阈值"
             second_chunk_actions.append((line_id, action, text if action == "KEEP" else "", "chunk2", 0.9))
         kept_even_ids = [line_id for line_id in range(1, total_lines + 1) if line_id % 2 == 0]
-        polished_lines = [
-            (line_id, "这句很长不需要合并因为已经超过二十字阈值", "保留长句", 0.95)
+        rewritten_chunks = [
+            (line_id, "这句很长不需要合并因为已经超过二十字阈值", "整段重写", 0.95)
             for line_id in kept_even_ids
         ]
         mock_chat.side_effect = [
@@ -232,7 +251,7 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
                 },
                 ensure_ascii=False,
             ),
-            polish_payload(polished_lines),
+            rewrite_payload(rewritten_chunks),
             critique_payload(False),
         ]
 

@@ -16,7 +16,6 @@ class Step1ConfirmRequest(BaseModel):
 class Step2ConfirmChapter(BaseModel):
     chapter_id: int = Field(..., ge=1)
     title: str = Field(default="")
-    summary: str = Field(default="")
     start: float = Field(..., ge=0)
     end: float = Field(..., ge=0)
     line_ids: list[int] = Field(default_factory=list)

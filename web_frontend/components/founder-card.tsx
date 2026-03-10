@@ -11,15 +11,21 @@ export default function FounderCard({ className }: FounderCardProps) {
   return (
     <Card className={cn("text-center shadow-lg", className)}>
       <CardContent className="pt-8">
-        <div className="relative mx-auto mb-4 h-20 w-20 overflow-hidden rounded-full border-2 border-border">
-          <a
-            href="https://xhslink.com/m/2CUIT8iyntn"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image src="/photo.jpg" alt="Jun" fill className="object-cover" />
-          </a>
-        </div>
+        <a
+          href="https://xhslink.com/m/2CUIT8iyntn"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="relative mx-auto mb-4 block h-20 w-20 overflow-hidden rounded-full border-2 border-border"
+        >
+          <Image
+            src="/photo.jpg"
+            alt="Jun"
+            fill
+            sizes="80px"
+            unoptimized
+            className="object-cover"
+          />
+        </a>
         <h3 className="mb-2 text-lg font-bold text-foreground">诗人程序员Jun</h3>
         <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
           <span>AI builder in HK</span>

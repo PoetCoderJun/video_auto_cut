@@ -829,7 +829,6 @@ def list_step2_chapters(job_id: str) -> list[dict[str, Any]]:
             {
                 "chapter_id": chapter_id,
                 "title": str(row.get("title") or f"章节{chapter_id}"),
-                "summary": str(row.get("summary") or ""),
                 "start": start,
                 "end": end,
                 "line_ids": line_ids,

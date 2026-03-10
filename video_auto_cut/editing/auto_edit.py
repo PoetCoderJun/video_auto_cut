@@ -13,8 +13,8 @@ from . import llm_client as llm_utils
 from .pi_agent_boundary import PiAgentBoundaryReview, apply_boundary_review
 from .pi_agent_chunking import build_chunk_windows
 from .pi_agent_merge import build_merged_groups
-from .pi_agent_models import ChunkExecutionState
-from .pi_agent_polish import PiAgentPolishLoop
+from .pi_agent_models import ChunkExecutionState, MergedGroup
+from .pi_agent_polish import PiAgentChunkPolishLoop
 from .pi_agent_remove import PiAgentRemoveLoop
 from .topic_segment import TopicSegmenter
 
@@ -430,7 +430,7 @@ class AutoEdit:
             self.llm_config,
             chat_completion_fn=llm_utils.chat_completion,
         )
-        self.polish_loop = PiAgentPolishLoop(
+        self.chunk_polish_loop = PiAgentChunkPolishLoop(
             self.llm_config,
             chat_completion_fn=llm_utils.chat_completion,
         )
@@ -496,20 +496,20 @@ class AutoEdit:
         if not kept_decisions:
             raise RuntimeError("All segments removed. Check LLM output.")
 
-        polished_decisions, polish_debug = self._polish_decisions(final_decisions)
         merged_groups = build_merged_groups(
             segments,
-            polished_decisions,
+            final_decisions,
             threshold=MERGE_SHORT_LINES_THRESHOLD,
         )
         if not merged_groups:
             raise RuntimeError("All segments removed. Check LLM output.")
 
-        raw_optimized_subs = _build_optimized_subtitles(segments, polished_decisions)
-        merged_optimized_subs, merged_segments = self._merge_short_lines_in_subs(
-            raw_optimized_subs,
+        rewritten_groups, polish_debug = self._rewrite_merged_groups(merged_groups)
+        raw_optimized_subs = _build_optimized_subtitles(segments, final_decisions)
+        merged_optimized_subs, merged_segments = self._build_subtitles_from_rewritten_groups(
             segments,
-            threshold=MERGE_SHORT_LINES_THRESHOLD,
+            final_decisions,
+            rewritten_groups,
         )
         edl = _segments_to_edl(merged_segments, self.cfg, total_length)
         return {
@@ -549,7 +549,8 @@ class AutoEdit:
                     }
                     for sub in merged_optimized_subs
                 ],
-                "output_decisions": [decision.to_dict() for decision in polished_decisions],
+                "output_decisions": [decision.to_dict() for decision in final_decisions],
+                "rewritten_groups": [group.to_dict() for group in rewritten_groups],
                 "polish": polish_debug,
             },
         }
@@ -623,23 +624,108 @@ class AutoEdit:
                 decisions.append(decision_map[line_id])
         return decisions
 
-    def _polish_decisions(
+    def _rewrite_merged_groups(
         self,
-        decisions: List[Any],
-    ) -> Tuple[List[Any], List[Dict[str, Any]]]:
-        keep_decisions = [decision for decision in decisions if decision.remove_action == "KEEP"]
-        if not keep_decisions:
-            return decisions, []
+        merged_groups: List[MergedGroup],
+    ) -> Tuple[List[MergedGroup], List[Dict[str, Any]]]:
+        if not merged_groups:
+            return [], []
 
-        decision_map = {decision.line_id: decision for decision in decisions}
+        rewritten_groups: List[MergedGroup] = []
         debug_payloads: List[Dict[str, Any]] = []
-        for start in range(0, len(keep_decisions), PI_AGENT_GROUP_BATCH_SIZE):
-            batch = keep_decisions[start : start + PI_AGENT_GROUP_BATCH_SIZE]
-            result = self.polish_loop.run(batch)
-            for polished in result.decisions:
-                decision_map[polished.line_id] = polished
+        for start in range(0, len(merged_groups), PI_AGENT_GROUP_BATCH_SIZE):
+            batch = merged_groups[start : start + PI_AGENT_GROUP_BATCH_SIZE]
+            result = self.chunk_polish_loop.run(batch)
+            rewritten_groups.extend(result.groups)
             debug_payloads.append(result.debug)
-        return [decision_map[decision.line_id] for decision in decisions], debug_payloads
+        return rewritten_groups, debug_payloads
+
+    def _build_subtitles_from_rewritten_groups(
+        self,
+        segments: List[Dict[str, Any]],
+        decisions: List[Any],
+        rewritten_groups: List[MergedGroup],
+    ) -> Tuple[List[srt.Subtitle], List[Dict[str, Any]]]:
+        subtitles: List[srt.Subtitle] = []
+        merged_segments: List[Dict[str, Any]] = []
+
+        decision_map = {int(decision.line_id): decision for decision in decisions}
+        group_by_head = {
+            int(group.source_line_ids[0]): group
+            for group in rewritten_groups
+            if group.source_line_ids
+        }
+        non_head_line_ids = {
+            int(line_id)
+            for group in rewritten_groups
+            for line_id in group.source_line_ids[1:]
+        }
+
+        index = 0
+        total = len(segments)
+        while index < total:
+            segment = segments[index]
+            line_id = int(segment.get("id") or 0)
+
+            if line_id in non_head_line_ids:
+                index += 1
+                continue
+
+            group = group_by_head.get(line_id)
+            if group is not None:
+                subtitles.append(
+                    srt.Subtitle(
+                        index=line_id,
+                        start=datetime.timedelta(seconds=float(group.start)),
+                        end=datetime.timedelta(seconds=float(group.end)),
+                        content=_normalize_line_text(group.text),
+                    )
+                )
+                merged_segments.append({"start": float(group.start), "end": float(group.end)})
+                covered = {int(item) for item in group.source_line_ids}
+                index += 1
+                while index < total and int(segments[index].get("id") or 0) in covered:
+                    index += 1
+                continue
+
+            decision = decision_map.get(line_id)
+            if decision is None:
+                index += 1
+                continue
+
+            start = datetime.timedelta(seconds=float(segment.get("start") or 0.0))
+            end = datetime.timedelta(seconds=float(segment.get("end") or 0.0))
+            if decision.remove_action == "REMOVE":
+                content = f"{REMOVE_TOKEN} {decision.current_text or decision.original_text}".strip()
+                subtitles.append(
+                    srt.Subtitle(
+                        index=line_id,
+                        start=start,
+                        end=end,
+                        content=content,
+                    )
+                )
+                index += 1
+                continue
+
+            content = _normalize_line_text(decision.current_text or decision.original_text)
+            subtitles.append(
+                srt.Subtitle(
+                    index=line_id,
+                    start=start,
+                    end=end,
+                    content=content,
+                )
+            )
+            merged_segments.append(
+                {
+                    "start": float(segment.get("start") or 0.0),
+                    "end": float(segment.get("end") or 0.0),
+                }
+            )
+            index += 1
+
+        return subtitles, merged_segments
 
     def _auto_edit_segment_chunk(self, segments: List[Dict[str, Any]]) -> Dict[str, Any]:
         tagged_text = _segments_to_tagged_text(segments)

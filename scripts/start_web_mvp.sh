@@ -45,13 +45,15 @@ AUTH_ENABLED_RAW="${WEB_AUTH_ENABLED:-1}"
 AUTH_ENABLED="$(printf '%s' "$AUTH_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')"
 if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == "yes" ]]; then
   if [[ -z "${BETTER_AUTH_SECRET:-}" ]]; then
-    echo "[start_web_mvp] warning: BETTER_AUTH_SECRET is empty, using default dev secret"
+    export BETTER_AUTH_SECRET="video-auto-cut-local-prod-secret-please-change-2026"
+    echo "[start_web_mvp] warning: BETTER_AUTH_SECRET is empty, using generated local production secret"
   fi
 fi
 
 SITE_URL_DEFAULT="http://127.0.0.1:${FRONTEND_PORT}"
 export NEXT_PUBLIC_SITE_URL="${NEXT_PUBLIC_SITE_URL:-$SITE_URL_DEFAULT}"
 export BETTER_AUTH_URL="${BETTER_AUTH_URL:-$SITE_URL_DEFAULT}"
+export WEB_API_BASE="${WEB_API_BASE:-http://$API_BROWSER_HOST:$API_PORT/api/v1}"
 export WEB_AUTH_BASE_URL="${WEB_AUTH_BASE_URL:-$BETTER_AUTH_URL}"
 export WEB_AUTH_ISSUER="${WEB_AUTH_ISSUER:-$BETTER_AUTH_URL}"
 export WEB_AUTH_AUDIENCE="${WEB_AUTH_AUDIENCE:-$BETTER_AUTH_URL}"
@@ -131,10 +133,10 @@ if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == 
   (cd "$ROOT_DIR/web_frontend" && npx @better-auth/cli migrate --config ./lib/auth.ts -y)
 fi
 
-existing_next_dev="$(ps -ax -o pid=,command= | rg "next dev" | rg "$ROOT_DIR/web_frontend" || true)"
-if [[ -n "$existing_next_dev" ]]; then
-  echo "[start_web_mvp] detected existing Next.js dev process under web_frontend:"
-  echo "$existing_next_dev"
+existing_next_process="$(ps -ax -o pid=,command= | rg "next (dev|start)|\\.next/standalone/server\\.js" | rg "$ROOT_DIR/web_frontend" || true)"
+if [[ -n "$existing_next_process" ]]; then
+  echo "[start_web_mvp] detected existing Next.js process under web_frontend:"
+  echo "$existing_next_process"
   echo "[start_web_mvp] stop it first, then rerun this script."
   exit 1
 fi
@@ -164,6 +166,20 @@ if port_in_use "$FRONTEND_PORT"; then
   lsof -iTCP:"$FRONTEND_PORT" -sTCP:LISTEN
   exit 1
 fi
+
+echo "[start_web_mvp] building Next.js production bundle ..."
+NEXT_PUBLIC_API_BASE="$WEB_API_BASE" \
+NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
+BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+WEB_API_BASE="$WEB_API_BASE" \
+  npm --prefix "$ROOT_DIR/web_frontend" run build
+
+echo "[start_web_mvp] syncing standalone static assets ..."
+mkdir -p "$ROOT_DIR/web_frontend/.next/standalone/.next"
+rm -rf "$ROOT_DIR/web_frontend/.next/standalone/public"
+cp -R "$ROOT_DIR/web_frontend/public" "$ROOT_DIR/web_frontend/.next/standalone/public"
+rm -rf "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
+cp -R "$ROOT_DIR/web_frontend/.next/static" "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
 
 API_PID=""
 WORKER_PID=""
@@ -200,11 +216,14 @@ PYTHONUNBUFFERED=1 TURSO_LOCAL_REPLICA_PATH="$WORKER_TURSO_LOCAL_REPLICA_PATH" \
   "${PYTHON_CMD[@]}" -m web_api &
 WORKER_PID=$!
 
-echo "[start_web_mvp] starting Next.js on :$FRONTEND_PORT ..."
+echo "[start_web_mvp] starting Next.js production server on :$FRONTEND_PORT ..."
 NEXT_PUBLIC_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
   NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
   BETTER_AUTH_URL="$BETTER_AUTH_URL" \
-  npm --prefix "$ROOT_DIR/web_frontend" run dev -- -p "$FRONTEND_PORT" &
+  WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+  HOSTNAME="127.0.0.1" \
+  PORT="$FRONTEND_PORT" \
+  bash -lc 'cd "$1/web_frontend" && exec node .next/standalone/server.js' _ "$ROOT_DIR" &
 FRONTEND_PID=$!
 
 wait_http() {
