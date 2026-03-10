@@ -1,59 +1,55 @@
 {
   "topics": [
     {
-      "title": "断更原因",
-      "summary": "剪辑耗时太长",
+      "title": "剪口播太痛苦",
       "segment_ids": [
+        1,
         2,
-        6,
-        8
+        3
       ],
       "start": 0.0,
       "end": 18.32,
-      "start_segment_id": 2,
-      "end_segment_id": 8
+      "start_segment_id": 1,
+      "end_segment_id": 3
     },
     {
-      "title": "新工具发布",
-      "summary": "一键剪口播",
+      "title": "我做了个神器",
       "segment_ids": [
-        10,
-        11,
-        12,
-        13,
-        14,
-        16
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
       ],
       "start": 18.32,
       "end": 42.4,
-      "start_segment_id": 10,
-      "end_segment_id": 16
+      "start_segment_id": 4,
+      "end_segment_id": 9
     },
     {
-      "title": "产品优势",
-      "summary": "无需重录错讲",
+      "title": "错多少次都行",
       "segment_ids": [
-        23,
-        24,
-        25,
-        26
+        10,
+        11
       ],
       "start": 42.4,
-      "end": 82.08,
-      "start_segment_id": 23,
-      "end_segment_id": 26
+      "end": 67.76,
+      "start_segment_id": 10,
+      "end_segment_id": 11
     },
     {
-      "title": "结尾呼吁",
-      "summary": "关注视频程序",
+      "title": "免费试用在路上",
       "segment_ids": [
-        28,
-        30
+        12,
+        13,
+        14,
+        15
       ],
-      "start": 82.08,
+      "start": 67.76,
       "end": 84.32,
-      "start_segment_id": 28,
-      "end_segment_id": 30
+      "start_segment_id": 12,
+      "end_segment_id": 15
     }
   ]
 }

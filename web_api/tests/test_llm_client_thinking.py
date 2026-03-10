@@ -34,8 +34,6 @@ class DummyTopicArgs:
         self.inputs = []
         self.encoding = "utf-8"
         self.topic_max_topics = 8
-        self.topic_generate_summary = True
-        self.topic_summary_max_chars = 6
         self.topic_title_max_chars = 6
         self.topic_strict = False
         self.llm_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -181,14 +179,14 @@ class LlmClientThinkingTest(unittest.TestCase):
             enable_thinking=False,
         )
 
-    def test_topic_segmenter_enables_thinking_by_default(self) -> None:
+    def test_topic_segmenter_disables_thinking_by_default(self) -> None:
         with patch(
             "video_auto_cut.editing.topic_segment.llm_utils.build_llm_config",
             return_value={
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "model": "kimi-k2.5",
                 "api_key": "secret",
-                "enable_thinking": True,
+                "enable_thinking": False,
             },
         ) as mock_build:
             TopicSegmenter(DummyTopicArgs())
@@ -200,7 +198,7 @@ class LlmClientThinkingTest(unittest.TestCase):
             timeout=60,
             temperature=0.2,
             max_tokens=None,
-            enable_thinking=True,
+            enable_thinking=False,
         )
 
 

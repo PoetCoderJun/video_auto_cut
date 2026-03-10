@@ -156,7 +156,7 @@ def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleName
 def build_topic_args(
     srt_path: Path, output_path: Path, options: PipelineOptions
 ) -> SimpleNamespace:
-    topic_llm_model = options.topic_llm_model or options.llm_model
+    topic_llm_model = options.llm_model or options.topic_llm_model
     return SimpleNamespace(
         inputs=[str(srt_path)],
         encoding=options.encoding,

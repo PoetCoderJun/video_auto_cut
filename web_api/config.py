@@ -49,13 +49,13 @@ class Settings:
     lang: str
     llm_base_url: str | None
     llm_model: str | None
+    topic_llm_model: str | None
     llm_api_key: str | None
     llm_timeout: int
     llm_temperature: float
     llm_max_tokens: int | None
     topic_max_topics: int
     topic_title_max_chars: int
-    topic_summary_max_chars: int
     cut_merge_gap: float
     auth_enabled: bool
     auth_jwks_url: str | None
@@ -190,13 +190,14 @@ def get_settings() -> Settings:
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
         llm_model=(os.getenv("LLM_MODEL") or "qwen-plus").strip() or "qwen-plus",
+        topic_llm_model=(os.getenv("LLM_MODEL") or "kimi-k2.5").strip()
+        or "kimi-k2.5",
         llm_api_key=(llm_api_key or "").strip() or None,
         llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
         llm_max_tokens=int(llm_max_tokens_raw) if llm_max_tokens_raw else None,
-        topic_max_topics=int(os.getenv("TOPIC_MAX_TOPICS", "8")),
+        topic_max_topics=min(6, int(os.getenv("TOPIC_MAX_TOPICS", "5"))),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
-        topic_summary_max_chars=int(os.getenv("TOPIC_SUMMARY_MAX_CHARS", "6")),
         cut_merge_gap=float(os.getenv("CUT_MERGE_GAP", "0.0")),
         auth_enabled=os.getenv("WEB_AUTH_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         auth_jwks_url=auth_jwks_url,

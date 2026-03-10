@@ -42,7 +42,7 @@ def build_pipeline_options(**overrides: object) -> PipelineOptions:
         "use_dashscope_temp_oss": settings.use_dashscope_temp_oss,
         "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
-        "topic_llm_model": settings.topic_llm_model,
+        "topic_llm_model": settings.llm_model,
         "llm_api_key": settings.llm_api_key,
         "llm_timeout": settings.llm_timeout,
         "llm_temperature": settings.llm_temperature,
@@ -53,7 +53,7 @@ def build_pipeline_options(**overrides: object) -> PipelineOptions:
         "cut_merge_gap": settings.cut_merge_gap,
         "topic_output": None,
         "topic_strict": False,
-        "topic_max_topics": min(5, settings.topic_max_topics),
+        "topic_max_topics": min(6, settings.topic_max_topics),
         "topic_title_max_chars": settings.topic_title_max_chars,
     }
     values.update(overrides)
