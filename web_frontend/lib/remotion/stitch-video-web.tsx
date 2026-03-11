@@ -3,8 +3,9 @@ import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 
 import {
+  fitSingleLineText,
+  fitTextToBox,
   getResponsiveOverlayTypography,
-  shouldShowProgressSegmentLabel,
   wrapCaptionText,
 } from "./typography";
 
@@ -71,6 +72,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
 }) => {
   const frame = useCurrentFrame();
   const typography = useMemo(() => getResponsiveOverlayTypography({width, height}), [width, height]);
+  const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
+  const chapterCardMaxWidth = Math.min(
+    chapterWrapWidth,
+    Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
+  );
+  const chapterCardMinWidth = Math.min(typography.chapterCardMinWidth, chapterCardMaxWidth);
+  const chapterTitleMaxWidth = Math.max(1, chapterCardMaxWidth - typography.chapterCardPaddingX * 2);
+  const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
 
   const scaledStyles = useMemo(() => {
     return {
@@ -108,8 +117,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         display: "inline-flex" as const,
         flexDirection: "column" as const,
         gap: typography.chapterGap,
-        minWidth: typography.chapterCardMinWidth,
-        maxWidth: `${round(typography.chapterCardMaxWidthRatio * 100)}%`,
+        minWidth: chapterCardMinWidth,
+        maxWidth: chapterCardMaxWidth,
         padding: `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`,
         borderRadius: typography.chapterCardRadius,
         backgroundColor: "rgba(8, 12, 20, 0.74)",
@@ -125,6 +134,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         lineHeight: 1.2,
         fontWeight: 800,
         color: "#ffffff",
+        whiteSpace: "pre-line" as const,
+        wordBreak: "keep-all" as const,
       },
       progressWrap: {
         position: "absolute" as const,
@@ -162,7 +173,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         borderRight: "1px solid rgba(255, 255, 255, 0.2)",
       },
       progressSegmentLabel: {
-        maxWidth: "94%",
+        maxWidth: "100%",
         padding: `0 ${typography.progressLabelPaddingX}px`,
         fontSize: typography.progressLabelFontSize,
         fontWeight: 700,
@@ -173,7 +184,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         color: "rgba(238, 244, 255, 0.9)",
       },
     };
-  }, [typography]);
+  }, [chapterCardMaxWidth, chapterCardMinWidth, typography]);
 
   const wrappedCaptions = useMemo(
     () =>
@@ -253,6 +264,21 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   });
   const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
   const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
+  const topicTitleLayouts = useMemo(
+    () =>
+      normalizedTopics.map((topic) =>
+        fitTextToBox({
+          text: topic.title,
+          maxWidth: chapterTitleMaxWidth,
+          baseFontSize: typography.chapterTitleFontSize,
+          minFontSize: Math.max(18, Math.floor(typography.chapterTitleFontSize * 0.72)),
+          maxLines: 2,
+          fontWeight: 800,
+        })
+      ),
+    [chapterTitleMaxWidth, normalizedTopics, typography.chapterTitleFontSize]
+  );
+  const activeTopicLayout = activeTopicIndex >= 0 ? topicTitleLayouts[activeTopicIndex] : null;
 
   const topicDurationEnd = normalizedTopics.reduce((max, item) => Math.max(max, item.end), 0);
   const captionDurationEnd = captions.reduce((max, item) => Math.max(max, item.end), 0);
@@ -274,10 +300,34 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           startRatio,
           endRatio,
           index,
+          labelFit: fitSingleLineText({
+            text: topic.title,
+            maxWidth: progressInnerWidth * (endRatio - startRatio),
+            baseFontSize: typography.progressLabelFontSize,
+            minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+            horizontalPadding: typography.progressLabelPaddingX,
+            fontWeight: 700,
+          }),
         };
       })
-      .filter((item): item is {title: string; startRatio: number; endRatio: number; index: number} => item !== null);
-  }, [normalizedTopics, totalDuration]);
+      .filter(
+        (
+          item
+        ): item is {
+          title: string;
+          startRatio: number;
+          endRatio: number;
+          index: number;
+          labelFit: {fontSize: number; visible: boolean};
+        } => item !== null
+      );
+  }, [
+    normalizedTopics,
+    progressInnerWidth,
+    totalDuration,
+    typography.progressLabelFontSize,
+    typography.progressLabelPaddingX,
+  ]);
 
   const subtitleStyleOverrides = useMemo(() => {
     const p = typography.subtitlePaddingY;
@@ -322,8 +372,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     }
   }, [subtitleTheme, typography]);
 
-  const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
-
   return (
     <AbsoluteFill style={{backgroundColor: "black"}}>
       {timelineSegments.map((segment) => (
@@ -336,7 +384,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         <div style={scaledStyles.chapterWrap}>
           <div style={scaledStyles.chapterCard}>
             <div style={scaledStyles.chapterMeta}>CHAPTER {activeTopicLabel}</div>
-            <div style={scaledStyles.chapterTitle}>{activeTopic.title}</div>
+            <div
+              style={{
+                ...scaledStyles.chapterTitle,
+                fontSize: activeTopicLayout?.fontSize ?? scaledStyles.chapterTitle.fontSize,
+              }}
+            >
+              {activeTopicLayout?.text ?? activeTopic.title}
+            </div>
           </div>
         </div>
       ) : null}
@@ -362,16 +417,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
               <div
                 style={{
                   ...scaledStyles.progressSegmentLabel,
+                  fontSize: segment.labelFit.fontSize,
                   color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
                 }}
               >
-                {shouldShowProgressSegmentLabel({
-                  containerWidth: progressInnerWidth,
-                  segmentRatio: segment.endRatio - segment.startRatio,
-                  typography,
-                })
-                  ? segment.title
-                  : ""}
+                {segment.labelFit.visible ? segment.title : ""}
               </div>
             </div>
           ))}
