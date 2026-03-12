@@ -372,7 +372,7 @@ export const getResponsiveOverlayTypography = ({
   const chapterScale = verticalScale * (1 + portraitStrength * 0.14);
   const progressScale = verticalScale * (1 + portraitStrength * 0.18);
   const chapterWidthScale = horizontalScale * (1 + portraitStrength * 0.28);
-  const progressLabelFontSize = scaleDimension(26, progressScale, 24);
+  const progressLabelFontSize = scaleDimension(18.2, progressScale, 17);
   const progressHeight = atLeast(scaleDimension(42, progressScale, 34), round(progressLabelFontSize * 2.25));
   const progressRadius = atLeast(scaleDimension(12, progressScale, 10), round(progressHeight * 0.28));
 

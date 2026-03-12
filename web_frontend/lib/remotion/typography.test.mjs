@@ -73,21 +73,21 @@ test("scales landscape overlays monotonically from HD through 8k", () => {
   }
 });
 
-test("uses a doubled progress label baseline on common landscape outputs", () => {
+test("uses a larger but restrained progress label baseline on common landscape outputs", () => {
   const typography1080 = getResponsiveOverlayTypography({width: 1920, height: 1080});
   const typography4k = getResponsiveOverlayTypography({width: 3840, height: 2160});
 
   assert.ok(
-    typography1080.progressLabelFontSize >= 26,
-    `expected 1080p progress label font >= 26, got ${typography1080.progressLabelFontSize}`
+    typography1080.progressLabelFontSize >= 18,
+    `expected 1080p progress label font >= 18, got ${typography1080.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressLabelFontSize >= 42,
-    `expected 4k progress label font >= 42, got ${typography4k.progressLabelFontSize}`
+    typography4k.progressLabelFontSize >= 30,
+    `expected 4k progress label font >= 30, got ${typography4k.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressHeight >= 94,
-    `expected 4k progress height >= 94, got ${typography4k.progressHeight}`
+    typography4k.progressHeight >= 68,
+    `expected 4k progress height >= 68, got ${typography4k.progressHeight}`
   );
 });
 
