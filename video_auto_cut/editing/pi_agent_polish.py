@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,7 @@ from .pi_agent_models import LineDecision, MergedGroup
 
 
 TRAILING_LINE_PUNCTUATION = "，。、；：!！."
+TRAILING_COMMA_RE = re.compile(r",(?=\s*[}\]])")
 
 
 @dataclass(frozen=True)
@@ -37,10 +39,46 @@ def _json_loads(text: str) -> dict[str, Any]:
     cleaned = _strip_code_fence(text)
     if cleaned.startswith("json"):
         cleaned = cleaned[4:].strip()
-    payload = json.loads(cleaned)
-    if not isinstance(payload, dict):
-        raise ValueError("LLM output must be a JSON object")
-    return payload
+
+    candidates: list[str] = []
+    for candidate in (cleaned, _extract_json_object(cleaned), _sanitize_json_like(cleaned)):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    extracted = _extract_json_object(cleaned)
+    if extracted:
+        sanitized_extracted = _sanitize_json_like(extracted)
+        if sanitized_extracted and sanitized_extracted not in candidates:
+            candidates.append(sanitized_extracted)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("LLM output must be a JSON object")
+        return payload
+
+    preview = cleaned[:400].replace("\n", "\\n")
+    raise ValueError(f"Failed to parse LLM JSON payload: {preview}") from last_error
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        return ""
+    return text[start : end + 1].strip()
+
+
+def _sanitize_json_like(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return value
+    return TRAILING_COMMA_RE.sub("", value)
 
 
 def _normalize_polished_text(text: str) -> str:

@@ -7,6 +7,7 @@ from video_auto_cut.editing.pi_agent_models import LineDecision, MergedGroup
 from video_auto_cut.editing.pi_agent_polish import (
     PiAgentChunkPolishLoop,
     PiAgentPolishLoop,
+    _json_loads,
 )
 
 
@@ -55,6 +56,23 @@ class PiAgentPolishLoopTest(unittest.TestCase):
         self.assertIn("L0008", messages[1]["content"])
         self.assertIn("L0011", messages[1]["content"])
         self.assertNotIn("L0010", messages[1]["content"])
+
+    def test_json_loads_tolerates_trailing_commas_in_code_fence(self) -> None:
+        payload = _json_loads(
+            """
+            ```json
+            {
+              "lines": [
+                {"line_id": 8, "text": "录口播的时候你可以随便讲错", "reason": "修正错字", "confidence": 0.93},
+                {"line_id": 11, "text": "不用反复地重头录制", "reason": "去掉口头语", "confidence": 0.95},
+              ],
+            }
+            ```
+            """
+        )
+
+        self.assertEqual(len(payload["lines"]), 2)
+        self.assertEqual(payload["lines"][1]["line_id"], 11)
 
     @patch("video_auto_cut.editing.pi_agent_polish.llm_utils.chat_completion")
     def test_run_polishes_keep_lines_and_preserves_remove_lines(self, mock_chat_completion) -> None:
