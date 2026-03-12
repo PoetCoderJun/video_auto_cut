@@ -75,7 +75,7 @@ export type FittedSingleLineText = {
 
 const REFERENCE_WIDTH = 1920;
 const REFERENCE_HEIGHT = 1080;
-const SUBTITLE_SIZE_MULTIPLIER = 1.45;
+const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
 const SCALE_EXPONENT = 0.72;
 const DEFAULT_FONT_FAMILY = "sans-serif";
 const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
@@ -381,7 +381,7 @@ export const getResponsiveOverlayTypography = ({
   const progressRadius = atLeast(scaleDimension(12, progressScale, 10), round(progressHeight * 0.28));
 
   return {
-    subtitleFontSize: scaleDimension(44 * SUBTITLE_SIZE_MULTIPLIER, subtitleScale, 46),
+    subtitleFontSize: scaleDimension(44 * SUBTITLE_SIZE_MULTIPLIER, subtitleScale, 30),
     subtitleBottom: atLeast(round(resolvedHeight * (0.06 + portraitStrength * 0.018)), 52),
     subtitleSidePadding: scaleDimension(42, horizontalScale, 18),
     subtitlePaddingX: scaleDimension(14, subtitleScale, 16),

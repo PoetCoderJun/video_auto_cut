@@ -11,7 +11,7 @@ import {
 test("keeps overlay typography readable on narrow portrait frames", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
 
-  assert.ok(typography.subtitleFontSize >= 78, `expected subtitle font >= 78, got ${typography.subtitleFontSize}`);
+  assert.ok(typography.subtitleFontSize >= 50, `expected subtitle font >= 50, got ${typography.subtitleFontSize}`);
   assert.ok(
     typography.chapterTitleFontSize >= 26,
     `expected chapter title font >= 26, got ${typography.chapterTitleFontSize}`
