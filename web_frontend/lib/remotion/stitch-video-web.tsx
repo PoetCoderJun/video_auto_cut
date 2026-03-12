@@ -295,6 +295,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         if (endRatio <= startRatio) {
           return null;
         }
+        const segmentWidth = progressInnerWidth * (endRatio - startRatio);
         return {
           title: topic.title,
           startRatio,
@@ -302,9 +303,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           index,
           labelFit: fitSingleLineText({
             text: topic.title,
-            maxWidth: progressInnerWidth * (endRatio - startRatio),
+            maxWidth: segmentWidth,
             baseFontSize: typography.progressLabelFontSize,
             minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+            maxFontSize: Math.max(
+              typography.progressLabelFontSize,
+              Math.floor(typography.progressHeight * 0.58)
+            ),
+            maxHeight: typography.progressHeight,
+            lineHeight: 1.2,
+            targetWidthRatio: 0.84,
             horizontalPadding: typography.progressLabelPaddingX,
             fontWeight: 700,
           }),

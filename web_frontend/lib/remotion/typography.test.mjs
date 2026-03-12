@@ -130,6 +130,41 @@ test("shrinks progress labels to segment width and hides impossible ones", () =>
   assert.equal(impossible.visible, false, "expected impossible segment label to be hidden");
 });
 
+test("fits each progress label independently instead of forcing one global font size", () => {
+  const wideShort = fitSingleLineText({
+    text: "功能",
+    maxWidth: 240,
+    baseFontSize: 18,
+    minFontSize: 12,
+    maxFontSize: 30,
+    maxHeight: 42,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
+    fontWeight: 700,
+  });
+  const narrowLong = fitSingleLineText({
+    text: "这是一个更长的章节标题",
+    maxWidth: 180,
+    baseFontSize: 18,
+    minFontSize: 12,
+    maxFontSize: 30,
+    maxHeight: 42,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
+    fontWeight: 700,
+  });
+
+  assert.equal(wideShort.visible, true, "expected wide short label to stay visible");
+  assert.equal(narrowLong.visible, true, "expected narrow long label to stay visible");
+  assert.ok(wideShort.fontSize > 18, `expected wide short label to grow beyond baseline, got ${wideShort.fontSize}`);
+  assert.ok(
+    narrowLong.fontSize < wideShort.fontSize,
+    `expected narrow long label to be smaller, got ${narrowLong.fontSize} vs ${wideShort.fontSize}`
+  );
+});
+
 test("wraps portrait subtitles into balanced lines instead of collapsing to tiny fonts", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
   const wrapped = wrapCaptionText(

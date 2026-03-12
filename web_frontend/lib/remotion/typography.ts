@@ -60,6 +60,10 @@ export type FitSingleLineTextInput = {
   baseFontSize: number;
   minFontSize: number;
   horizontalPadding?: number;
+  maxFontSize?: number;
+  maxHeight?: number;
+  lineHeight?: number;
+  targetWidthRatio?: number;
   fontWeight?: number;
   fontFamily?: string;
 };
@@ -485,6 +489,10 @@ export const fitSingleLineText = ({
   baseFontSize,
   minFontSize,
   horizontalPadding = 0,
+  maxFontSize,
+  maxHeight,
+  lineHeight = 1.2,
+  targetWidthRatio = 0.82,
   fontWeight = 400,
   fontFamily = DEFAULT_FONT_FAMILY,
 }: FitSingleLineTextInput): FittedSingleLineText => {
@@ -498,14 +506,46 @@ export const fitSingleLineText = ({
 
   const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
   const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
+  const targetWidth = Math.max(1, resolvedMaxWidth * resolvedTargetWidthRatio);
+  const minWidth = measureTextWidth({
+    text: normalized,
+    fontSize: resolvedMinFontSize,
+    fontWeight,
+    fontFamily,
+  });
+  if (minWidth > resolvedMaxWidth) {
+    return {fontSize: resolvedMinFontSize, visible: false};
+  }
+
+  const naturalWidthAtOnePx = Math.max(
+    0.0001,
+    measureTextWidth({
+      text: normalized,
+      fontSize: 1,
+      fontWeight,
+      fontFamily,
+    })
+  );
+  const widthDrivenMaxFontSize = atLeast(Math.floor(resolvedMaxWidth / naturalWidthAtOnePx), resolvedMinFontSize);
+  const heightDrivenMaxFontSize =
+    maxHeight && Number.isFinite(maxHeight)
+      ? atLeast(Math.floor(Math.max(0, maxHeight) / Math.max(1, lineHeight)), resolvedMinFontSize)
+      : Number.POSITIVE_INFINITY;
+  const explicitMaxFontSize =
+    maxFontSize !== undefined
+      ? atLeast(round(maxFontSize), resolvedMinFontSize)
+      : Number.POSITIVE_INFINITY;
+  const resolvedMaxFontSize = Math.min(widthDrivenMaxFontSize, heightDrivenMaxFontSize, explicitMaxFontSize);
+
   let low = resolvedMinFontSize;
-  let high = resolvedBaseFontSize;
-  let best = 0;
+  let high = Math.max(resolvedMinFontSize, resolvedMaxFontSize);
+  let best = minWidth <= targetWidth ? resolvedMinFontSize : 0;
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const width = measureTextWidth({text: normalized, fontSize: mid, fontWeight, fontFamily});
-    if (width <= resolvedMaxWidth) {
+    if (width <= targetWidth) {
       best = mid;
       low = mid + 1;
     } else {
@@ -514,7 +554,7 @@ export const fitSingleLineText = ({
   }
 
   if (best > 0) return {fontSize: best, visible: true};
-  return {fontSize: resolvedMinFontSize, visible: false};
+  return {fontSize: resolvedMinFontSize, visible: true};
 };
 
 export const wrapCaptionText = (rawText: string, input: CaptionWrapInput): string => {
