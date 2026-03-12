@@ -2,6 +2,7 @@ fastapi
 libsql
 moviepy
 numpy
+openai
 opencc-python-reimplemented
 oss2
 python-multipart

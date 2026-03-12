@@ -6,11 +6,17 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ModuleNotFoundError as exc:
+    OpenAI = None  # type: ignore[assignment]
+    _OPENAI_IMPORT_ERROR: ModuleNotFoundError | None = exc
+else:
+    _OPENAI_IMPORT_ERROR = None
 
 
 _ENV_LOADED = False
-_OPENAI_CLIENTS_BY_CFG: Dict[Tuple[str, str], OpenAI] = {}
+_OPENAI_CLIENTS_BY_CFG: Dict[Tuple[str, str], Any] = {}
 
 
 def _strip_quotes(value: str) -> str:
@@ -117,11 +123,21 @@ def _client_cache_key(cfg: Dict[str, Any]) -> Tuple[str, str]:
     )
 
 
-def _get_openai_client(cfg: Dict[str, Any]) -> OpenAI:
+def _require_openai_sdk() -> None:
+    if OpenAI is None:
+        raise RuntimeError(
+            "Python package 'openai' is required for Step1 auto-edit. "
+            "Install dependencies with `pip install -r requirements.txt` and rebuild the service image."
+        ) from _OPENAI_IMPORT_ERROR
+
+
+def _get_openai_client(cfg: Dict[str, Any]) -> Any:
+    _require_openai_sdk()
     cache_key = _client_cache_key(cfg)
     client = _OPENAI_CLIENTS_BY_CFG.get(cache_key)
     if client is not None:
         return client
+    assert OpenAI is not None
     client = OpenAI(
         api_key=cfg.get("api_key", ""),
         base_url=cfg.get("base_url") or "",

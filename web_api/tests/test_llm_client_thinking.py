@@ -157,6 +157,26 @@ class LlmClientThinkingTest(unittest.TestCase):
 
         self.assertEqual(mock_openai.call_count, 2)
 
+    def test_chat_completion_reports_missing_openai_sdk(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 1,
+            "enable_thinking": False,
+        }
+
+        with patch.object(llm_client, "OpenAI", None), patch.object(
+            llm_client,
+            "_OPENAI_IMPORT_ERROR",
+            ModuleNotFoundError("No module named 'openai'"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "pip install -r requirements.txt"):
+                llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
+
     def test_auto_edit_disables_thinking_by_default(self) -> None:
         with patch(
             "video_auto_cut.editing.auto_edit.llm_utils.build_llm_config",
