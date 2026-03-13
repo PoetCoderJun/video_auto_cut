@@ -5,8 +5,15 @@ import {
   fitSingleLineText,
   fitTextToBox,
   getResponsiveOverlayTypography,
+  OVERLAY_FONT_FAMILY,
   wrapCaptionText,
 } from "./typography.ts";
+
+test("uses an explicit cross-platform Chinese font stack for overlays", () => {
+  assert.match(OVERLAY_FONT_FAMILY, /Noto Sans SC/);
+  assert.match(OVERLAY_FONT_FAMILY, /Source Han Sans SC/);
+  assert.match(OVERLAY_FONT_FAMILY, /PingFang SC/);
+});
 
 test("keeps overlay typography readable on narrow portrait frames", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
@@ -169,10 +176,31 @@ test("wraps portrait subtitles into balanced lines instead of collapsing to tiny
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
   const wrapped = wrapCaptionText(
     "这是一个专门用于验证竖屏视频字幕自适应效果的长句子，需要在合理字号下分成多行显示。",
-    {width: 720, fontSize: typography.subtitleFontSize, maxWidthRatio: typography.subtitleMaxWidthRatio}
+    {
+      width: 720,
+      fontSize: typography.subtitleFontSize,
+      maxWidthRatio: typography.subtitleMaxWidthRatio,
+      fontWeight: 700,
+      fontFamily: OVERLAY_FONT_FAMILY,
+    }
   );
 
   const lines = wrapped.split("\n");
   assert.ok(lines.length >= 2, `expected wrapped subtitle to span multiple lines, got ${lines.length}`);
   assert.ok(lines.every((line) => line.length > 0), "expected all wrapped lines to contain text");
+});
+
+test("wraps Chinese em dash subtitles conservatively on narrow frames", () => {
+  const wrapped = wrapCaptionText("内容越紧凑，流量就越高——但AI不会替你做决定", {
+    width: 360,
+    fontSize: 36,
+    maxWidthRatio: 0.9,
+    safeWidthRatio: 0.86,
+    fontWeight: 700,
+    fontFamily: OVERLAY_FONT_FAMILY,
+  });
+
+  const lines = wrapped.split("\n");
+  assert.ok(lines.length >= 2, `expected em dash subtitle to wrap, got ${lines.length}`);
+  assert.ok(lines.every((line) => line.trim().length > 0), "expected wrapped em dash lines to stay non-empty");
 });

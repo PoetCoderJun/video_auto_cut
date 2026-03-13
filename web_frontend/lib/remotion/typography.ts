@@ -35,6 +35,8 @@ export type CaptionWrapInput = {
   fontSize: number;
   maxWidthRatio?: number;
   safeWidthRatio?: number;
+  fontWeight?: number;
+  fontFamily?: string;
 };
 
 export type FitTextToBoxInput = {
@@ -77,9 +79,22 @@ const REFERENCE_WIDTH = 1920;
 const REFERENCE_HEIGHT = 1080;
 const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
 const SCALE_EXPONENT = 0.72;
-const DEFAULT_FONT_FAMILY = "sans-serif";
+export const OVERLAY_FONT_FAMILY = [
+  '"Noto Sans SC"',
+  '"Noto Sans CJK SC"',
+  '"Source Han Sans SC"',
+  '"PingFang SC"',
+  '"Hiragino Sans GB"',
+  '"Microsoft YaHei"',
+  '"微软雅黑"',
+  '"Heiti SC"',
+  '"WenQuanYi Micro Hei"',
+  "sans-serif",
+].join(", ");
+const DEFAULT_FONT_FAMILY = OVERLAY_FONT_FAMILY;
 const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
-const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:]/;
+const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:…—]/;
+const EM_DASH_RE = /[—―－]/;
 
 const clamp = (value: number, min: number, max: number): number => {
   if (value < min) return min;
@@ -105,6 +120,8 @@ const textWidthCache = new Map<string, number>();
 
 const charUnits = (char: string): number => {
   if (char === " " || char === "\t") return 0.35;
+  if (EM_DASH_RE.test(char)) return 1.05;
+  if (char === "…") return 1;
   if (BREAK_PUNCT_RE.test(char)) return 0.6;
   if (/[0-9A-Za-z]/.test(char)) return 0.56;
   if (CJK_RE.test(char)) return 1;
@@ -563,13 +580,21 @@ export const wrapCaptionText = (rawText: string, input: CaptionWrapInput): strin
 
   const usableWidth = Math.max(260, input.width * (input.maxWidthRatio ?? 0.9));
   const safeWidthRatio = input.safeWidthRatio ?? 0.86;
-  const maxUnits = Math.max(10, Math.floor((usableWidth * safeWidthRatio) / Math.max(1, input.fontSize)));
+  const maxWidth = Math.max(1, usableWidth * safeWidthRatio);
 
   const lines: string[] = [];
   for (const hardLine of normalized.split("\n")) {
     const trimmed = hardLine.trim();
     if (!trimmed) continue;
-    lines.push(...wrapSoftLine(trimmed, maxUnits));
+    lines.push(
+      ...wrapTextByWidth({
+        text: trimmed,
+        maxWidth,
+        fontSize: input.fontSize,
+        fontWeight: input.fontWeight ?? 700,
+        fontFamily: input.fontFamily ?? DEFAULT_FONT_FAMILY,
+      })
+    );
   }
   return lines.join("\n");
 };

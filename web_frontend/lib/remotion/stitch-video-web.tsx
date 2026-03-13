@@ -6,6 +6,7 @@ import {
   fitSingleLineText,
   fitTextToBox,
   getResponsiveOverlayTypography,
+  OVERLAY_FONT_FAMILY,
   wrapCaptionText,
 } from "./typography";
 
@@ -98,7 +99,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         color: "#ffffff",
         fontSize: typography.subtitleFontSize,
         fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
         lineHeight: 1.35,
+        lineBreak: "strict" as const,
         textAlign: "center" as const,
         textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
         whiteSpace: "pre" as const,
@@ -127,12 +130,15 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       chapterMeta: {
         fontSize: typography.chapterMetaFontSize,
         fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
         color: "#8ee0ff",
       },
       chapterTitle: {
         fontSize: typography.chapterTitleFontSize,
         lineHeight: 1.2,
         fontWeight: 800,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        lineBreak: "strict" as const,
         color: "#ffffff",
         whiteSpace: "pre-line" as const,
         wordBreak: "keep-all" as const,
@@ -177,6 +183,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         padding: `0 ${typography.progressLabelPaddingX}px`,
         fontSize: typography.progressLabelFontSize,
         fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
         lineHeight: 1.2,
         whiteSpace: "nowrap" as const,
         overflow: "hidden" as const,
@@ -195,6 +202,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           fontSize: typography.subtitleFontSize,
           maxWidthRatio: typography.subtitleMaxWidthRatio,
           safeWidthRatio: typography.subtitleSafeWidthRatio,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
         }),
       })),
     [captions, typography, width]
@@ -274,6 +283,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           minFontSize: Math.max(18, Math.floor(typography.chapterTitleFontSize * 0.72)),
           maxLines: 2,
           fontWeight: 800,
+          fontFamily: OVERLAY_FONT_FAMILY,
         })
       ),
     [chapterTitleMaxWidth, normalizedTopics, typography.chapterTitleFontSize]
@@ -315,6 +325,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
             targetWidthRatio: 0.84,
             horizontalPadding: typography.progressLabelPaddingX,
             fontWeight: 700,
+            fontFamily: OVERLAY_FONT_FAMILY,
           }),
         };
       })
