@@ -8,10 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const WECHAT_ID = "PoetCoderJun";
 const BETA_NOTES = [
-  "如果效果不好，无条件退款",
   "当前为内测版本，功能持续更新中",
   "如遇问题可在讨论群反馈",
-  "可以在讨论群提任何需求，我帮你实现",
+  "希望也多多提反馈意见，你的需求我有机会光速帮你实现",
 ];
 
 export default function BetaPage() {
@@ -49,7 +48,7 @@ export default function BetaPage() {
               AI Cut 内测介绍页
             </h1>
             <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-              感谢你在小红书支持。当前版本为邀请制内测，凭邀请码即可登录使用。右上角可直接注册 / 登录。
+              由于算力资源限制当前为邀请制内测，凭邀请码即可登录使用。右上角可直接注册 / 登录。
             </p>
             <Link href="/">
               <Button className="rounded-full">立刻AI剪辑</Button>
@@ -66,7 +65,7 @@ export default function BetaPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm leading-7 text-muted-foreground">
-                添加微信领取邀请码，注册账号激活后即可开始使用内测功能。
+                由于平台限制，添加微信我会给你发送一个邀请码，注册账号激活后即可开始使用内测功能。
               </p>
               <div className="mx-auto w-fit rounded-2xl border border-border bg-white p-3 shadow-sm">
                 <Image
