@@ -1,4 +1,6 @@
 interface:
-  display_name: "Video Auto Cut"
-  short_description: "Auto-cut local videos with built-in human review"
-  default_prompt: "Use $video-auto-cut-human-loop to process /abs/path/input.mp4 into a final cut video from the input path alone."
+  display_name: "Talking-Head Auto Cut"
+  short_description: "Auto-cut local talking-head videos with human review"
+  default_prompt: "Use $video-auto-cut-human-loop to auto-cut a local talking-head video like /abs/path/input.mp4 into a final clip from the input path alone."
+policy:
+  allow_implicit_invocation: true
