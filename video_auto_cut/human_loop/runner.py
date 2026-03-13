@@ -201,6 +201,7 @@ def render_output(
         force=bool(options.force),
         encoding=options.encoding,
         cut_merge_gap=float(options.cut_merge_gap),
+        bitrate=options.bitrate,
     )
     Cutter(cutter_args).run()
 
