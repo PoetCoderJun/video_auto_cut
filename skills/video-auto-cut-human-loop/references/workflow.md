@@ -20,18 +20,21 @@ Use a stable artifact root per input video, for example:
 
 ```text
 <artifact_root>/
+  state.json
   input/
     source.mp4
   step1/
     source.srt
     source.optimized.srt
-    source.optimized.raw.srt
     source.optimized.step1.json
+    draft_step1.srt
+    draft_step1.json
     final_step1.srt
     final_step1.json
   step2/
     cut.srt
     topics.json
+    draft_topics.json
     final_topics.json
   render/
     cut.srt
@@ -73,6 +76,8 @@ Outputs:
 - `.srt`
 - `.optimized.srt`
 - `.step1.json`
+- `draft_step1.srt`
+- `draft_step1.json`
 - human-confirmed `final_step1.srt`
 - human-confirmed `final_step1.json`
 
@@ -96,6 +101,7 @@ Core action:
 Outputs:
 
 - generated `topics.json`
+- editable `draft_topics.json`
 - human-confirmed `final_topics.json`
 
 Human gate:
@@ -142,28 +148,16 @@ If a dedicated wrapper is later added, the wrapper should own:
 - stage resume behavior
 - human approval status recording
 
-## Recommended future wrapper
+## Wrapper
 
-If you want this skill to be robust for repeated use, add one script such as:
+This repo now includes:
 
 `scripts/run_human_loop_pipeline.py`
 
-That wrapper should accept:
+Supported commands:
 
-```text
---input-video
---output-video
---artifact-root
---resume-from step1|step2|render
---approve-step1
---approve-step2
-```
-
-Suggested behavior:
-
-1. `run` mode generates artifacts until the next human gate, then exits cleanly.
-2. `approve-step1` tells the wrapper to continue from confirmed step1 artifacts.
-3. `approve-step2` tells the wrapper to continue from confirmed step2 artifacts.
+1. `run` generates artifacts until the next human gate, then exits cleanly.
+2. `approve-step1` records the human-confirmed Step1 result.
+3. `approve-step2` records the human-confirmed Step2 result.
 4. `render` produces the final output video.
-
-This keeps the skill concise while making execution deterministic.
+5. `status` prints the current artifact-root state.

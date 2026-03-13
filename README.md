@@ -1,95 +1,73 @@
 # video_auto_cut
 
-口播视频自动剪辑（Web + 本地流水线），当前部署方式仅支持 Railway。
+`video_auto_cut` 的 GPL-3.0 Skills 版：保留本地转写、Step1 自动删改、Step2 分段、人审确认和最终裁剪，不再包含 Web 前端或 Web API。
 
-## 目录约定
+## License
 
-- `web_frontend/`：Next.js 前端
-- `web_api/`：FastAPI API + worker
-- `video_auto_cut/`：剪辑与转写流水线
-- `scripts/`：运维脚本（保留 Railway/本地开发相关）
-- `docs/`：设计与接口文档
+本分支使用 `GPL-3.0-only`。完整协议见 [LICENSE](/Users/huzujun/Desktop/video_auto_cut_skill/LICENSE)。
 
-## 本地开发
+## 仓库结构
+
+- `video_auto_cut/`：核心 ASR、自动删改、主题分段、裁剪流水线
+- `video_auto_cut/human_loop/`：面向代理的本地工件管理与 Human-in-the-Loop 状态机
+- `skills/video-auto-cut-human-loop/`：给 Codex、Claude Code、PyAgent 使用的 Skill
+- `scripts/run_human_loop_pipeline.py`：可中断、可恢复的人审 wrapper
+- `tests/`：Skill 版新增的 wrapper 回归测试
+
+## 依赖
 
 ```bash
 python -m pip install -r requirements.txt
-cd web_frontend && npm install && cd ..
-./scripts/start_web_mvp.sh
+ffmpeg -version
 ```
 
-- Frontend: `http://127.0.0.1:3000`
-- API: `http://127.0.0.1:8000/api/v1`
+常用环境变量：
 
-## Railway 部署
+- `ASR_DASHSCOPE_API_KEY` 或 `DASHSCOPE_API_KEY`
+- `LLM_BASE_URL`
+- `LLM_MODEL`
+- `LLM_API_KEY`
+- `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`（可选）
 
-Railway 不会读取本地 `.env`，必须在服务 Variables 中配置。
+## Human Loop 用法
 
-建议在同一 Railway 项目创建 3 个服务：
-
-### 1) API 服务
-
-- Root Directory：仓库根目录
-- Dockerfile：`Dockerfile`
-- Start Command：留空（使用 Dockerfile 默认 `uvicorn ... --port $PORT`）
-
-### 2) Worker 服务
-
-- Root Directory：仓库根目录
-- Dockerfile：`Dockerfile`
-- Start Command：`python -m web_api`
-
-### 3) Frontend 服务
-
-- Root Directory：`web_frontend`
-- Dockerfile：`web_frontend/Dockerfile`
-
-## 必要环境变量（至少）
-
-- `TURSO_DATABASE_URL`
-- `TURSO_AUTH_TOKEN`
-- `BETTER_AUTH_SECRET`（>= 32 字符）
-- `ASR_DASHSCOPE_API_KEY`（或 `DASHSCOPE_API_KEY`）
-- `OSS_ENDPOINT`
-- `OSS_BUCKET`
-- `OSS_ACCESS_KEY_ID`
-- `OSS_ACCESS_KEY_SECRET`
-- `NEXT_PUBLIC_SITE_URL`
-- `BETTER_AUTH_URL`
-- `WEB_CORS_ALLOWED_ORIGINS`
-- `NEXT_PUBLIC_API_BASE`
-
-## CORS / 互通检查
-
-- API 的 `WEB_CORS_ALLOWED_ORIGINS` 必须包含前端完整 origin。
-- 前端的 `NEXT_PUBLIC_API_BASE` 必须指向 API 的 `/api/v1`。
-
-## Coupon 管理
-
-创建：
+1. 跑到第一个人审点：
 
 ```bash
-python scripts/coupon_admin.py create --credits 20 --source xhs
+python scripts/run_human_loop_pipeline.py run \
+  --input-video /abs/path/input.mp4 \
+  --output-video /abs/path/output.mp4
 ```
 
-批量创建：
+2. 编辑 `artifact_root/step1/draft_step1.json` 后确认：
 
 ```bash
-python scripts/coupon_admin.py create --count 20 --credits 20 --source xhs
+python scripts/run_human_loop_pipeline.py approve-step1 \
+  --input-video /abs/path/input.mp4
 ```
 
-查看：
+3. 再次执行 `run`，生成 Step2 草稿；编辑 `artifact_root/step2/draft_topics.json` 后确认：
 
 ```bash
-python scripts/coupon_admin.py list --limit 50
+python scripts/run_human_loop_pipeline.py approve-step2 \
+  --input-video /abs/path/input.mp4
 ```
 
-禁用：
+4. 最终导出：
 
 ```bash
-python scripts/coupon_admin.py disable --code CPN-XXXX
+python scripts/run_human_loop_pipeline.py render \
+  --input-video /abs/path/input.mp4
 ```
 
-## 文档
+默认工件目录是输入视频旁边的 `<video_stem>.video-auto-cut/`。也可以用 `--artifact-root` 指定。
 
-详细设计和接口文档见 `docs/`。
+## Skill 用法
+
+这个仓库的目标不是提供网页，而是让代理接管流程。直接使用 [skills/video-auto-cut-human-loop/SKILL.md](/Users/huzujun/Desktop/video_auto_cut_skill/skills/video-auto-cut-human-loop/SKILL.md)，并让代理调用 `scripts/run_human_loop_pipeline.py`。
+
+适合的场景：
+
+- Codex 桌面版本地跑视频处理
+- Claude Code 驱动本地视频剪辑
+- PyAgent / 自定义 Agent 做“生成工件 -> 等人确认 -> 继续执行”的工作流

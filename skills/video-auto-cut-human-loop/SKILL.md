@@ -18,7 +18,7 @@ It orchestrates existing repo modules for:
 - final cut video export
 
 Do not reimplement the pipeline logic in the skill body.
-Reuse the existing repo code and scripts whenever possible.
+Reuse the repo's local wrapper and Python pipeline.
 
 ## Required inputs
 
@@ -37,18 +37,29 @@ Optional but usually needed:
 - `llm_api_key`
 - ASR-related env/config
 
+## Primary entrypoint
+
+Prefer `scripts/run_human_loop_pipeline.py`.
+
+Use these subcommands:
+
+- `run`
+- `approve-step1`
+- `approve-step2`
+- `render`
+- `status`
+
 ## Workflow
 
 1. Resolve and validate `input_video_path`.
 2. Derive a working artifact directory near the input video or under a user-provided workdir.
-3. Run transcription and step1 auto-edit with the repo's existing pipeline.
-4. Stop and present the step1 artifacts for human review.
-5. Apply human edits to step1 outputs or wait for explicit approval.
-6. Run step2 topic segmentation from the human-confirmed step1 result.
-7. Stop and present the step2 artifacts for human review.
-8. Apply human edits to step2 outputs or wait for explicit approval.
-9. Build cut subtitles/timeline from the confirmed artifacts.
-10. Render or cut the final video to `output_video_path`.
+3. Run `python scripts/run_human_loop_pipeline.py run ...` to generate Step1 draft artifacts.
+4. Stop and present `step1/draft_step1.json` and `step1/draft_step1.srt` for human review.
+5. After the human edits or approves Step1, run `approve-step1`.
+6. Run `run` again to generate Step2 draft artifacts.
+7. Stop and present `step2/draft_topics.json` for human review.
+8. After the human edits or approves Step2, run `approve-step2`.
+9. Run `render` to export the final cut video.
 
 Never skip the step1 or step2 confirmation checkpoint unless the user explicitly says to bypass human review.
 
@@ -71,14 +82,13 @@ Do not continue to final cutting until the human explicitly confirms the current
 
 ## Execution guidance
 
-Prefer using existing repo modules:
+Prefer using:
 
-- `video_auto_cut.orchestration.full_pipeline` for transcribe + auto-edit
-- `video_auto_cut.orchestration.pipeline_service` for stage-specific orchestration
-- `video_auto_cut.editing.topic_segment.TopicSegmenter` for step2
-- `video_auto_cut.rendering.cut_srt` and `video_auto_cut.rendering.cut.Cutter` for final cut outputs
+- `scripts/run_human_loop_pipeline.py` for human-gated orchestration
+- `video_auto_cut.orchestration.pipeline_service` for transcribe / step1 / step2 execution
+- `video_auto_cut.rendering.cut_srt` and `video_auto_cut.rendering.cut.Cutter` for final output
 
-When the user wants a robust reusable workflow, prefer adding or using a dedicated wrapper script rather than embedding long ad hoc shell or Python snippets into the conversation.
+Avoid ad hoc shell glue when the wrapper already supports the requested stage.
 
 ## Loop and chunk rules
 
@@ -101,8 +111,10 @@ Read [references/workflow.md](references/workflow.md) for:
 
 The workflow should leave behind these user-visible outputs:
 
-- confirmed `step1` subtitles/json
-- confirmed `step2` topics/json
+- editable `step1/draft_step1.*`
+- confirmed `step1/final_step1.*`
+- editable `step2/draft_topics.json`
+- confirmed `step2/final_topics.json`
 - cut subtitles/timeline for render
 - final cut video at `output_video_path`
 

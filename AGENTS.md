@@ -1,51 +1,46 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `web_frontend/`: Next.js 16 app (UI, auth, browser rendering). Main folders: `app/`, `components/`, `lib/`, `public/`.
-- `web_api/`: FastAPI backend and worker entrypoints. Main folders: `api/`, `services/`, `utils/`, `worker/`.
-- `video_auto_cut/`: shared Python pipeline modules (ASR, editing, rendering orchestration).
-- `scripts/`: operational scripts (for example `start_web_mvp.sh`, `coupon_admin.py`).
-- `test_data/`: local sample media for manual regression.
-- `workdir/`: runtime artifacts and job files; do not commit generated outputs.
+- `video_auto_cut/`: shared Python pipeline modules for ASR, auto-edit, topic segmentation, rendering, and human-loop orchestration.
+- `skills/video-auto-cut-human-loop/`: Skill entrypoint and workflow reference for Codex, Claude Code, or PyAgent.
+- `scripts/`: local helper scripts, especially `run_human_loop_pipeline.py`.
+- `tests/`: wrapper-level regression tests for the Skills edition.
+- `test_data/`: local sample media for manual verification.
+- `workdir/`: runtime artifacts; do not commit generated outputs.
 
 ## Build, Test, and Development Commands
-- Install deps:
-  - `python -m pip install -r requirements.txt`
-  - `cd web_frontend && npm install`
-- One-command local run (recommended): `./scripts/start_web_mvp.sh`
-  - Starts FastAPI (`127.0.0.1:8000`), worker loop, and Next.js (`127.0.0.1:3000`).
-- Frontend only:
-  - `npm --prefix web_frontend run dev`
-  - `npm --prefix web_frontend run build`
-- Backend only:
-  - API: `uvicorn web_api.app:app --host 127.0.0.1 --port 8000`
-  - Worker: `python -m web_api`
+- Install deps: `python -m pip install -r requirements.txt`
+- Show wrapper help: `python scripts/run_human_loop_pipeline.py --help`
+- Run tests: `python -m unittest discover -s tests -p "test_*.py" -v`
+- Typical human-loop flow:
+  - `python scripts/run_human_loop_pipeline.py run --input-video /abs/in.mp4 --output-video /abs/out.mp4`
+  - edit `draft_step1.json`, then `approve-step1`
+  - rerun `run`, edit `draft_topics.json`, then `approve-step2`
+  - `python scripts/run_human_loop_pipeline.py render --input-video /abs/in.mp4`
 
 ## Coding Style & Naming Conventions
-- Python: PEP 8, 4-space indentation, snake_case; add type hints for public service/repository functions.
-- TypeScript/React: 2-space indentation, camelCase for variables/functions, PascalCase for components/types.
-- Keep API error messages user-facing and non-technical.
-- Prefer small, focused modules in `web_api/services` and `web_frontend/components`.
+- Python: PEP 8, 4-space indentation, snake_case, type hints for public helpers.
+- Keep workflow logic in reusable Python modules, not prompt text.
+- Prefer artifact files with explicit names such as `draft_step1.json` and `final_topics.json`.
 
 ## Testing Guidelines
-- Current automated tests exist mainly in `web_api/tests/` (unittest style).
-- Run: `python -m unittest discover web_api/tests -p "test_*.py"`.
-- For web changes, always run:
-  - `cd web_frontend && npx tsc --noEmit`
-  - `npm --prefix web_frontend run build`
-- No strict coverage gate yet; include manual verification steps (upload, Step1/Step2, render/export).
+- Add focused `unittest` coverage under `tests/` for wrapper state transitions and resume behavior.
+- When touching pipeline orchestration, verify:
+  - `run` stops at Step1 review
+  - `approve-step1` allows resume into Step2
+  - `run` stops at Step2 review
+  - `render` only works after both confirmations
+- Include manual verification notes for real media runs when behavior changes.
 
 ## Commit & Pull Request Guidelines
-- Follow Conventional Commit style when possible (`feat:`, `fix:`, `docs:`, `chore:`), optionally scoped (e.g., `feat(web): ...`).
-- Keep commits atomic; avoid mixing refactor + behavior change + generated artifacts.
-- If `git push` to `git@github.com:PoetCoderJun/video_auto_cut.git` fails because SSH port 22 is blocked, push via GitHub SSH over port 443 instead:
-  - `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o Hostname=ssh.github.com -p 443' git push origin main`
-- PRs should include:
-  - What changed and why.
-  - Affected paths (e.g., `web_api/api/routes.py`).
-  - Verification evidence (commands run, key logs, UI screenshots for frontend changes).
+- Prefer Conventional Commits such as `feat(skill): ...`, `fix(pipeline): ...`, `docs(skill): ...`.
+- Keep commits focused; avoid mixing workflow refactors with unrelated prompt or asset changes.
+- PRs should explain:
+  - what changed in the local pipeline or skill
+  - which paths are affected
+  - what tests or manual runs verified the change
 
 ## Security & Configuration Tips
-- Required envs for online mode: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
-- Local/offline fallback: set `WEB_DB_LOCAL_ONLY=1`.
-- Never commit `.env`, credentials, model weights, or `workdir/` runtime files.
+- Never commit `.env`, credentials, model weights, or generated artifacts.
+- Common runtime envs are `ASR_DASHSCOPE_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, and optional OSS settings.
+- `ffmpeg` must be available in `PATH` for audio extraction and final cutting.

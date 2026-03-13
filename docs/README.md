@@ -1,5 +1,5 @@
 # Docs
 
-- `DESIGN_ASR_FILETRANS_NO_OSS.md`: ASR 文件转写设计（无自建 OSS）
-- `DESIGN_ASR_FILETRANS_OSS.md`: ASR 文件转写设计（自建 OSS）
-- `web_api_interface.md`: Web API 接口说明
+- `plans/`: 历史实现计划和演进草稿
+
+当前分支已经移除 Web 前后端，文档主入口以根目录 [README](/Users/huzujun/Desktop/video_auto_cut_skill/README.md) 和 Skill 文档为准。
