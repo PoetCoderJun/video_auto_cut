@@ -102,6 +102,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         fontFamily: OVERLAY_FONT_FAMILY,
         lineHeight: 1.35,
         lineBreak: "strict" as const,
+        fontKerning: "none" as const,
+        fontVariantLigatures: "none" as const,
         textAlign: "center" as const,
         textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
         whiteSpace: "pre" as const,

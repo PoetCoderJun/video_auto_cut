@@ -95,6 +95,7 @@ const DEFAULT_FONT_FAMILY = OVERLAY_FONT_FAMILY;
 const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
 const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:…—]/;
 const EM_DASH_RE = /[—―－]/;
+const EM_DASH_SEQUENCE_RE = /[—―－]{2,}/g;
 
 const clamp = (value: number, min: number, max: number): number => {
   if (value < min) return min;
@@ -133,6 +134,9 @@ const measureUnits = (text: string): number => {
   for (const char of text) total += charUnits(char);
   return total;
 };
+
+export const normalizeCaptionDisplayText = (text: string): string =>
+  (text || "").replace(EM_DASH_SEQUENCE_RE, (run) => "―".repeat(run.length));
 
 const findLastBreakPos = (text: string): number => {
   for (let i = text.length - 1; i >= 0; i -= 1) {
@@ -575,7 +579,7 @@ export const fitSingleLineText = ({
 };
 
 export const wrapCaptionText = (rawText: string, input: CaptionWrapInput): string => {
-  const normalized = (rawText || "").replace(/\r\n?/g, "\n").trim();
+  const normalized = normalizeCaptionDisplayText((rawText || "").replace(/\r\n?/g, "\n")).trim();
   if (!normalized) return "";
 
   const usableWidth = Math.max(260, input.width * (input.maxWidthRatio ?? 0.9));

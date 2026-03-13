@@ -5,6 +5,7 @@ import {
   fitSingleLineText,
   fitTextToBox,
   getResponsiveOverlayTypography,
+  normalizeCaptionDisplayText,
   OVERLAY_FONT_FAMILY,
   wrapCaptionText,
 } from "./typography.ts";
@@ -13,6 +14,11 @@ test("uses an explicit cross-platform Chinese font stack for overlays", () => {
   assert.match(OVERLAY_FONT_FAMILY, /Noto Sans SC/);
   assert.match(OVERLAY_FONT_FAMILY, /Source Han Sans SC/);
   assert.match(OVERLAY_FONT_FAMILY, /PingFang SC/);
+});
+
+test("normalizes repeated em dashes into a CJK-safe horizontal bar glyph", () => {
+  assert.equal(normalizeCaptionDisplayText("流量就越高——但AI不会"), "流量就越高――但AI不会");
+  assert.equal(normalizeCaptionDisplayText("讲错一次、两次、三次————没关系"), "讲错一次、两次、三次――――没关系");
 });
 
 test("keeps overlay typography readable on narrow portrait frames", () => {
@@ -203,4 +209,5 @@ test("wraps Chinese em dash subtitles conservatively on narrow frames", () => {
   const lines = wrapped.split("\n");
   assert.ok(lines.length >= 2, `expected em dash subtitle to wrap, got ${lines.length}`);
   assert.ok(lines.every((line) => line.trim().length > 0), "expected wrapped em dash lines to stay non-empty");
+  assert.ok(wrapped.includes("――"), "expected wrapped subtitle to use normalized horizontal bars");
 });
