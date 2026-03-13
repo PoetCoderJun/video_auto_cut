@@ -1,11 +1,14 @@
 ---
 name: video-auto-cut-human-loop
-description: Human-in-the-loop video auto-cut workflow for Codex, Claude Code, or PI agents. Use this skill when the task is to turn a local video into reviewable step1 subtitles, reviewable step2 chapters, and a final cut video while requiring explicit human confirmation after step1 and step2.
+description: Auto-cut a local talking-head video into a final clip from the input video path alone. Use this skill when the user wants a local video processed into step1 review subtitles, step2 review chapters, and a final exported cut; step1 and step2 human approval are the default behavior, and the output path should be inferred when omitted.
 ---
 
 # Video Auto Cut Human Loop
 
-Use this skill when the user wants an agent to run the repo's existing video-auto-cut pipeline with mandatory human review checkpoints.
+Use this skill when the user gives a local video path and wants the agent to turn it into a final cut.
+
+Do not require the user to ask for review checkpoints explicitly.
+Step1 and Step2 review are part of the default workflow.
 
 This skill is a top-level workflow skill, not a prompt-only rewrite skill.
 It orchestrates existing repo modules for:
@@ -40,29 +43,18 @@ Optional but usually needed:
 - `llm_api_key`
 - ASR-related env/config
 
-## Primary entrypoint
-
-Prefer `scripts/run_human_loop_pipeline.py`.
-
-Use these subcommands:
-
-- `run`
-- `approve-step1`
-- `approve-step2`
-- `render`
-- `status`
-
 ## Workflow
 
 1. Resolve and validate `input_video_path`.
-2. Derive a working artifact directory near the input video or under a user-provided workdir.
-3. Run `python scripts/run_human_loop_pipeline.py run ...` to generate Step1 draft artifacts.
-4. Stop and present `step1/draft_step1.json` and `step1/draft_step1.srt` for human review.
-5. After the human edits or approves Step1, run `approve-step1`.
-6. Run `run` again to generate Step2 draft artifacts.
-7. Stop and present `step2/draft_topics.json` for human review.
-8. After the human edits or approves Step2, run `approve-step2`.
-9. Run `render` to export the final cut video.
+2. Infer `output_video_path` if the user omitted it, and tell the user the default you chose.
+3. Derive a working artifact directory near the input video or under a user-provided workdir.
+4. Use the repo's human-loop wrapper to generate Step1 draft artifacts.
+5. Stop and present `step1/draft_step1.json` and `step1/draft_step1.srt` for human review.
+6. After the human edits or approves Step1, continue into Step2.
+7. Generate Step2 draft artifacts.
+8. Stop and present `step2/draft_topics.json` for human review.
+9. After the human edits or approves Step2, continue to render.
+10. Export the final cut video.
 
 Step1 and Step2 confirmation are the default behavior.
 Never skip either checkpoint unless the user explicitly says to bypass human review.
@@ -86,6 +78,12 @@ Do not continue to final cutting until the human explicitly confirms the current
 
 Do not ask whether the user wants review checkpoints.
 Assume they do unless they explicitly opt out.
+
+The user should not need to say:
+
+- that Step1 needs review
+- that Step2 needs review
+- that the output path should be auto-derived when omitted
 
 ## Execution guidance
 
@@ -126,3 +124,13 @@ The workflow should leave behind these user-visible outputs:
 - final cut video at `output_video_path`
 
 If final render is not possible, stop with the reason and preserve all intermediate approved artifacts.
+
+## Trigger examples
+
+This skill should trigger for prompts like:
+
+- `把 /path/to/input.mp4 自动剪成成片`
+- `处理这个视频：/path/to/input.mp4`
+- `帮我剪一下这个口播视频 /path/to/input.mp4`
+
+The user does not need to mention Step1, Step2, output path defaults, or internal scripts.

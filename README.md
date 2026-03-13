@@ -29,6 +29,19 @@ ffmpeg -version
 - `LLM_API_KEY`
 - `OSS_ENDPOINT` / `OSS_BUCKET` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET`（可选）
 
+## 顶层体验
+
+理想的代理侧输入应该只需要一句话，例如：
+
+- `把 /abs/path/input.mp4 自动剪成成片`
+- `处理这个视频 /abs/path/input.mp4`
+
+在 Skill 设计里，以下都是默认行为，不该要求用户额外说明：
+
+- Step1 要停下来给人审核
+- Step2 要停下来给人审核
+- 没写输出路径时，默认输出到当前工作目录下的 `<输入文件名>_cut.mp4`
+
 ## Human Loop 用法
 
 1. 只给输入视频也可以直接开跑。若未指定输出路径，默认输出到当前工作目录下的 `<输入文件名>_cut.mp4`：

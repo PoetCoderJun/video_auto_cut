@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Auto Cut"
+  short_description: "Auto-cut local videos with built-in human review"
+  default_prompt: "Use $video-auto-cut-human-loop to process /abs/path/input.mp4 into a final cut video from the input path alone."
