@@ -54,6 +54,20 @@ def derive_artifact_root(input_video_path: Path, artifact_root: str | None = Non
     return (input_video_path.parent / f"{input_video_path.stem}.video-auto-cut").resolve()
 
 
+def derive_output_video_path(
+    input_video_path: Path,
+    output_video_path: str | None = None,
+    *,
+    cwd: Path | None = None,
+) -> Path:
+    if output_video_path:
+        return Path(output_video_path).expanduser().resolve()
+
+    target_dir = (cwd or Path.cwd()).expanduser().resolve()
+    suffix = ".mp3" if input_video_path.suffix.lower() in {".ogg", ".wav", ".mp3", ".flac", ".m4a"} else ".mp4"
+    return target_dir / f"{input_video_path.stem}_cut{suffix}"
+
+
 def ensure_paths(input_video_path: Path, artifact_root: str | None = None) -> HumanLoopPaths:
     resolved_root = derive_artifact_root(input_video_path, artifact_root)
     input_dir = resolved_root / "input"

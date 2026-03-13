@@ -22,12 +22,15 @@ Reuse the repo's local wrapper and Python pipeline.
 
 ## Required inputs
 
-Collect or confirm these values before running:
+Collect or infer these values before running:
 
 - `input_video_path`: absolute or repo-relative path to the source video
-- `output_video_path`: desired final output video path
 
-If the user does not specify them, stop and ask.
+Treat `output_video_path` as optional:
+
+- if the user specifies a path, use it
+- otherwise default to `<current working directory>/<input_stem>_cut.mp4`
+- tell the user which default path you chose, but do not ask them to repeat it
 
 Optional but usually needed:
 
@@ -61,7 +64,8 @@ Use these subcommands:
 8. After the human edits or approves Step2, run `approve-step2`.
 9. Run `render` to export the final cut video.
 
-Never skip the step1 or step2 confirmation checkpoint unless the user explicitly says to bypass human review.
+Step1 and Step2 confirmation are the default behavior.
+Never skip either checkpoint unless the user explicitly says to bypass human review.
 
 ## Human checkpoints
 
@@ -79,6 +83,9 @@ After step2, stop and ask the human to confirm or edit:
 
 Treat approval as a hard gate.
 Do not continue to final cutting until the human explicitly confirms the current stage.
+
+Do not ask whether the user wants review checkpoints.
+Assume they do unless they explicitly opt out.
 
 ## Execution guidance
 

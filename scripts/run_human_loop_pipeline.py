@@ -17,6 +17,7 @@ from video_auto_cut.human_loop import (
     approve_step1,
     approve_step2,
     derive_artifact_root,
+    derive_output_video_path,
     ensure_paths,
     load_state,
     render_output,
@@ -154,7 +155,7 @@ def _parse_args() -> argparse.Namespace:
 
     run_parser = subparsers.add_parser("run", help="Run until the next human review gate.")
     add_common(run_parser)
-    run_parser.add_argument("--output-video", type=str, required=True)
+    run_parser.add_argument("--output-video", type=str, default=None)
 
     approve_step1_parser = subparsers.add_parser("approve-step1", help="Approve or apply edited step1 lines.")
     add_common(approve_step1_parser)
@@ -233,9 +234,16 @@ def main() -> None:
 
     options = _build_options(args)
     if args.command == "run":
+        output_video_path = derive_output_video_path(
+            input_video_path,
+            getattr(args, "output_video", None),
+            cwd=Path.cwd(),
+        )
+        if not getattr(args, "output_video", None):
+            logging.info("output path not provided, defaulting to %s", output_video_path)
         state = run_until_human_gate(
             input_video_path=input_video_path,
-            output_video_path=Path(args.output_video).expanduser().resolve(),
+            output_video_path=output_video_path,
             artifact_root=artifact_root,
             options=options,
         )

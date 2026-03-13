@@ -31,13 +31,14 @@ ffmpeg -version
 
 ## Human Loop 用法
 
-1. 跑到第一个人审点：
+1. 只给输入视频也可以直接开跑。若未指定输出路径，默认输出到当前工作目录下的 `<输入文件名>_cut.mp4`：
 
 ```bash
 python scripts/run_human_loop_pipeline.py run \
-  --input-video /abs/path/input.mp4 \
-  --output-video /abs/path/output.mp4
+  --input-video /abs/path/input.mp4
 ```
+
+如果你想自定义输出路径，再额外传 `--output-video`。
 
 2. 编辑 `artifact_root/step1/draft_step1.json` 后确认：
 

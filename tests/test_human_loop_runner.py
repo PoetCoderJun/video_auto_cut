@@ -10,6 +10,7 @@ from video_auto_cut.human_loop.artifacts import (
     STATUS_STEP1_CONFIRMED,
     STATUS_STEP1_READY,
     STATUS_STEP2_READY,
+    derive_output_video_path,
 )
 from video_auto_cut.human_loop.runner import approve_step1, run_until_human_gate
 from video_auto_cut.orchestration.pipeline_service import PipelineOptions
@@ -21,6 +22,19 @@ def _write_text(path: Path, content: str) -> None:
 
 
 class HumanLoopRunnerTests(unittest.TestCase):
+    def test_default_output_path_uses_current_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_video = root / "nested" / "demo.mov"
+            input_video.parent.mkdir(parents=True, exist_ok=True)
+            input_video.write_bytes(b"video")
+            cwd = root / "cwd"
+            cwd.mkdir(parents=True, exist_ok=True)
+
+            output_path = derive_output_video_path(input_video, cwd=cwd)
+
+            self.assertEqual(output_path, (cwd / "demo_cut.mp4").resolve())
+
     def test_run_until_human_gate_creates_step1_review_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
