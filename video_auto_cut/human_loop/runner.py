@@ -219,3 +219,76 @@ def render_output(
         shutil.copy2(paths.render_output_path, requested_output)
 
     return _update_status(paths, status=STATUS_SUCCEEDED)
+
+
+def advance_workflow(
+    *,
+    input_video_path: Path,
+    output_video_path: Path,
+    artifact_root: str | None,
+    options: PipelineOptions,
+    encoding: str,
+) -> dict[str, Any]:
+    paths = ensure_paths(input_video_path, artifact_root)
+    state = load_state(paths)
+    status = str(state.get("status") or "").strip().upper()
+
+    if not status:
+        return run_until_human_gate(
+            input_video_path=input_video_path,
+            output_video_path=output_video_path,
+            artifact_root=artifact_root,
+            options=options,
+        )
+
+    if status == STATUS_STEP1_READY:
+        approve_step1(
+            input_video_path=input_video_path,
+            artifact_root=artifact_root,
+            review_json_path=None,
+            encoding=encoding,
+        )
+        return run_until_human_gate(
+            input_video_path=input_video_path,
+            output_video_path=output_video_path,
+            artifact_root=artifact_root,
+            options=options,
+        )
+
+    if status == STATUS_STEP2_READY:
+        approve_step2(
+            input_video_path=input_video_path,
+            artifact_root=artifact_root,
+            review_json_path=None,
+        )
+        return render_output(
+            input_video_path=input_video_path,
+            artifact_root=artifact_root,
+            options=options,
+        )
+
+    if status == STATUS_STEP1_CONFIRMED:
+        return run_until_human_gate(
+            input_video_path=input_video_path,
+            output_video_path=output_video_path,
+            artifact_root=artifact_root,
+            options=options,
+        )
+
+    if status == STATUS_STEP2_CONFIRMED:
+        return render_output(
+            input_video_path=input_video_path,
+            artifact_root=artifact_root,
+            options=options,
+        )
+
+    if status == STATUS_SUCCEEDED:
+        logging.info("Workflow already succeeded: %s", paths.render_output_path)
+        return state
+
+    return run_until_human_gate(
+        input_video_path=input_video_path,
+        output_video_path=output_video_path,
+        artifact_root=artifact_root,
+        options=options,
+    )

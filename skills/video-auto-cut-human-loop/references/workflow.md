@@ -46,7 +46,12 @@ If the repo already has a stronger existing layout, preserve that layout instead
 ## Required agent inputs
 
 - `input_video_path`
-- `output_video_path`
+
+`output_video_path` is optional:
+
+- use the user-provided path when given
+- otherwise default to `<current working directory>/<input_stem>_cut.mp4`
+- tell the user the inferred default path once instead of asking them to repeat it
 
 Optional runtime inputs:
 
@@ -148,7 +153,7 @@ If a dedicated wrapper is later added, the wrapper should own:
 - stage resume behavior
 - human approval status recording
 
-## Wrapper
+## Workflow entrypoint
 
 This repo now includes:
 
@@ -156,8 +161,14 @@ This repo now includes:
 
 Supported commands:
 
-1. `run` generates artifacts until the next human gate, then exits cleanly.
-2. `approve-step1` records the human-confirmed Step1 result.
-3. `approve-step2` records the human-confirmed Step2 result.
-4. `render` produces the final output video.
-5. `status` prints the current artifact-root state.
+1. `next` advances the workflow according to current state:
+   - first call generates Step1 draft artifacts
+   - after Step1 review it records approval and advances into Step2
+   - after Step2 review it records approval and renders the final output
+2. `run` generates artifacts until the next human gate, then exits cleanly.
+3. `approve-step1` records the human-confirmed Step1 result.
+4. `approve-step2` records the human-confirmed Step2 result.
+5. `render` produces the final output video.
+6. `status` prints the current artifact-root state.
+
+For agent-driven usage, prefer `next` as the default workflow action and use the lower-level commands only when a task needs a specific stage.

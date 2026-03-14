@@ -14,6 +14,7 @@ if REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, REPO_ROOT_STR)
 
 from video_auto_cut.human_loop import (
+    advance_workflow,
     approve_step1,
     approve_step2,
     derive_artifact_root,
@@ -157,6 +158,13 @@ def _parse_args() -> argparse.Namespace:
     add_common(run_parser)
     run_parser.add_argument("--output-video", type=str, default=None)
 
+    next_parser = subparsers.add_parser(
+        "next",
+        help="Advance the workflow by one default step based on current state.",
+    )
+    add_common(next_parser)
+    next_parser.add_argument("--output-video", type=str, default=None)
+
     approve_step1_parser = subparsers.add_parser("approve-step1", help="Approve or apply edited step1 lines.")
     add_common(approve_step1_parser)
     approve_step1_parser.add_argument("--review-json", type=str, default=None)
@@ -233,7 +241,7 @@ def main() -> None:
         return
 
     options = _build_options(args)
-    if args.command == "run":
+    if args.command in {"run", "next"}:
         output_video_path = derive_output_video_path(
             input_video_path,
             getattr(args, "output_video", None),
@@ -241,12 +249,21 @@ def main() -> None:
         )
         if not getattr(args, "output_video", None):
             logging.info("output path not provided, defaulting to %s", output_video_path)
-        state = run_until_human_gate(
-            input_video_path=input_video_path,
-            output_video_path=output_video_path,
-            artifact_root=artifact_root,
-            options=options,
-        )
+        if args.command == "run":
+            state = run_until_human_gate(
+                input_video_path=input_video_path,
+                output_video_path=output_video_path,
+                artifact_root=artifact_root,
+                options=options,
+            )
+        else:
+            state = advance_workflow(
+                input_video_path=input_video_path,
+                output_video_path=output_video_path,
+                artifact_root=artifact_root,
+                options=options,
+                encoding=args.encoding,
+            )
     elif args.command == "approve-step1":
         state = approve_step1(
             input_video_path=input_video_path,

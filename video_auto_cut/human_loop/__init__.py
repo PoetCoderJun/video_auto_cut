@@ -5,10 +5,17 @@ from .artifacts import (
     ensure_paths,
     load_state,
 )
-from .runner import approve_step1, approve_step2, render_output, run_until_human_gate
+from .runner import (
+    advance_workflow,
+    approve_step1,
+    approve_step2,
+    render_output,
+    run_until_human_gate,
+)
 
 __all__ = [
     "HumanLoopPaths",
+    "advance_workflow",
     "approve_step1",
     "approve_step2",
     "derive_artifact_root",

@@ -13,6 +13,7 @@ from video_auto_cut.human_loop.artifacts import (
     derive_output_video_path,
 )
 from video_auto_cut.human_loop.runner import approve_step1, run_until_human_gate
+from video_auto_cut.human_loop.runner import advance_workflow
 from video_auto_cut.orchestration.pipeline_service import PipelineOptions
 
 
@@ -102,6 +103,94 @@ class HumanLoopRunnerTests(unittest.TestCase):
             self.assertEqual(state["status"], STATUS_STEP1_READY)
             self.assertTrue((artifact_root / "step1" / "draft_step1.json").exists())
             self.assertTrue((artifact_root / "step1" / "draft_step1.srt").exists())
+
+    def test_advance_workflow_auto_approves_step1_and_runs_step2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_video = root / "demo.mp4"
+            input_video.write_bytes(b"video")
+            artifact_root = root / "artifacts"
+            output_video = root / "output.mp4"
+
+            (artifact_root / "step1").mkdir(parents=True, exist_ok=True)
+            (artifact_root / "state.json").write_text(
+                json.dumps(
+                    {
+                        "status": "STEP1_READY",
+                        "input_video_path": str(input_video),
+                        "output_video_path": str(output_video),
+                        "step1_confirmed": False,
+                        "step2_confirmed": False,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            draft_step1 = artifact_root / "step1" / "draft_step1.json"
+            draft_step1.write_text(
+                json.dumps(
+                    {
+                        "lines": [
+                            {
+                                "line_id": 1,
+                                "start": 0.0,
+                                "end": 1.0,
+                                "original_text": "第一句",
+                                "optimized_text": "第一句",
+                                "ai_suggest_remove": False,
+                                "user_final_remove": False,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            def fake_topic_segmentation(
+                optimized_srt_path: Path,
+                cut_srt_output_path: Path,
+                topics_output_path: Path,
+                options: PipelineOptions,
+            ) -> Path:
+                _write_text(cut_srt_output_path, "1\n00:00:00,000 --> 00:00:01,000\n第一句\n")
+                topics_output_path.write_text(
+                    json.dumps(
+                        {
+                            "topics": [
+                                {
+                                    "chapter_id": 1,
+                                    "title": "开场",
+                                    "start": 0.0,
+                                    "end": 1.0,
+                                    "line_ids": [1],
+                                }
+                            ]
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                return topics_output_path
+
+            with patch(
+                "video_auto_cut.human_loop.runner.run_topic_segmentation_from_optimized_srt",
+                side_effect=fake_topic_segmentation,
+            ):
+                state = advance_workflow(
+                    input_video_path=input_video,
+                    output_video_path=output_video,
+                    artifact_root=str(artifact_root),
+                    options=PipelineOptions(llm_base_url="https://example.com", llm_model="test-model"),
+                    encoding="utf-8",
+                )
+
+            self.assertEqual(state["status"], STATUS_STEP2_READY)
+            self.assertTrue((artifact_root / "step1" / "final_step1.json").exists())
+            self.assertTrue((artifact_root / "step2" / "draft_topics.json").exists())
 
     def test_confirmed_step1_resumes_to_step2_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
