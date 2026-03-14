@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, FormEvent, useEffect } from "react";
 import { toast } from "sonner";
 import { authClient } from "../lib/auth-client";
@@ -18,9 +18,7 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 
 type AuthViewName = "SIGN_IN" | "SIGN_UP";
@@ -31,6 +29,7 @@ type AuthPageClientProps = {
 
 export default function AuthPageClient({ view }: AuthPageClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,19 +39,34 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
   useEffect(() => {
     if (view === "SIGN_UP") {
       try {
+        const queryCode = String(
+          searchParams.get("invite") || searchParams.get("code") || ""
+        )
+          .trim()
+          .toUpperCase();
+        if (queryCode) {
+          setInviteCode(queryCode);
+          localStorage.setItem(LEGACY_PENDING_INVITE_CODE_KEY, queryCode);
+          return;
+        }
         const savedCode = localStorage.getItem(LEGACY_PENDING_INVITE_CODE_KEY);
         if (savedCode) setInviteCode(savedCode);
       } catch {
         // ignore
       }
     }
-  }, [view]);
+  }, [searchParams, view]);
 
   const resolveSignedInUserId = async (signupResult: any): Promise<string> => {
     const fromSignup = String(signupResult?.data?.user?.id || "").trim();
     if (fromSignup) return fromSignup;
     const sessionResult = await (authClient as any).getSession();
     return String(sessionResult?.data?.user?.id || "").trim();
+  };
+
+  const resolveAccessToken = async (): Promise<string> => {
+    const tokenResult = await (authClient as any).token();
+    return String(tokenResult?.data?.token || "").trim();
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -93,8 +107,7 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
 
         let activated = false;
         try {
-          const tokenResult = await (authClient as any).token();
-          const token = String(tokenResult?.data?.token || "").trim();
+          const token = await resolveAccessToken();
           if (token) {
             const activation = await activateInviteCode(code, token);
             activated = true;
@@ -248,6 +261,7 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
                     </>
                   )}
                 </Button>
+
               </div>
             </form>
             
@@ -288,6 +302,7 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
           </p>
         </div>
       </div>
+
     </div>
   );
 }

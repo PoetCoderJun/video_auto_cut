@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from ..errors import (
+    bad_request,
     coupon_code_exhausted,
     coupon_code_expired,
     coupon_code_invalid,
     forbidden,
+    invite_claim_exhausted,
+    invite_claim_failed,
 )
+from ..config import get_settings
 from ..repository import (
+    claim_public_coupon_code,
     ensure_user,
     get_credit_balance,
     get_recent_credit_ledger,
@@ -95,4 +100,32 @@ def check_coupon_for_signup(code: str) -> dict[str, object]:
         "valid": True,
         "code": str(result["code"]),
         "credits": int(result["credits"]),
+    }
+
+
+def claim_public_invite_for_ip(ip_address: str) -> dict[str, object]:
+    normalized_ip = str(ip_address or "").strip()
+    if not normalized_ip:
+        raise bad_request("暂时无法识别你的访问来源，请稍后重试")
+
+    settings = get_settings()
+    try:
+        result = claim_public_coupon_code(
+            normalized_ip,
+            credits=settings.public_invite_credits,
+            source="PUBLIC_WEB_INVITE",
+        )
+    except LookupError as exc:
+        if str(exc) == "PUBLIC_INVITE_EXHAUSTED":
+            raise invite_claim_exhausted("邀请码领取名额已满，请稍后再来看看") from exc
+        raise invite_claim_failed("邀请码发放失败，请稍后再试") from exc
+    except ValueError as exc:
+        raise bad_request("暂时无法识别你的访问来源，请稍后重试") from exc
+    except RuntimeError as exc:
+        raise invite_claim_failed("邀请码发放失败，请稍后再试") from exc
+
+    return {
+        "code": str(result["code"]),
+        "credits": int(result["credits"]),
+        "already_claimed": bool(result["already_claimed"]),
     }

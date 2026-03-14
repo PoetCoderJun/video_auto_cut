@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -117,6 +120,173 @@ def get_user(user_id: str) -> dict[str, Any] | None:
 
 def normalize_code(raw: str) -> str:
     return raw.strip().upper()
+
+
+def _generate_coupon_code(length: int = 10) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    token = "".join(secrets.choice(alphabet) for _ in range(max(4, int(length))))
+    return f"CPN-{token}"
+
+
+def _create_coupon_in_tx(
+    conn: Any,
+    *,
+    code: str,
+    credits: int,
+    expires_at: str | None,
+    status: str,
+    source: str | None,
+    now: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO coupon_codes(
+            code,
+            credits,
+            used_count,
+            expires_at,
+            status,
+            source,
+            created_at,
+            updated_at
+        )
+        VALUES(?, ?, 0, ?, ?, ?, ?, ?)
+        """,
+        (
+            code,
+            int(credits),
+            expires_at,
+            status,
+            source,
+            now,
+            now,
+        ),
+    )
+
+
+def claim_public_coupon_code(
+    ip_address: str,
+    *,
+    credits: int,
+    source: str | None = "PUBLIC_WEB_INVITE",
+) -> dict[str, Any]:
+    normalized_ip = str(ip_address or "").strip()
+    if not normalized_ip:
+        raise ValueError("client ip cannot be empty")
+
+    normalized_credits = int(credits)
+    if normalized_credits <= 0:
+        raise ValueError("credits must be positive")
+
+    ip_hash = hashlib.sha256(normalized_ip.encode("utf-8")).hexdigest()
+    normalized_source = (source or "").strip() or None
+
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        now = now_iso()
+
+        claim = conn.execute(
+            """
+            SELECT code
+            FROM public_invite_claims
+            WHERE ip_hash = ?
+            LIMIT 1
+            """,
+            (ip_hash,),
+        ).fetchone()
+        existing_code = str(_row_get(claim, "code", 0) or "").strip()
+        has_existing_claim = bool(existing_code)
+        if existing_code:
+            coupon = conn.execute(
+                """
+                SELECT code, credits
+                FROM coupon_codes
+                WHERE code = ?
+                LIMIT 1
+                """,
+                (existing_code,),
+            ).fetchone()
+            if coupon:
+                conn.execute(
+                    "UPDATE public_invite_claims SET updated_at = ? WHERE ip_hash = ?",
+                    (now, ip_hash),
+                )
+                conn.commit()
+                return {
+                    "code": str(_row_get(coupon, "code", 0)),
+                    "credits": int(_row_get(coupon, "credits", 1) or normalized_credits),
+                    "already_claimed": True,
+                }
+
+        if not has_existing_claim:
+            settings_row = conn.execute(
+                """
+                SELECT max_claims
+                FROM public_invite_settings
+                WHERE settings_id = 1
+                LIMIT 1
+                """
+            ).fetchone()
+            max_claims = int(_row_get(settings_row, "max_claims", 0) or 0)
+            claim_count_row = conn.execute(
+                "SELECT COUNT(*) AS total FROM public_invite_claims"
+            ).fetchone()
+            claim_count = int(_row_get(claim_count_row, "total", 0) or 0)
+            if max_claims > 0 and claim_count >= max_claims:
+                conn.rollback()
+                raise LookupError("PUBLIC_INVITE_EXHAUSTED")
+
+        generated_code = ""
+        last_error: Exception | None = None
+        for _attempt in range(20):
+            try:
+                generated_code = _generate_coupon_code()
+                _create_coupon_in_tx(
+                    conn,
+                    code=generated_code,
+                    credits=normalized_credits,
+                    expires_at=None,
+                    status="ACTIVE",
+                    source=normalized_source,
+                    now=now,
+                )
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+                generated_code = ""
+        if not generated_code:
+            conn.rollback()
+            if last_error is not None:
+                raise RuntimeError("failed to generate coupon") from last_error
+            raise RuntimeError("failed to generate coupon")
+
+        if has_existing_claim:
+            conn.execute(
+                """
+                UPDATE public_invite_claims
+                SET code = ?, updated_at = ?
+                WHERE ip_hash = ?
+                """,
+                (generated_code, now, ip_hash),
+            )
+            already_claimed = True
+        else:
+            conn.execute(
+                """
+                INSERT INTO public_invite_claims(ip_hash, code, created_at, updated_at)
+                VALUES(?, ?, ?, ?)
+                """,
+                (ip_hash, generated_code, now, now),
+            )
+            already_claimed = False
+
+        conn.commit()
+        return {
+            "code": generated_code,
+            "credits": normalized_credits,
+            "already_claimed": already_claimed,
+        }
 
 
 def get_credit_balance(user_id: str) -> int:

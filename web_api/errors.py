@@ -51,3 +51,11 @@ def coupon_code_expired(message: str) -> ApiError:
 
 def coupon_code_exhausted(message: str) -> ApiError:
     return ApiError(code="COUPON_CODE_EXHAUSTED", message=message, status_code=422)
+
+
+def invite_claim_failed(message: str) -> ApiError:
+    return ApiError(code="INVITE_CLAIM_FAILED", message=message, status_code=503)
+
+
+def invite_claim_exhausted(message: str) -> ApiError:
+    return ApiError(code="INVITE_CLAIM_EXHAUSTED", message=message, status_code=409)

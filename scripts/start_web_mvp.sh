@@ -4,6 +4,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+MODE_RAW="${1:-${WEB_MVP_MODE:-build}}"
+MODE="$(printf '%s' "$MODE_RAW" | tr '[:upper:]' '[:lower:]')"
+case "$MODE" in
+  build|prod|production)
+    MODE="build"
+    ;;
+  debug|dev)
+    MODE="debug"
+    ;;
+  *)
+    echo "usage: $0 [debug|build]"
+    echo "[start_web_mvp] unsupported mode: $MODE_RAW"
+    exit 2
+    ;;
+esac
+
 API_HOST="${API_HOST:-127.0.0.1}"
 API_PORT="${API_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
@@ -31,15 +47,19 @@ else
     echo "[start_web_mvp] TURSO_AUTH_TOKEN is required (set WEB_DB_LOCAL_ONLY=1 to run without Turso network)"
     exit 1
   fi
+
+  echo "[start_web_mvp] Turso mode enabled"
 fi
 
 if [[ -n "${TURSO_LOCAL_REPLICA_PATH:-}" ]]; then
   API_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.api"
+  WORKER_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.worker"
 else
   API_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_api.db"
+  WORKER_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_worker.db"
 fi
 API_TURSO_LOCAL_REPLICA_PATH="${API_TURSO_LOCAL_REPLICA_PATH:-$API_REPLICA_DEFAULT}"
-WORKER_TURSO_LOCAL_REPLICA_PATH="${WORKER_TURSO_LOCAL_REPLICA_PATH:-$API_TURSO_LOCAL_REPLICA_PATH}"
+WORKER_TURSO_LOCAL_REPLICA_PATH="${WORKER_TURSO_LOCAL_REPLICA_PATH:-$WORKER_REPLICA_DEFAULT}"
 
 AUTH_ENABLED_RAW="${WEB_AUTH_ENABLED:-1}"
 AUTH_ENABLED="$(printf '%s' "$AUTH_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')"
@@ -91,6 +111,7 @@ if ! python_can_run "${PYTHON_CMD[@]}"; then
 fi
 
 echo "[start_web_mvp] using python: $("${PYTHON_CMD[@]}" -c 'import sys; print(f"{sys.executable} (Python {sys.version.split()[0]})")')"
+echo "[start_web_mvp] frontend mode: $MODE"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "[start_web_mvp] npm not found in PATH"
@@ -141,6 +162,14 @@ if [[ -n "$existing_next_process" ]]; then
   exit 1
 fi
 
+existing_web_api_processes="$(ps -ax -o pid=,command= | rg 'uvicorn web_api.app:app|python -m web_api' | rg -v 'start_web_mvp.sh|rg ' || true)"
+if [[ -n "$existing_web_api_processes" ]]; then
+  echo "[start_web_mvp] detected existing web_api processes:"
+  echo "$existing_web_api_processes"
+  echo "[start_web_mvp] stop them first, then rerun this script."
+  exit 1
+fi
+
 next_lock_file="$ROOT_DIR/web_frontend/.next/dev/lock"
 if [[ -f "$next_lock_file" ]]; then
   echo "[start_web_mvp] removing stale Next.js lock: $next_lock_file"
@@ -167,19 +196,21 @@ if port_in_use "$FRONTEND_PORT"; then
   exit 1
 fi
 
-echo "[start_web_mvp] building Next.js production bundle ..."
-NEXT_PUBLIC_API_BASE="$WEB_API_BASE" \
-NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
-BETTER_AUTH_URL="$BETTER_AUTH_URL" \
-WEB_API_BASE="$WEB_API_BASE" \
-  npm --prefix "$ROOT_DIR/web_frontend" run build
+if [[ "$MODE" == "build" ]]; then
+  echo "[start_web_mvp] building Next.js production bundle ..."
+  NEXT_PUBLIC_API_BASE="$WEB_API_BASE" \
+  NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
+  BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+  WEB_API_BASE="$WEB_API_BASE" \
+    npm --prefix "$ROOT_DIR/web_frontend" run build
 
-echo "[start_web_mvp] syncing standalone static assets ..."
-mkdir -p "$ROOT_DIR/web_frontend/.next/standalone/.next"
-rm -rf "$ROOT_DIR/web_frontend/.next/standalone/public"
-cp -R "$ROOT_DIR/web_frontend/public" "$ROOT_DIR/web_frontend/.next/standalone/public"
-rm -rf "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
-cp -R "$ROOT_DIR/web_frontend/.next/static" "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
+  echo "[start_web_mvp] syncing standalone static assets ..."
+  mkdir -p "$ROOT_DIR/web_frontend/.next/standalone/.next"
+  rm -rf "$ROOT_DIR/web_frontend/.next/standalone/public"
+  cp -R "$ROOT_DIR/web_frontend/public" "$ROOT_DIR/web_frontend/.next/standalone/public"
+  rm -rf "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
+  cp -R "$ROOT_DIR/web_frontend/.next/static" "$ROOT_DIR/web_frontend/.next/standalone/.next/static"
+fi
 
 API_PID=""
 WORKER_PID=""
@@ -216,15 +247,25 @@ PYTHONUNBUFFERED=1 TURSO_LOCAL_REPLICA_PATH="$WORKER_TURSO_LOCAL_REPLICA_PATH" \
   "${PYTHON_CMD[@]}" -m web_api &
 WORKER_PID=$!
 
-echo "[start_web_mvp] starting Next.js production server on :$FRONTEND_PORT ..."
-NEXT_PUBLIC_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
-  NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
-  BETTER_AUTH_URL="$BETTER_AUTH_URL" \
-  WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
-  HOSTNAME="127.0.0.1" \
-  PORT="$FRONTEND_PORT" \
-  bash -lc 'cd "$1/web_frontend" && exec node .next/standalone/server.js' _ "$ROOT_DIR" &
-FRONTEND_PID=$!
+if [[ "$MODE" == "debug" ]]; then
+  echo "[start_web_mvp] starting Next.js debug server on 127.0.0.1:$FRONTEND_PORT ..."
+  NEXT_PUBLIC_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
+    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+    WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    npm --prefix "$ROOT_DIR/web_frontend" run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" &
+  FRONTEND_PID=$!
+else
+  echo "[start_web_mvp] starting Next.js production server on :$FRONTEND_PORT ..."
+  NEXT_PUBLIC_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
+    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+    WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    HOSTNAME="127.0.0.1" \
+    PORT="$FRONTEND_PORT" \
+    bash -lc 'cd "$1/web_frontend" && exec node .next/standalone/server.js' _ "$ROOT_DIR" &
+  FRONTEND_PID=$!
+fi
 
 wait_http() {
   local url="$1"

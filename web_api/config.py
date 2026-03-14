@@ -62,6 +62,7 @@ class Settings:
     auth_issuer: str | None
     auth_audience: str | None
     auth_jwt_leeway_seconds: int
+    public_invite_credits: int
     web_cors_allowed_origins: tuple[str, ...]
     web_cors_allow_credentials: bool
     web_cors_allowed_methods: tuple[str, ...]
@@ -204,6 +205,7 @@ def get_settings() -> Settings:
         auth_issuer=auth_issuer,
         auth_audience=auth_audience,
         auth_jwt_leeway_seconds=max(0, int(os.getenv("WEB_AUTH_JWT_LEEWAY_SECONDS", "10"))),
+        public_invite_credits=max(1, int(os.getenv("PUBLIC_INVITE_CREDITS", "10"))),
         web_cors_allowed_origins=parse_csv(cors_origins_raw),
         web_cors_allow_credentials=os.getenv("WEB_CORS_ALLOW_CREDENTIALS", "1").strip().lower()
         in {"1", "true", "yes"},

@@ -4,6 +4,8 @@ import logging
 import os
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterator
 
 from .config import get_settings
@@ -72,11 +74,31 @@ def _create_local_conn() -> sqlite3.Connection:
     return conn
 
 
-def _create_conn() -> Any:
-    settings = get_settings()
-    if _is_local_only_mode():
-        return _create_local_conn()
+def _is_wal_conflict_error(exc: Exception) -> bool:
+    message = str(exc or "")
+    normalized = message.lower()
+    return "wal frame insert conflict" in normalized or "walconflict" in normalized
 
+
+def _replica_related_paths(replica_path: Path) -> list[Path]:
+    return [
+        replica_path,
+        replica_path.with_name(replica_path.name + "-wal"),
+        replica_path.with_name(replica_path.name + "-shm"),
+        replica_path.with_name(replica_path.name + "-info"),
+    ]
+
+
+def _reset_local_replica(replica_path: Path) -> None:
+    for path in _replica_related_paths(replica_path):
+        try:
+            if path.exists():
+                path.unlink()
+        except FileNotFoundError:
+            continue
+
+
+def _connect_turso(settings: Any) -> Any:
     if libsql is None:
         raise RuntimeError("Turso mode requires 'libsql'. Install with `pip install -r requirements.txt`.")
     if not settings.turso_database_url:
@@ -91,26 +113,53 @@ def _create_conn() -> Any:
     if settings.turso_sync_interval > 0:
         connect_kwargs["sync_interval"] = settings.turso_sync_interval
 
+    conn = libsql.connect(str(settings.turso_local_replica_path), **connect_kwargs)
     try:
-        conn = libsql.connect(str(settings.turso_local_replica_path), **connect_kwargs)
+        conn.row_factory = sqlite3.Row
+    except Exception:
+        pass
+    return conn
+
+
+def _create_conn() -> Any:
+    settings = get_settings()
+    if _is_local_only_mode():
+        return _create_local_conn()
+    try:
+        conn = _connect_turso(settings)
         try:
-            conn.row_factory = sqlite3.Row
-        except Exception:
-            pass
-        _sync_best_effort(conn, stage="open")
+            _sync_best_effort(conn, stage="open", raise_on_error=True)
+            return conn
+        except Exception as exc:
+            conn.close()
+            if not _is_wal_conflict_error(exc):
+                raise RuntimeError(f"Turso connect failed: {exc}") from exc
+    except Exception as exc:
+        if not _is_wal_conflict_error(exc):
+            raise RuntimeError(f"Turso connect failed: {exc}") from exc
+
+    logging.warning(
+        "[web_api] detected WAL conflict for local replica %s, resetting and retrying once",
+        settings.turso_local_replica_path,
+    )
+    _reset_local_replica(settings.turso_local_replica_path)
+    try:
+        conn = _connect_turso(settings)
+        _sync_best_effort(conn, stage="open", raise_on_error=True)
         return conn
     except Exception as exc:
-        logging.warning("[web_api] turso connect failed, fallback to local replica sqlite: %s", exc)
-        return _create_local_conn()
+        raise RuntimeError(f"Turso connect failed after replica reset: {exc}") from exc
 
 
-def _sync_best_effort(conn: Any, *, stage: str) -> None:
+def _sync_best_effort(conn: Any, *, stage: str, raise_on_error: bool = False) -> None:
     if not hasattr(conn, "sync"):
         return
     try:
         conn.sync()
     except Exception as exc:
         logging.warning("[web_api] turso sync failed at %s: %s", stage, exc)
+        if raise_on_error:
+            raise
 
 
 def _executescript(conn: Any, script: str) -> None:
@@ -172,6 +221,21 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS public_invite_claims (
+                claim_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_hash TEXT NOT NULL UNIQUE,
+                code TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS public_invite_settings (
+                settings_id INTEGER PRIMARY KEY CHECK (settings_id = 1),
+                max_claims INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_coupon_codes_status_created_at
             ON coupon_codes(status, created_at DESC);
 
@@ -180,7 +244,19 @@ def init_db() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_created_at
             ON credit_ledger(user_id, created_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_public_invite_claims_created_at
+            ON public_invite_claims(created_at DESC);
             """,
+        )
+
+        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO public_invite_settings(settings_id, max_claims, created_at, updated_at)
+            VALUES(1, 50, ?, ?)
+            """,
+            (now, now),
         )
 
         user_columns = _extract_column_names(list(conn.execute("PRAGMA table_info(users)").fetchall()))

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 from ..constants import (
     JOB_STATUS_CREATED,
@@ -36,6 +36,7 @@ from ..config import get_settings
 from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.auth import CurrentUser, require_current_user
 from ..services.billing import (
+    claim_public_invite_for_ip,
     check_coupon_for_signup,
     get_user_profile,
     has_available_credits,
@@ -56,6 +57,25 @@ def _request_id() -> str:
 
 def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"request_id": _request_id(), "data": data}
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded = str(request.headers.get("x-forwarded-for") or "").strip()
+    if forwarded:
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first
+
+    real_ip = str(request.headers.get("x-real-ip") or "").strip()
+    if real_ip:
+        return real_ip
+
+    client = getattr(request, "client", None)
+    host = str(getattr(client, "host", "") or "").strip()
+    if host:
+        return host
+
+    return ""
 
 
 @router.post("/jobs")
@@ -84,6 +104,12 @@ def redeem_coupon_endpoint(
 def verify_coupon_endpoint(request: CouponRedeemRequest) -> dict[str, Any]:
     result = check_coupon_for_signup(request.code)
     return _ok({"coupon": result})
+
+
+@router.post("/public/invites/claim")
+def claim_public_invite_endpoint(request: Request) -> dict[str, Any]:
+    result = claim_public_invite_for_ip(_resolve_client_ip(request))
+    return _ok({"invite": result})
 
 
 @router.get("/jobs/{job_id}")

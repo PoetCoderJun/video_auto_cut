@@ -320,6 +320,16 @@ export async function verifyCouponCode(code: string): Promise<{valid: boolean; c
   return data.coupon;
 }
 
+export async function claimPublicInviteCode(): Promise<{code: string; credits: number; already_claimed: boolean}> {
+  const data = await request<{invite: {code: string; credits: number; already_claimed: boolean}}>(
+    "/public/invites/claim",
+    {
+      method: "POST",
+    }
+  );
+  return data.invite;
+}
+
 export type OssUploadCreds = {put_url: string; object_key: string};
 
 export async function getOssUploadUrl(
