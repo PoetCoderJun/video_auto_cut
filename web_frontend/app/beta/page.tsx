@@ -66,7 +66,7 @@ export default function BetaPage() {
               <div className="space-y-3.5 p-4 sm:space-y-4 sm:p-5">
                 <h2 className="text-base font-semibold text-foreground sm:text-xl">添加微信</h2>
                 <p className="text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                  由于平台限制，我只能邀请大家添加我的微信，我会一个个把邀请码发给大家，恢复可能慢多多见谅。
+                  由于平台限制，我只能邀请大家添加我的微信，我会一个个把邀请码发给大家，回复可能慢多多见谅。
                 </p>
                 <div className="mx-auto w-fit rounded-2xl border border-border bg-background p-2.5 shadow-sm sm:p-3">
                   <Image
