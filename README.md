@@ -75,6 +75,7 @@ python scripts/run_human_loop_pipeline.py render \
 ```
 
 默认工件目录是输入视频旁边的 `<video_stem>.video-auto-cut/`。也可以用 `--artifact-root` 指定。
+如果你更想用单个“继续”动作，`next` 也可以作为恢复入口，但它只会在当前阶段已经存在显式审批记录时推进；它不会把“继续执行”自动当成“已经审核通过”。
 
 ## Skill 用法
 

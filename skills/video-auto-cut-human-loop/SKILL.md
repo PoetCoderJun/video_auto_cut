@@ -62,6 +62,14 @@ After step2, stop and ask the human to confirm or edit:
 
 Treat approval as a hard gate.
 Do not continue to final cutting until the human explicitly confirms the current stage.
+Valid human outcomes at each gate are:
+
+- approve as-is
+- provide an edited review artifact
+- ask for regeneration
+- abort the workflow
+
+Silence, impatience, or a generic "continue" without stage approval is not enough to pass the gate.
 
 Do not ask whether the user wants review checkpoints.
 Assume they do unless they explicitly opt out.
@@ -76,6 +84,11 @@ The user should not need to say:
 
 Use the repo's existing orchestration entrypoint for this workflow rather than inventing ad hoc glue.
 Keep implementation details out of the user conversation unless they are needed to explain a failure or request confirmation.
+The default user experience should still feel like a single top-level skill:
+
+- one user utterance starts the workflow
+- the agent chooses the artifact root and default output path when needed
+- the agent pauses at each review gate and records an explicit approval or edit before resuming
 
 ## Design rule
 

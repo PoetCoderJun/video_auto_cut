@@ -19,6 +19,9 @@ STATUS_STEP2_READY = "STEP2_READY"
 STATUS_STEP2_CONFIRMED = "STEP2_CONFIRMED"
 STATUS_SUCCEEDED = "SUCCEEDED"
 
+REVIEW_ACTION_APPROVE = "approve"
+REVIEW_ACTION_EDIT = "edit"
+
 
 @dataclass(frozen=True)
 class HumanLoopPaths:
@@ -34,11 +37,13 @@ class HumanLoopPaths:
     step1_sidecar_json: Path
     step1_draft_srt: Path
     step1_draft_json: Path
+    step1_receipt_json: Path
     step1_final_srt: Path
     step1_final_json: Path
     step2_cut_srt: Path
     step2_topics_json: Path
     step2_draft_json: Path
+    step2_receipt_json: Path
     step2_final_json: Path
     render_cut_srt: Path
     render_output_path: Path
@@ -91,11 +96,13 @@ def ensure_paths(input_video_path: Path, artifact_root: str | None = None) -> Hu
         step1_sidecar_json=step1_dir / "source.optimized.step1.json",
         step1_draft_srt=step1_dir / "draft_step1.srt",
         step1_draft_json=step1_dir / "draft_step1.json",
+        step1_receipt_json=step1_dir / "review.receipt.json",
         step1_final_srt=step1_dir / "final_step1.srt",
         step1_final_json=step1_dir / "final_step1.json",
         step2_cut_srt=step2_dir / "cut.srt",
         step2_topics_json=step2_dir / "topics.json",
         step2_draft_json=step2_dir / "draft_topics.json",
+        step2_receipt_json=step2_dir / "review.receipt.json",
         step2_final_json=step2_dir / "final_topics.json",
         render_cut_srt=render_dir / "cut.srt",
         render_output_path=render_dir / "output.mp4",
@@ -142,6 +149,7 @@ def initialize_state(
         "staged_video_path": str(existing.get("staged_video_path") or paths.staged_video_path),
         "step1_confirmed": bool(existing.get("step1_confirmed", False)),
         "step2_confirmed": bool(existing.get("step2_confirmed", False)),
+        "awaiting_review_stage": existing.get("awaiting_review_stage"),
         "created_at": existing.get("created_at") or now_iso(),
     }
     return save_state(paths, payload)
@@ -267,6 +275,53 @@ def read_topics(path: Path) -> list[dict[str, Any]]:
 
 def write_topics_json(chapters: list[dict[str, Any]], path: Path) -> None:
     _write_json(path, {"topics": chapters})
+
+
+def write_review_receipt(
+    path: Path,
+    *,
+    stage: str,
+    action: str,
+    source: str,
+    reviewed_path: Path,
+) -> dict[str, Any]:
+    payload = {
+        "stage": stage,
+        "action": action,
+        "source": source,
+        "reviewed_path": str(reviewed_path),
+        "reviewed_at": now_iso(),
+    }
+    _write_json(path, payload)
+    return payload
+
+
+def read_review_receipt(path: Path, *, expected_stage: str) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = _read_json(path)
+    if not isinstance(payload, dict):
+        return None
+    if str(payload.get("stage") or "").strip() != expected_stage:
+        return None
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in {REVIEW_ACTION_APPROVE, REVIEW_ACTION_EDIT}:
+        return None
+    reviewed_path = str(payload.get("reviewed_path") or "").strip()
+    if not reviewed_path:
+        return None
+    return payload
+
+
+def clear_review_receipt(path: Path) -> None:
+    path.unlink(missing_ok=True)
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def map_line_ids_to_step1(raw_line_ids: list[int], kept_ids: list[int]) -> list[int]:

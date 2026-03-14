@@ -10,7 +10,9 @@ from video_auto_cut.human_loop.artifacts import (
     STATUS_STEP1_CONFIRMED,
     STATUS_STEP1_READY,
     STATUS_STEP2_READY,
+    STATUS_SUCCEEDED,
     derive_output_video_path,
+    write_review_receipt,
 )
 from video_auto_cut.human_loop.runner import approve_step1, run_until_human_gate
 from video_auto_cut.human_loop.runner import advance_workflow
@@ -104,7 +106,7 @@ class HumanLoopRunnerTests(unittest.TestCase):
             self.assertTrue((artifact_root / "step1" / "draft_step1.json").exists())
             self.assertTrue((artifact_root / "step1" / "draft_step1.srt").exists())
 
-    def test_advance_workflow_auto_approves_step1_and_runs_step2(self) -> None:
+    def test_advance_workflow_does_not_auto_approve_without_receipt(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             input_video = root / "demo.mp4"
@@ -147,6 +149,69 @@ class HumanLoopRunnerTests(unittest.TestCase):
                     indent=2,
                 ),
                 encoding="utf-8",
+            )
+            state = advance_workflow(
+                input_video_path=input_video,
+                output_video_path=output_video,
+                artifact_root=str(artifact_root),
+                options=PipelineOptions(llm_base_url="https://example.com", llm_model="test-model"),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(state["status"], STATUS_STEP1_READY)
+            self.assertEqual(state["awaiting_review_stage"], "step1")
+            self.assertFalse((artifact_root / "step1" / "final_step1.json").exists())
+
+    def test_advance_workflow_uses_explicit_receipt_to_move_from_step1_to_step2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_video = root / "demo.mp4"
+            input_video.write_bytes(b"video")
+            artifact_root = root / "artifacts"
+            output_video = root / "output.mp4"
+
+            (artifact_root / "step1").mkdir(parents=True, exist_ok=True)
+            (artifact_root / "state.json").write_text(
+                json.dumps(
+                    {
+                        "status": "STEP1_READY",
+                        "input_video_path": str(input_video),
+                        "output_video_path": str(output_video),
+                        "step1_confirmed": False,
+                        "step2_confirmed": False,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            draft_step1 = artifact_root / "step1" / "draft_step1.json"
+            draft_step1.write_text(
+                json.dumps(
+                    {
+                        "lines": [
+                            {
+                                "line_id": 1,
+                                "start": 0.0,
+                                "end": 1.0,
+                                "original_text": "第一句",
+                                "optimized_text": "第一句",
+                                "ai_suggest_remove": False,
+                                "user_final_remove": False,
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            write_review_receipt(
+                artifact_root / "step1" / "review.receipt.json",
+                stage="step1",
+                action="approve",
+                source="chat",
+                reviewed_path=draft_step1,
             )
 
             def fake_topic_segmentation(
@@ -191,6 +256,129 @@ class HumanLoopRunnerTests(unittest.TestCase):
             self.assertEqual(state["status"], STATUS_STEP2_READY)
             self.assertTrue((artifact_root / "step1" / "final_step1.json").exists())
             self.assertTrue((artifact_root / "step2" / "draft_topics.json").exists())
+
+    def test_advance_workflow_does_not_auto_approve_step2_without_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_video = root / "demo.mp4"
+            input_video.write_bytes(b"video")
+            artifact_root = root / "artifacts"
+            output_video = root / "output.mp4"
+
+            (artifact_root / "step2").mkdir(parents=True, exist_ok=True)
+            (artifact_root / "state.json").write_text(
+                json.dumps(
+                    {
+                        "status": "STEP2_READY",
+                        "input_video_path": str(input_video),
+                        "output_video_path": str(output_video),
+                        "step1_confirmed": True,
+                        "step2_confirmed": False,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            (artifact_root / "step2" / "draft_topics.json").write_text(
+                json.dumps(
+                    {
+                        "topics": [
+                            {
+                                "chapter_id": 1,
+                                "title": "开场",
+                                "start": 0.0,
+                                "end": 1.0,
+                                "line_ids": [1],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            state = advance_workflow(
+                input_video_path=input_video,
+                output_video_path=output_video,
+                artifact_root=str(artifact_root),
+                options=PipelineOptions(llm_base_url="https://example.com", llm_model="test-model"),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(state["status"], STATUS_STEP2_READY)
+            self.assertEqual(state["awaiting_review_stage"], "step2")
+            self.assertFalse((artifact_root / "step2" / "final_topics.json").exists())
+
+    def test_advance_workflow_uses_explicit_receipt_to_render_after_step2(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_video = root / "demo.mp4"
+            input_video.write_bytes(b"video")
+            artifact_root = root / "artifacts"
+            output_video = root / "output.mp4"
+
+            (artifact_root / "step1").mkdir(parents=True, exist_ok=True)
+            (artifact_root / "step2").mkdir(parents=True, exist_ok=True)
+            (artifact_root / "state.json").write_text(
+                json.dumps(
+                    {
+                        "status": "STEP2_READY",
+                        "input_video_path": str(input_video),
+                        "output_video_path": str(output_video),
+                        "step1_confirmed": True,
+                        "step2_confirmed": False,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            draft_topics = artifact_root / "step2" / "draft_topics.json"
+            draft_topics.write_text(
+                json.dumps(
+                    {
+                        "topics": [
+                            {
+                                "chapter_id": 1,
+                                "title": "开场",
+                                "start": 0.0,
+                                "end": 1.0,
+                                "line_ids": [1],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            write_review_receipt(
+                artifact_root / "step2" / "review.receipt.json",
+                stage="step2",
+                action="approve",
+                source="chat",
+                reviewed_path=draft_topics,
+            )
+
+            with patch("video_auto_cut.human_loop.runner.render_output") as mocked_render:
+                mocked_render.return_value = {
+                    "status": STATUS_SUCCEEDED,
+                    "step1_confirmed": True,
+                    "step2_confirmed": True,
+                }
+                state = advance_workflow(
+                    input_video_path=input_video,
+                    output_video_path=output_video,
+                    artifact_root=str(artifact_root),
+                    options=PipelineOptions(llm_base_url="https://example.com", llm_model="test-model"),
+                    encoding="utf-8",
+                )
+
+            self.assertEqual(state["status"], STATUS_SUCCEEDED)
+            self.assertTrue((artifact_root / "step2" / "final_topics.json").exists())
+            mocked_render.assert_called_once()
 
     def test_confirmed_step1_resumes_to_step2_review(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

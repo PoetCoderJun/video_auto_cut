@@ -160,7 +160,7 @@ def _parse_args() -> argparse.Namespace:
 
     next_parser = subparsers.add_parser(
         "next",
-        help="Advance the workflow by one default step based on current state.",
+        help="Advance the workflow when the current state already has explicit human approval.",
     )
     add_common(next_parser)
     next_parser.add_argument("--output-video", type=str, default=None)

@@ -29,12 +29,14 @@ Use a stable artifact root per input video, for example:
     source.optimized.step1.json
     draft_step1.srt
     draft_step1.json
+    review.receipt.json
     final_step1.srt
     final_step1.json
   step2/
     cut.srt
     topics.json
     draft_topics.json
+    review.receipt.json
     final_topics.json
   render/
     cut.srt
@@ -90,6 +92,7 @@ Human gate:
 
 - the agent must stop after generating step1 artifacts
 - the human may directly edit text, mark removals, or approve as-is
+- the workflow may resume only after an explicit review receipt is recorded for the current draft
 
 ### Stage 2
 
@@ -113,6 +116,27 @@ Human gate:
 
 - the agent must stop after generating step2 artifacts
 - the human may rename chapters, adjust boundaries, or approve as-is
+- the workflow may resume only after an explicit review receipt is recorded for the current draft
+
+## Review receipt contract
+
+Each review gate should leave behind a small receipt file so the workflow can resume durably and auditably.
+
+Recommended fields:
+
+- `stage`
+- `action`
+- `source`
+- `reviewed_path`
+- `reviewed_at`
+
+Valid actions:
+
+- `approve`
+- `edit`
+
+The receipt is the hard proof that a human actually reviewed the current draft.
+`next` or any resume-style entrypoint should refuse to advance if the current stage has no valid receipt.
 
 ### Final cut
 
@@ -163,12 +187,19 @@ Supported commands:
 
 1. `next` advances the workflow according to current state:
    - first call generates Step1 draft artifacts
-   - after Step1 review it records approval and advances into Step2
-   - after Step2 review it records approval and renders the final output
+   - after Step1 approval has already been recorded, it advances into Step2
+   - after Step2 approval has already been recorded, it renders the final output
 2. `run` generates artifacts until the next human gate, then exits cleanly.
 3. `approve-step1` records the human-confirmed Step1 result.
 4. `approve-step2` records the human-confirmed Step2 result.
 5. `render` produces the final output video.
 6. `status` prints the current artifact-root state.
 
-For agent-driven usage, prefer `next` as the default workflow action and use the lower-level commands only when a task needs a specific stage.
+For agent-driven usage, prefer this posture:
+
+1. Start with `run` or `next` to reach the next gate.
+2. When the human responds, convert that response into an explicit approval or edited artifact for the current stage.
+3. Only then call `approve-step1`, `approve-step2`, or resume with `next`.
+
+The top-level user experience should still feel like one skill.
+The lower-level commands exist to preserve durable state and strict Human-in-the-Loop semantics.

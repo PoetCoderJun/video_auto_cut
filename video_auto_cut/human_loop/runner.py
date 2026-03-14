@@ -17,22 +17,27 @@ from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
 from video_auto_cut.shared import media as media_utils
 
 from .artifacts import (
+    REVIEW_ACTION_APPROVE,
+    REVIEW_ACTION_EDIT,
     STATUS_STEP1_CONFIRMED,
     STATUS_STEP1_READY,
     STATUS_STEP2_CONFIRMED,
     STATUS_STEP2_READY,
     STATUS_SUCCEEDED,
     HumanLoopPaths,
+    clear_review_receipt,
     copy_if_exists,
     ensure_full_line_coverage,
     ensure_paths,
     initialize_state,
     kept_line_ids,
     load_state,
+    read_review_receipt,
     read_step1_lines,
     read_topics,
     save_state,
     stage_input_video,
+    write_review_receipt,
     write_step1_json,
     write_step1_srt,
     write_topics_json,
@@ -86,10 +91,12 @@ def run_until_human_gate(
         lines = read_step1_lines(sidecar_path)
         write_step1_json(lines, paths.step1_draft_json)
         write_step1_srt(lines, paths.step1_draft_srt, options.encoding)
+        clear_review_receipt(paths.step1_receipt_json)
         return _update_status(
             paths,
             status=STATUS_STEP1_READY,
             step1_confirmed=False,
+            awaiting_review_stage="step1",
         )
 
     if not bool(state.get("step2_confirmed", False)):
@@ -111,10 +118,12 @@ def run_until_human_gate(
             raise RuntimeError("step2 generated empty topics")
         ensure_full_line_coverage(chapters, kept_line_ids(lines))
         write_topics_json(chapters, paths.step2_draft_json)
+        clear_review_receipt(paths.step2_receipt_json)
         return _update_status(
             paths,
             status=STATUS_STEP2_READY,
             step2_confirmed=False,
+            awaiting_review_stage="step2",
         )
 
     logging.info("Both human gates are approved. Run render to export the final cut.")
@@ -139,12 +148,22 @@ def approve_step1(
         raise RuntimeError("step1 review payload is empty")
     write_step1_json(lines, paths.step1_final_json)
     write_step1_srt(lines, paths.step1_final_srt, encoding)
+    receipt_source = "edited_json" if review_json_path else "draft_as_is"
+    action = REVIEW_ACTION_EDIT if review_json_path else REVIEW_ACTION_APPROVE
+    write_review_receipt(
+        paths.step1_receipt_json,
+        stage="step1",
+        action=action,
+        source=receipt_source,
+        reviewed_path=source_json,
+    )
     return _update_status(
         paths,
         input_video_path=str(input_video_path),
         output_video_path=state.get("output_video_path"),
         status=STATUS_STEP1_CONFIRMED,
         step1_confirmed=True,
+        awaiting_review_stage=None,
     )
 
 
@@ -164,12 +183,22 @@ def approve_step2(
     if not chapters:
         raise RuntimeError("step2 review payload is empty")
     write_topics_json(chapters, paths.step2_final_json)
+    receipt_source = "edited_json" if review_json_path else "draft_as_is"
+    action = REVIEW_ACTION_EDIT if review_json_path else REVIEW_ACTION_APPROVE
+    write_review_receipt(
+        paths.step2_receipt_json,
+        stage="step2",
+        action=action,
+        source=receipt_source,
+        reviewed_path=source_json,
+    )
     return _update_status(
         paths,
         input_video_path=str(input_video_path),
         output_video_path=state.get("output_video_path"),
         status=STATUS_STEP2_CONFIRMED,
         step2_confirmed=True,
+        awaiting_review_stage=None,
     )
 
 
@@ -242,10 +271,15 @@ def advance_workflow(
         )
 
     if status == STATUS_STEP1_READY:
+        receipt = read_review_receipt(paths.step1_receipt_json, expected_stage="step1")
+        if receipt is None:
+            logging.info("Step1 is waiting for explicit human approval: %s", paths.step1_draft_json)
+            return _update_status(paths, awaiting_review_stage="step1")
+        reviewed_path = Path(str(receipt["reviewed_path"])).expanduser().resolve()
         approve_step1(
             input_video_path=input_video_path,
             artifact_root=artifact_root,
-            review_json_path=None,
+            review_json_path=reviewed_path if reviewed_path != paths.step1_draft_json.resolve() else None,
             encoding=encoding,
         )
         return run_until_human_gate(
@@ -256,10 +290,15 @@ def advance_workflow(
         )
 
     if status == STATUS_STEP2_READY:
+        receipt = read_review_receipt(paths.step2_receipt_json, expected_stage="step2")
+        if receipt is None:
+            logging.info("Step2 is waiting for explicit human approval: %s", paths.step2_draft_json)
+            return _update_status(paths, awaiting_review_stage="step2")
+        reviewed_path = Path(str(receipt["reviewed_path"])).expanduser().resolve()
         approve_step2(
             input_video_path=input_video_path,
             artifact_root=artifact_root,
-            review_json_path=None,
+            review_json_path=reviewed_path if reviewed_path != paths.step2_draft_json.resolve() else None,
         )
         return render_output(
             input_video_path=input_video_path,
