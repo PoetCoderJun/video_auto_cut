@@ -81,6 +81,8 @@ python scripts/run_human_loop_pipeline.py render \
 
 这个仓库的目标不是提供网页，而是让代理接管流程。直接使用 [skills/video-auto-cut-human-loop/SKILL.md](/Users/huzujun/Desktop/video_auto_cut_skill/skills/video-auto-cut-human-loop/SKILL.md)，并让代理调用 `scripts/run_human_loop_pipeline.py`。
 
+如果你想从 Codex CLI 角度理解“怎么安装 Skill、怎么一句话启动”，看 [docs/CODEX_SKILL_USAGE.md](/Users/huzujun/Desktop/video_auto_cut_skill/docs/CODEX_SKILL_USAGE.md)。
+
 适合的场景：
 
 - Codex 桌面版本地跑视频处理
