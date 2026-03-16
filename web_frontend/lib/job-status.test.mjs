@@ -12,12 +12,14 @@ test("mergeJobSnapshot keeps newer local status when a stale refresh arrives", (
     job_id: "job-123",
     status: "STEP2_CONFIRMED",
     progress: 80,
+    stage: null,
     error: null,
   };
   const staleRefresh = {
     job_id: "job-123",
     status: "STEP2_READY",
     progress: 75,
+    stage: { code: "PREPARING_EXPORT", message: "正在准备导出..." },
     error: null,
   };
 
@@ -32,6 +34,7 @@ test("mergeJobStatus advances a job without allowing regression", () => {
     job_id: "job-123",
     status: "STEP2_READY",
     progress: 75,
+    stage: { code: "PREPARING_EXPORT", message: "正在准备导出..." },
     error: null,
   };
 
@@ -41,6 +44,7 @@ test("mergeJobStatus advances a job without allowing regression", () => {
   assert.ok(confirmed);
   assert.equal(confirmed?.status, "STEP2_CONFIRMED");
   assert.equal(confirmed?.progress, 80);
+  assert.equal(confirmed?.stage, null);
   assert.equal(regressed?.status, "STEP2_CONFIRMED");
   assert.equal(regressed?.progress, 80);
 });

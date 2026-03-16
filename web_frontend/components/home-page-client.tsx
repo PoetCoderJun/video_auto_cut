@@ -101,6 +101,7 @@ export default function HomePageClient() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authAccount, setAuthAccount] = useState("");
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
+  const [uploadStageMessage, setUploadStageMessage] = useState("");
 
   // Set up a lazy token provider. JWT is fetched on first API request and cached
   // in api.ts for ~4 minutes; no network call on page mount.
@@ -294,9 +295,11 @@ export default function HomePageClient() {
         return;
       }
 
-      // 4. Create job and upload (direct to OSS when available, bypasses Railway).
+      // 4. Create job and upload through backend; backend forwards to OSS.
       const job = await createJob();
+      setUploadStageMessage("正在提取音频...");
       const audioFile = await extractAudioForAsr(file);
+      setUploadStageMessage("正在上传音频...");
       await uploadAudioDirectToOss(job.job_id, audioFile);
       // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
       await saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
@@ -306,6 +309,7 @@ export default function HomePageClient() {
         err instanceof Error ? err.message : "创建项目失败，请稍后重试。";
       setError(message);
     } finally {
+      setUploadStageMessage("");
       setLoading(false);
     }
   };
@@ -473,7 +477,7 @@ export default function HomePageClient() {
                   <div className="space-y-1">
                     <h3 className="font-semibold text-lg text-foreground">
                       {loading
-                        ? "正在上传并分析..."
+                        ? uploadStageMessage || "正在上传并分析..."
                         : mobileUploadBlocked
                         ? "移动端暂不支持上传"
                         : "点击或拖拽上传视频"}
@@ -481,6 +485,8 @@ export default function HomePageClient() {
                     <p className="text-sm text-muted-foreground">
                       {mobileUploadBlocked
                         ? "请在电脑浏览器使用，建议 Chrome"
+                        : loading
+                        ? "请保持页面开启，我们会自动继续处理。"
                         : "支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟"}
                     </p>
                   </div>

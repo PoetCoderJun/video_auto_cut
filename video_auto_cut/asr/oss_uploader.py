@@ -55,12 +55,14 @@ class OSSAudioUploader:
         # connect_timeout=300 for slow/unstable networks; Bucket uses 3600s for read/write
         self._bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=300)
 
-    def upload_audio(self, local_path: Path) -> UploadedAudioObject:
+    def upload_audio(
+        self, local_path: Path, *, job_id: str | None = None
+    ) -> UploadedAudioObject:
         path = Path(local_path).expanduser().resolve()
         if not path.exists() or not path.is_file():
             raise RuntimeError(f"audio file not found: {path}")
 
-        object_key = self._build_object_key(path)
+        object_key = self._build_object_key(path, job_id=job_id)
         size = path.stat().st_size
         use_resumable = size >= RESUMABLE_UPLOAD_THRESHOLD_BYTES
 
@@ -109,25 +111,26 @@ class OSSAudioUploader:
             size_bytes=int(path.stat().st_size),
         )
 
-    def _build_object_key(self, path: Path) -> str:
+    def _build_object_key(self, path: Path, *, job_id: str | None = None) -> str:
         stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
-        job_id = _guess_job_id(path)
+        resolved_job_id = _sanitize(job_id)[:40] if job_id else _guess_job_id(path)
         stem = _sanitize(path.stem)[:32] or "audio"
         suffix = path.suffix.lower() or ".wav"
         nonce = uuid.uuid4().hex[:10]
         parts = [self._prefix]
-        if job_id:
-            parts.append(job_id)
+        if resolved_job_id:
+            parts.append(resolved_job_id)
         parts.append(stamp)
         return "/".join(part for part in parts if part) + f"/{stem}_{nonce}{suffix}"
 
     def build_object_key_for_job(self, job_id: str, *, suffix: str = ".wav") -> str:
-        """Build OSS object key for direct upload (no local file). suffix: .wav or .mp3."""
+        """Build OSS object key for a known job id."""
         stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
         nonce = uuid.uuid4().hex[:10]
         job_safe = _sanitize(job_id)[:40] if job_id else ""
         ext = suffix if suffix.startswith(".") else f".{suffix}"
-        if ext not in (".wav", ".mp3"):
+        ext = ext.lower()
+        if not ext or ext == ".":
             ext = ".wav"
         parts = [self._prefix]
         if job_safe:

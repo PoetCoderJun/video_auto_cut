@@ -10,6 +10,7 @@ from ..config import ensure_job_dirs, get_settings
 from ..constants import (
     DEFAULT_ENCODING,
     JOB_STATUS_STEP1_CONFIRMED,
+    JOB_STATUS_STEP1_RUNNING,
     JOB_STATUS_STEP1_READY,
     PROGRESS_STEP1_CONFIRMED,
     PROGRESS_STEP1_READY,
@@ -64,9 +65,23 @@ def run_step1(job_id: str) -> None:
         raise RuntimeError("额度不足，请先兑换邀请码后重试")
 
     logging.info("[web_api] step1 transcribe start: %s", media_path)
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP1_RUNNING,
+        progress=31,
+        stage_code="TRANSCRIBING_AUDIO",
+        stage_message="正在识别语音并生成字幕...",
+    )
     srt_path = run_transcribe(media_path, options, oss_object_key=asr_oss_key)
 
     logging.info("[web_api] step1 auto-edit start: %s", srt_path)
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP1_RUNNING,
+        progress=33,
+        stage_code="OPTIMIZING_TEXT",
+        stage_message="正在优化字幕文本...",
+    )
     optimized_srt_path = run_auto_edit(srt_path, options)
     optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
     step1_lines_path = optimized_srt_path.with_suffix(".step1.json")
@@ -83,6 +98,13 @@ def run_step1(job_id: str) -> None:
     write_step1_json(lines, final_step1_json)
 
     replace_step1_lines(job_id, lines)
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP1_RUNNING,
+        progress=34,
+        stage_code="PREPARING_STEP1_REVIEW",
+        stage_message="正在整理字幕结果...",
+    )
     upsert_job_files(
         job_id,
         srt_path=str(srt_path),
@@ -103,7 +125,13 @@ def run_step1(job_id: str) -> None:
             raise RuntimeError("额度不足，请先兑换邀请码后重试") from exc
         raise
 
-    update_job(job_id, status=JOB_STATUS_STEP1_READY, progress=PROGRESS_STEP1_READY)
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP1_READY,
+        progress=PROGRESS_STEP1_READY,
+        stage_code="STEP1_READY",
+        stage_message="字幕已生成，请确认内容。",
+    )
 
 
 def _load_required_paths(job_id: str) -> dict[str, str]:

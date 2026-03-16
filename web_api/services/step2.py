@@ -108,12 +108,26 @@ def run_step2(job_id: str) -> None:
     cut_srt = dirs["step2"] / "cut.srt"
     options = build_pipeline_options()
     generated_topics = dirs["step2"] / "topics.json"
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP2_RUNNING,
+        progress=PROGRESS_STEP2_RUNNING + 1,
+        stage_code="GENERATING_CHAPTERS",
+        stage_message="正在生成章节结构...",
+    )
     push(PROGRESS_STEP2_RUNNING + 1)
     run_topic_segmentation_from_optimized_srt(
         optimized_srt_path=source_srt,
         cut_srt_output_path=cut_srt,
         topics_output_path=generated_topics,
         options=options,
+    )
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP2_RUNNING,
+        progress=PROGRESS_STEP2_RUNNING + 8,
+        stage_code="FINALIZING_CHAPTERS",
+        stage_message="正在整理章节结果...",
     )
     push(PROGRESS_STEP2_RUNNING + 8)
 
@@ -191,7 +205,13 @@ def confirm_step2(job_id: str, chapters: list[dict[str, Any]]) -> list[dict[str,
     final_topics = dirs["step2"] / "final_topics.json"
     write_topics_json(normalized, final_topics)
     upsert_job_files(job_id, final_topics_path=str(final_topics))
-    update_job(job_id, status=JOB_STATUS_STEP2_CONFIRMED, progress=PROGRESS_STEP2_CONFIRMED)
+    update_job(
+        job_id,
+        status=JOB_STATUS_STEP2_CONFIRMED,
+        progress=PROGRESS_STEP2_CONFIRMED,
+        stage_code="EXPORT_READY",
+        stage_message="章节已确认，正在准备导出...",
+    )
     return normalized
 
 

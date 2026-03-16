@@ -14,6 +14,7 @@ type JobSnapshot = {
   job_id: string;
   status: JobStatus;
   progress: number;
+  stage: null | { code: string; message: string };
   error: null | { code: string; message: string };
 };
 
@@ -85,6 +86,7 @@ export function mergeJobSnapshot(
         incomingJob.progress,
         getProgressFloor(localJob.status)
       ),
+      stage: localJob.stage ?? incomingJob.stage,
       error: incomingJob.error ?? localJob.error,
     };
   }
@@ -115,5 +117,6 @@ export function mergeJobStatus(
     ...localJob,
     status: nextStatus,
     progress: Math.max(localJob.progress, getProgressFloor(nextStatus)),
+    stage: null,
   };
 }

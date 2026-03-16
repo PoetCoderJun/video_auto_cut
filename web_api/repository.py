@@ -26,6 +26,7 @@ from .db import get_conn
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
 USER_STATUS_ACTIVE = "ACTIVE"
+_STAGE_UNSET = object()
 
 JOB_FILE_FIELDS = (
     "video_path",
@@ -722,6 +723,8 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
             "owner_user_id": owner_user_id,
             "status": normalized_status,
             "progress": _progress_for_status(normalized_status),
+            "stage_code": None,
+            "stage_message": None,
             "created_at": now,
             "updated_at": now,
         },
@@ -734,6 +737,7 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
         "job_id": job_id,
         "status": JOB_STATUS_CREATED,
         "progress": 0,
+        "stage": None,
         "error": None,
     }
 
@@ -764,10 +768,20 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
         if code:
             error = {"code": code, "message": message}
 
+    stage_code = str(meta.get("stage_code") or "").strip()
+    stage_message = str(meta.get("stage_message") or "").strip()
+    stage: dict[str, str] | None = None
+    if stage_code or stage_message:
+        stage = {
+            "code": stage_code or "UNKNOWN_STAGE",
+            "message": stage_message,
+        }
+
     return {
         "job_id": job_id,
         "status": status,
         "progress": progress,
+        "stage": stage,
         "error": error,
     }
 
@@ -787,6 +801,8 @@ def update_job(
     progress: int | None = None,
     error_code: str | None = None,
     error_message: str | None = None,
+    stage_code: object = _STAGE_UNSET,
+    stage_message: object = _STAGE_UNSET,
 ) -> None:
     meta = _read_meta(job_id)
     if not meta:
@@ -800,6 +816,11 @@ def update_job(
             meta["progress"] = max(0, min(100, int(progress)))
         except Exception:
             pass
+    if stage_code is not _STAGE_UNSET or stage_message is not _STAGE_UNSET:
+        resolved_stage_code = "" if stage_code is _STAGE_UNSET else str(stage_code or "").strip()
+        resolved_stage_message = "" if stage_message is _STAGE_UNSET else str(stage_message or "").strip()
+        meta["stage_code"] = resolved_stage_code or None
+        meta["stage_message"] = resolved_stage_message or None
     meta["updated_at"] = now_iso()
     _write_json(_meta_path(job_id), meta)
 
@@ -829,6 +850,20 @@ def update_job(
         JOB_STATUS_SUCCEEDED,
     }:
         _error_path(job_id).unlink(missing_ok=True)
+
+    if normalized_status in {
+        JOB_STATUS_CREATED,
+        JOB_STATUS_STEP1_READY,
+        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_STEP2_READY,
+        JOB_STATUS_STEP2_CONFIRMED,
+        JOB_STATUS_SUCCEEDED,
+        JOB_STATUS_FAILED,
+    } and stage_code is _STAGE_UNSET and stage_message is _STAGE_UNSET:
+        meta["stage_code"] = None
+        meta["stage_message"] = None
+        meta["updated_at"] = now_iso()
+        _write_json(_meta_path(job_id), meta)
 
 
 def touch_job(job_id: str) -> None:

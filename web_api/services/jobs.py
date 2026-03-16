@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import logging
 import uuid
 from pathlib import Path
@@ -12,6 +13,7 @@ from ..constants import JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY, PROGRESS_UP
 from ..errors import invalid_step_state, not_found, upload_too_large
 from ..repository import create_job, get_job, upsert_job_files, update_job
 from ..utils.media import validate_audio_extension
+from .oss_presign import get_oss_uploader
 
 
 def new_job_id() -> str:
@@ -39,35 +41,31 @@ def require_status(job: dict, allowed: AbstractSet[str]) -> None:
 
 async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
     settings = get_settings()
-    dirs = ensure_job_dirs(job_id)
+    ensure_job_dirs(job_id)
 
     raw_name = Path(file.filename or "audio.m4a").name
     suffix = Path(raw_name).suffix.lower() or ".m4a"
-    target = dirs["input"] / f"audio{suffix}"
+    target = Path(f"audio{suffix}")
     logging.info(
-        "[web_api] audio upload start job=%s filename=%s content_type=%s target=%s",
+        "[web_api] audio upload start job=%s filename=%s content_type=%s",
         job_id,
         raw_name,
         getattr(file, "content_type", None),
-        target,
     )
     validate_audio_extension(target)
 
     max_bytes = settings.max_upload_mb * 1024 * 1024
     total = 0
+    temp_path: Path | None = None
 
-    with target.open("wb") as output:
+    with tempfile.NamedTemporaryFile(prefix=f"{job_id}_", suffix=suffix, delete=False) as temp_file:
+        temp_path = Path(temp_file.name)
         while True:
             chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
             total += len(chunk)
             if total > max_bytes:
-                output.close()
-                try:
-                    target.unlink(missing_ok=True)
-                except OSError:
-                    pass
                 logging.warning(
                     "[web_api] audio upload too large job=%s filename=%s bytes=%s limit_mb=%s",
                     job_id,
@@ -76,30 +74,51 @@ async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
                     settings.max_upload_mb,
                 )
                 raise upload_too_large(f"文件超过 {settings.max_upload_mb}MB，请压缩后重试")
-            output.write(chunk)
+            temp_file.write(chunk)
 
-    if total <= 0:
+    try:
+        if total <= 0:
+            logging.warning("[web_api] audio upload empty file job=%s filename=%s", job_id, raw_name)
+            raise invalid_step_state("上传文件为空")
+
         try:
-            target.unlink(missing_ok=True)
-        except OSError:
-            pass
-        logging.warning("[web_api] audio upload empty file job=%s filename=%s", job_id, raw_name)
-        raise invalid_step_state("上传文件为空")
+            uploader = get_oss_uploader()
+        except Exception as exc:
+            logging.exception("[web_api] OSS uploader unavailable job=%s filename=%s", job_id, raw_name)
+            raise invalid_step_state("上传服务暂时不可用，请稍后重试。") from exc
 
-    upsert_job_files(job_id, audio_path=str(target))
-    update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
-    logging.info(
-        "[web_api] audio upload ready job=%s filename=%s stored_as=%s bytes=%s",
-        job_id,
-        raw_name,
-        target.name,
-        total,
-    )
-    return {
-        "filename": raw_name,
-        "stored_as": target.name,
-        "size_bytes": total,
-    }
+        try:
+            uploaded = uploader.upload_audio(temp_path, job_id=job_id)
+        except Exception as exc:
+            logging.exception("[web_api] audio upload to OSS failed job=%s filename=%s", job_id, raw_name)
+            raise invalid_step_state("音频上传失败，请稍后重试。") from exc
+
+        upsert_job_files(job_id, audio_path=None, asr_oss_key=uploaded.object_key)
+        update_job(
+            job_id,
+            status=JOB_STATUS_UPLOAD_READY,
+            progress=PROGRESS_UPLOAD_READY,
+            stage_code="UPLOAD_COMPLETE",
+            stage_message="上传完成，正在启动语音转写...",
+        )
+        logging.info(
+            "[web_api] audio upload ready job=%s filename=%s object_key=%s bytes=%s",
+            job_id,
+            raw_name,
+            uploaded.object_key,
+            total,
+        )
+        return {
+            "filename": raw_name,
+            "object_key": uploaded.object_key,
+            "size_bytes": total,
+        }
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                logging.warning("[web_api] failed to remove temp upload file job=%s path=%s", job_id, temp_path)
 
 
 def mark_audio_oss_ready(job_id: str, object_key: str) -> dict:

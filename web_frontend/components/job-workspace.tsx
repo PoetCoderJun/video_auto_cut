@@ -197,6 +197,7 @@ export default function JobWorkspace({
     "box-white-on-black"
   );
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadStageMessage, setUploadStageMessage] = useState("");
   const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
   const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
   const [autoStep2ConfirmTriggered, setAutoStep2ConfirmTriggered] = useState(false);
@@ -333,6 +334,7 @@ export default function JobWorkspace({
     });
     setRenderFileName("output.mp4");
     setSubtitleTheme("box-white-on-black");
+    setUploadStageMessage("");
   }, [jobId]);
 
   useEffect(() => {
@@ -389,8 +391,10 @@ export default function JobWorkspace({
       }
       setBusy(true);
       try {
+        setUploadStageMessage("正在提取音频...");
         const nextJob = await createJob();
         const audioFile = await extractAudioForAsr(file);
+        setUploadStageMessage("正在上传音频...");
         const uploadedJob = await uploadAudioDirectToOss(nextJob.job_id, audioFile);
         await saveCachedJobSourceVideo(nextJob.job_id, file).catch(() => undefined);
         onSwitchJob?.(nextJob.job_id);
@@ -398,6 +402,7 @@ export default function JobWorkspace({
       } catch (err) {
         setError(err instanceof Error ? err.message : "音频提取或上传失败，请重试。");
       } finally {
+        setUploadStageMessage("");
         setBusy(false);
       }
     },
@@ -935,7 +940,7 @@ export default function JobWorkspace({
                 <div className="space-y-1">
                   <h3 className="font-semibold text-lg text-foreground">
                     {busy
-                      ? "正在上传..."
+                      ? uploadStageMessage || "正在上传..."
                       : mobileUploadBlocked
                       ? "移动端暂不支持上传"
                       : selectedFile
@@ -945,6 +950,8 @@ export default function JobWorkspace({
                   <p className="text-sm text-muted-foreground">
                     {mobileUploadBlocked
                       ? "请在电脑浏览器使用，建议 Chrome"
+                      : busy
+                      ? "请保持页面开启，我们会自动继续处理。"
                       : "AI 将自动提取字幕并进行智能分析"}
                   </p>
                 </div>
@@ -964,8 +971,14 @@ export default function JobWorkspace({
         job.status === STATUS.STEP1_RUNNING) && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
-          <h2 className="text-xl font-semibold">正在提取字幕</h2>
-          <p className="text-muted-foreground">AI 正在解析视频语音，这可能需要几分钟...</p>
+          <h2 className="text-xl font-semibold">
+            {job.stage?.message || "正在提取字幕"}
+          </h2>
+          <p className="text-muted-foreground">
+            {job.stage?.code === "OPTIMIZING_TEXT"
+              ? "AI 正在优化字幕文本，请稍候..."
+              : "AI 正在解析视频语音，这可能需要几分钟..."}
+          </p>
           {job.status === STATUS.UPLOAD_READY && !busy && autoStep1Triggered && (
             <Button
               type="button"
@@ -985,10 +998,13 @@ export default function JobWorkspace({
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
           <h2 className="text-xl font-semibold">
-            {job.status === STATUS.STEP2_READY ? "正在准备导出" : "正在生成章节"}
+            {job.stage?.message ||
+              (job.status === STATUS.STEP2_READY ? "正在准备导出" : "正在生成章节")}
           </h2>
           <p className="text-muted-foreground">
-            系统会自动采用 AI 章节结果，并直接进入导出步骤。
+            {job.status === STATUS.STEP2_READY
+              ? "章节处理已完成，正在切换到导出阶段..."
+              : "系统会自动采用 AI 章节结果，并直接进入导出步骤。"}
           </p>
           {job.status === STATUS.STEP1_CONFIRMED && !busy && autoStep2Triggered && (
             <Button

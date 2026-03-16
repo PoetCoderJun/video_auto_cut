@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from .config import get_settings
@@ -16,35 +14,23 @@ from .constants import (
     TASK_TYPE_STEP1,
     TASK_TYPE_STEP2,
 )
+from .db import get_conn
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _queue_db_path() -> Path:
+def get_queue_db_path() -> str:
     settings = get_settings()
-    return settings.work_dir / "local_task_queue.db"
-
-
-def get_queue_db_path() -> Path:
-    """Expose for logging/diagnostics."""
-    return _queue_db_path()
-
-
-def _connect() -> sqlite3.Connection:
-    path = _queue_db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    if settings.turso_database_url and settings.turso_auth_token:
+        return f"shared-db:{settings.turso_local_replica_path}"
+    return str(settings.turso_local_replica_path)
 
 
 def init_task_queue_db() -> None:
-    with _connect() as conn:
-        conn.executescript(
+    with get_conn() as conn:
+        conn.execute(
             """
             CREATE TABLE IF NOT EXISTS queue_tasks (
                 task_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,13 +44,19 @@ def init_task_queue_db() -> None:
                 updated_at TEXT NOT NULL,
                 started_at TEXT,
                 finished_at TEXT
-            );
-
+            )
+            """
+        )
+        conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_queue_tasks_status_task_id
-            ON queue_tasks(status, task_id ASC);
-
+            ON queue_tasks(status, task_id ASC)
+            """
+        )
+        conn.execute(
+            """
             CREATE INDEX IF NOT EXISTS idx_queue_tasks_job_type_status
-            ON queue_tasks(job_id, task_type, status, task_id DESC);
+            ON queue_tasks(job_id, task_type, status, task_id DESC)
             """
         )
         conn.commit()
@@ -113,7 +105,7 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
 
     now = _now_iso()
     payload_json = json.dumps(payload or {}, ensure_ascii=False)
-    with _connect() as conn:
+    with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             """
@@ -175,7 +167,7 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
 def claim_next_task() -> dict[str, Any] | None:
     worker_id = f"pid-{os.getpid()}"
     now = _now_iso()
-    with _connect() as conn:
+    with get_conn() as conn:
         for _ in range(3):
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
@@ -253,7 +245,7 @@ def claim_next_task() -> dict[str, Any] | None:
 
 def set_task_succeeded(task_id: int) -> None:
     now = _now_iso()
-    with _connect() as conn:
+    with get_conn() as conn:
         conn.execute(
             """
             UPDATE queue_tasks
@@ -270,7 +262,7 @@ def set_task_succeeded(task_id: int) -> None:
 
 def set_task_failed(task_id: int, error_message: str) -> None:
     now = _now_iso()
-    with _connect() as conn:
+    with get_conn() as conn:
         conn.execute(
             """
             UPDATE queue_tasks

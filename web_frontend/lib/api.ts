@@ -14,6 +14,7 @@ export type Job = {
   job_id: string;
   status: JobStatus;
   progress: number;
+  stage: null | {code: string; message: string};
   error: null | {code: string; message: string};
 };
 
@@ -359,34 +360,12 @@ export async function uploadAudioOssReady(
   return data.job;
 }
 
-/** Content-Type used when signing presigned PUT; client must send the same. */
-const OSS_PUT_CONTENT_TYPE = "application/octet-stream";
-
 /**
- * Upload audio via presigned OSS URL (direct browser -> own OSS).
- * Falls back to API upload when OSS not configured or upload fails.
- * 百炼临时 OSS 仅由后端在 API 上传时使用，前端不直传。
- * OSS 桶需配置 CORS 允许前端源与 PUT、Content-Type，否则会 403。
+ * Upload audio via backend API.
+ * The backend receives the file, uploads it to OSS, and stores only `asr_oss_key`.
  */
 export async function uploadAudioDirectToOss(jobId: string, file: File): Promise<Job> {
-  try {
-    const format = file.name.toLowerCase().endsWith(".mp3") ? "mp3" : "wav";
-    const {put_url, object_key} = await getOssUploadUrl(jobId, format);
-    // Body 使用 Blob 并固定 type，避免浏览器按 File.type 发送 audio/mp3 等导致签名不匹配
-    const body = new Blob([await file.arrayBuffer()], { type: OSS_PUT_CONTENT_TYPE });
-    const putResp = await fetch(put_url, {
-      method: "PUT",
-      body,
-      headers: {"Content-Type": OSS_PUT_CONTENT_TYPE},
-    });
-    if (!putResp.ok) {
-      const text = await putResp.text();
-      throw new Error(`OSS upload failed: ${putResp.status} ${text.slice(0, 100)}`);
-    }
-    return uploadAudioOssReady(jobId, object_key);
-  } catch {
-    return uploadAudio(jobId, file);
-  }
+  return uploadAudio(jobId, file);
 }
 
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {

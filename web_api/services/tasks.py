@@ -37,19 +37,36 @@ def _public_task_error_message(exc: Exception) -> str:
     return "任务执行失败，请重试。"
 
 
+def _exception_summary(exc: Exception) -> str:
+    message = str(exc or "").strip()
+    if not message:
+        message = repr(exc)
+    return f"{type(exc).__name__}: {message}"
+
+
 def queue_job_task(job_id: str, task_type: str) -> int:
     if task_type == TASK_TYPE_STEP1:
         status = JOB_STATUS_STEP1_RUNNING
         progress = PROGRESS_STEP1_RUNNING
+        stage_code = "STEP1_QUEUED"
+        stage_message = "上传完成，正在启动语音转写..."
     elif task_type == TASK_TYPE_STEP2:
         status = JOB_STATUS_STEP2_RUNNING
         progress = PROGRESS_STEP2_RUNNING
+        stage_code = "STEP2_QUEUED"
+        stage_message = "字幕已确认，正在启动章节整理..."
     else:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
     task_id = enqueue_task(job_id, task_type, payload={})
     logging.info("[web_api] enqueued task_id=%s job_id=%s type=%s queue_path=%s", task_id, job_id, task_type, get_queue_db_path())
-    update_job(job_id, status=status, progress=progress)
+    update_job(
+        job_id,
+        status=status,
+        progress=progress,
+        stage_code=stage_code,
+        stage_message=stage_message,
+    )
     return task_id
 
 
@@ -73,6 +90,8 @@ def execute_task(task: dict[str, object]) -> None:
         logging.info("[web_api] execute task=%s job=%s", task_type, job_id)
         fn(job_id)
     except Exception as exc:  # pragma: no cover - runtime behavior
+        if task_type == TASK_TYPE_STEP1:
+            logging.error("[web_api] step1 failed summary job=%s error=%s", job_id, _exception_summary(exc))
         logging.exception("[web_api] task failed task=%s job=%s", task_type, job_id)
         set_task_failed(task_id, str(exc))
         if task_type == TASK_TYPE_STEP1 and _is_insufficient_credit_error(exc):
