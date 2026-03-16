@@ -1,4 +1,4 @@
-import React, {useMemo} from "react";
+import React, {useLayoutEffect, useMemo, useRef, useState} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 
@@ -82,6 +82,12 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const chapterCardMinWidth = Math.min(typography.chapterCardMinWidth, chapterCardMaxWidth);
   const chapterTitleMaxWidth = Math.max(1, chapterCardMaxWidth - typography.chapterCardPaddingX * 2);
   const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
+  const subtitleTextMaxWidth = Math.max(
+    1,
+    width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio - typography.subtitlePaddingX * 2
+  );
+  const isPortrait = height > width;
+  const subtitleRef = useRef<HTMLDivElement | null>(null);
 
   const scaledStyles = useMemo(() => {
     return {
@@ -97,6 +103,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         paddingRight: typography.subtitleSidePadding,
       },
       subtitleBox: {
+        boxSizing: "border-box" as const,
         color: "#ffffff",
         fontSize: typography.subtitleFontSize,
         fontWeight: 700,
@@ -111,7 +118,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         textWrap: "balance" as const,
         wordBreak: "keep-all" as const,
         overflowWrap: "normal" as const,
-        maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
+        maxWidth: subtitleTextMaxWidth,
       },
       chapterWrap: {
         position: "absolute" as const,
@@ -253,6 +260,62 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
 
   const t = mappedTimelineTime;
   const activeCaption = wrappedCaptions.find((caption) => t >= caption.start && t < caption.end);
+  const activeCaptionLayout = activeCaption
+    ? fitTextToBox({
+        text: activeCaption.displayText,
+        maxWidth: subtitleTextMaxWidth,
+        baseFontSize: typography.subtitleFontSize,
+        minFontSize: Math.max(isPortrait ? 23 : 26, Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))),
+        maxLines: 2,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+      })
+    : null;
+  const subtitleInitialFontSize = activeCaptionLayout?.fontSize ?? typography.subtitleFontSize;
+  const subtitleMinFontSize = Math.max(
+    isPortrait ? 23 : 26,
+    Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
+  );
+  const [resolvedSubtitleFontSize, setResolvedSubtitleFontSize] = useState(subtitleInitialFontSize);
+
+  useLayoutEffect(() => {
+    setResolvedSubtitleFontSize(subtitleInitialFontSize);
+  }, [activeCaption?.displayText, subtitleInitialFontSize]);
+
+  useLayoutEffect(() => {
+    const el = subtitleRef.current;
+    const text = activeCaption?.displayText ?? "";
+    if (!el || !text) {
+      return;
+    }
+
+    let nextFontSize = subtitleInitialFontSize;
+    const maxLines = 2;
+    el.style.fontSize = `${nextFontSize}px`;
+
+    while (nextFontSize > subtitleMinFontSize) {
+      const computed = window.getComputedStyle(el);
+      const lineHeight = Number.parseFloat(computed.lineHeight) || nextFontSize * 1.35;
+      const allowedHeight = lineHeight * maxLines + 1;
+      const fitsHeight = el.scrollHeight <= allowedHeight;
+      const fitsWidth = el.scrollWidth <= el.clientWidth + 1;
+      if (fitsHeight && fitsWidth) {
+        break;
+      }
+      nextFontSize -= 1;
+      el.style.fontSize = `${nextFontSize}px`;
+    }
+
+    if (nextFontSize !== resolvedSubtitleFontSize) {
+      setResolvedSubtitleFontSize(nextFontSize);
+    }
+  }, [
+    activeCaption?.displayText,
+    resolvedSubtitleFontSize,
+    subtitleInitialFontSize,
+    subtitleMinFontSize,
+    subtitleTextMaxWidth,
+  ]);
 
   const normalizedTopics = useMemo(() => {
     return (topics || [])
@@ -380,25 +443,27 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         } as React.CSSProperties;
       case "box-black-on-white":
         return {
+          boxSizing: "border-box",
           color: "#111111",
           backgroundColor: "rgba(255, 255, 255, 0.92)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
+          maxWidth: subtitleTextMaxWidth,
           textShadow: "none",
         } as React.CSSProperties;
       case "box-white-on-black":
       default:
         return {
+          boxSizing: "border-box",
           color: "#ffffff",
           backgroundColor: "rgba(0, 0, 0, 0.82)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
+          maxWidth: subtitleTextMaxWidth,
           textShadow: "none",
         } as React.CSSProperties;
     }
-  }, [subtitleTheme, typography]);
+  }, [subtitleTextMaxWidth, subtitleTheme, typography]);
 
   return (
     <AbsoluteFill style={{backgroundColor: "black"}}>
@@ -425,7 +490,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       ) : null}
 
       <div style={scaledStyles.subtitleWrap}>
-        <div style={{...scaledStyles.subtitleBox, ...subtitleStyleOverrides}}>{activeCaption ? activeCaption.displayText : ""}</div>
+        <div
+          ref={subtitleRef}
+          style={{
+            ...scaledStyles.subtitleBox,
+            ...subtitleStyleOverrides,
+            fontSize: resolvedSubtitleFontSize,
+          }}
+        >
+          {activeCaption ? activeCaption.displayText : ""}
+        </div>
       </div>
 
       <div style={scaledStyles.progressWrap}>

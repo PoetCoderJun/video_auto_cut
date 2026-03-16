@@ -26,7 +26,8 @@ test("normalizes dash-like breaks into a Chinese colon", () => {
 test("keeps overlay typography readable on narrow portrait frames", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
 
-  assert.ok(typography.subtitleFontSize >= 50, `expected subtitle font >= 50, got ${typography.subtitleFontSize}`);
+  assert.ok(typography.subtitleFontSize >= 48, `expected subtitle font >= 48, got ${typography.subtitleFontSize}`);
+  assert.ok(typography.subtitleFontSize <= 54, `expected subtitle font <= 54, got ${typography.subtitleFontSize}`);
   assert.ok(
     typography.chapterTitleFontSize >= 26,
     `expected chapter title font >= 26, got ${typography.chapterTitleFontSize}`
@@ -39,6 +40,12 @@ test("keeps overlay typography readable on narrow portrait frames", () => {
     typography.subtitleMaxWidthRatio >= 0.92,
     `expected subtitle width ratio >= 0.92, got ${typography.subtitleMaxWidthRatio}`
   );
+});
+
+test("keeps 720x1268 portrait subtitle sizing below the previous overflow-prone baseline", () => {
+  const typography = getResponsiveOverlayTypography({width: 720, height: 1268});
+
+  assert.ok(typography.subtitleFontSize <= 54, `expected 720x1268 subtitle font <= 54, got ${typography.subtitleFontSize}`);
 });
 
 test("keeps landscape overlays growing beyond 1080p", () => {
@@ -120,6 +127,23 @@ test("fits chapter titles into two lines before truncating", () => {
   assert.ok(fitted.fontSize >= 22, `expected fitted chapter font >= 22, got ${fitted.fontSize}`);
   assert.ok(fitted.lines.length <= 2, `expected at most 2 lines, got ${fitted.lines.length}`);
   assert.ok(fitted.text.length > 0, "expected fitted chapter text to stay non-empty");
+});
+
+test("fits long portrait subtitles into two lines without truncation", () => {
+  const typography = getResponsiveOverlayTypography({width: 720, height: 1268});
+  const fitted = fitTextToBox({
+    text: prepareCaptionDisplayText("一个想法可以结合一张图片，变成全新的内容：你可以从虚幻走向具体。"),
+    maxWidth:
+      720 * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio - typography.subtitlePaddingX * 2,
+    baseFontSize: typography.subtitleFontSize,
+    minFontSize: Math.max(23, Math.floor(typography.subtitleFontSize * 0.44)),
+    maxLines: 2,
+    fontWeight: 700,
+  });
+
+  assert.equal(fitted.truncated, false, "expected portrait subtitle to fit without truncation");
+  assert.ok(fitted.lines.length <= 2, `expected at most 2 lines, got ${fitted.lines.length}`);
+  assert.ok(fitted.fontSize >= 23, `expected portrait fitted subtitle font >= 23, got ${fitted.fontSize}`);
 });
 
 test("shrinks progress labels to segment width and hides impossible ones", () => {

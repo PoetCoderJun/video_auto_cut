@@ -444,10 +444,10 @@ export const getResponsiveOverlayTypography = ({
   const verticalScale = scaleFromReference(resolvedHeight, REFERENCE_HEIGHT);
   const horizontalScale = scaleFromReference(resolvedWidth, REFERENCE_WIDTH);
 
-  // Vertical overlay sizes should track frame height continuously across HD,
-  // 2.7K, 4K, 8K and portrait exports. Portrait frames then get an extra
-  // readability boost because text wraps sooner on narrow canvases.
-  const subtitleScale = verticalScale * (1 + portraitStrength * 0.32);
+  // Subtitle size still scales with frame height, but portrait exports need a
+  // gentler boost than before. Otherwise narrow frames like 720x1268 can end
+  // up with oversized captions that only fit after browser layout overflow.
+  const subtitleScale = verticalScale * (1 + portraitStrength * 0.18);
   const subtitleVerticalScale = subtitleScale * (1 + portraitStrength * 0.8);
   const chapterScale = verticalScale * (1 + portraitStrength * 0.14);
   const progressScale = verticalScale * (1 + portraitStrength * 0.18);
