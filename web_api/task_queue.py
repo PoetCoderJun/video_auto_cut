@@ -23,7 +23,9 @@ def _now_iso() -> str:
 
 def get_queue_db_path() -> str:
     settings = get_settings()
-    if settings.turso_database_url and settings.turso_auth_token:
+    raw_local_only = (os.getenv("WEB_DB_LOCAL_ONLY") or "").strip().lower()
+    local_only = raw_local_only in {"1", "true", "yes"}
+    if not local_only and settings.turso_database_url and settings.turso_auth_token:
         return f"shared-db:{settings.turso_local_replica_path}"
     return str(settings.turso_local_replica_path)
 

@@ -43,6 +43,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import CouponRedeemEntry from "@/components/coupon-redeem-entry";
 import FounderCard from "@/components/founder-card";
 
 const FAQ_ITEMS = [
@@ -181,6 +182,24 @@ export default function HomePageClient() {
       setAuthBusy(false);
     }
   };
+
+  const handleCouponRedeemed = useCallback(
+    (result: {
+      already_activated: boolean;
+      coupon_redeemed: boolean;
+      granted_credits: number;
+      balance: number;
+    }) => {
+      setCreditBalance(result.balance);
+      setUserStatus("ACTIVE");
+      setInviteNotice(
+        result.granted_credits > 0
+          ? `兑换成功，已到账 ${result.granted_credits} 次额度。`
+          : "兑换成功，账号已更新。"
+      );
+    },
+    []
+  );
 
   // Auth and profile checks happen here, only when user actually tries to upload.
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -340,6 +359,7 @@ export default function HomePageClient() {
             <div className="flex items-center gap-3">
               {isSignedIn && (
                 <>
+                  <CouponRedeemEntry onRedeemed={handleCouponRedeemed} />
                   {creditBalance !== null && (
                     <Badge variant="secondary" className="px-3 py-1">
                       额度: {creditBalance} 次
@@ -396,6 +416,7 @@ export default function HomePageClient() {
               </>
             ) : (
               <>
+                <CouponRedeemEntry onRedeemed={handleCouponRedeemed} />
                 {creditBalance !== null && (
                   <Badge variant="secondary" className="px-3 py-1">
                     额度: {creditBalance} 次
