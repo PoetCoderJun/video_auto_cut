@@ -24,6 +24,7 @@ import {
   uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
+import { isUnsupportedMobileUploadDevice } from "../lib/device";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
 import {
@@ -99,6 +100,7 @@ export default function HomePageClient() {
   const [inviteNotice, setInviteNotice] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authAccount, setAuthAccount] = useState("");
+  const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
 
   // Set up a lazy token provider. JWT is fetched on first API request and cached
   // in api.ts for ~4 minutes; no network call on page mount.
@@ -130,6 +132,14 @@ export default function HomePageClient() {
       }
     }).catch(() => undefined);
     return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
+  }, []);
+
+  const showMobileUploadError = useCallback(() => {
+    setError("移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。");
   }, []);
 
   const saveJobId = useCallback((id: string) => {
@@ -177,6 +187,11 @@ export default function HomePageClient() {
     const file = input.files?.[0];
     input.value = "";
     if (!file) return;
+
+    if (mobileUploadBlocked) {
+      showMobileUploadError();
+      return;
+    }
 
     setError("");
     setLoading(true);
@@ -294,6 +309,11 @@ export default function HomePageClient() {
       setLoading(false);
     }
   };
+
+  const handleUploadAreaClick = useCallback(() => {
+    if (!mobileUploadBlocked) return;
+    showMobileUploadError();
+  }, [mobileUploadBlocked, showMobileUploadError]);
 
   if (jobId) {
     return (
@@ -427,16 +447,19 @@ export default function HomePageClient() {
             <div className="mt-10 flex flex-col items-center justify-center gap-6">
               {/* Direct Upload Area */}
               <div
+                onClick={handleUploadAreaClick}
                 className={cn(
-                  "relative group w-full max-w-lg cursor-pointer rounded-xl border-2 border-dashed border-muted-foreground/25 bg-card p-10 transition-all hover:border-primary/50 hover:bg-muted/30",
-                  loading && "opacity-70 cursor-not-allowed"
+                  "relative group w-full max-w-lg rounded-xl border-2 border-dashed border-muted-foreground/25 bg-card p-10 transition-all hover:border-primary/50 hover:bg-muted/30",
+                  mobileUploadBlocked || loading
+                    ? "cursor-not-allowed opacity-70"
+                    : "cursor-pointer"
                 )}
               >
                 <input
                   type="file"
                   accept=".mp4,.mov,.mkv,.webm,.m4v,.ts,.m2ts,.mts"
                   onChange={handleFileSelect}
-                  disabled={loading}
+                  disabled={loading || mobileUploadBlocked}
                   className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                 />
                 <div className="flex flex-col items-center justify-center gap-4 text-center">
@@ -449,10 +472,16 @@ export default function HomePageClient() {
                   </div>
                   <div className="space-y-1">
                     <h3 className="font-semibold text-lg text-foreground">
-                      {loading ? "正在上传并分析..." : "点击或拖拽上传视频"}
+                      {loading
+                        ? "正在上传并分析..."
+                        : mobileUploadBlocked
+                        ? "移动端暂不支持上传"
+                        : "点击或拖拽上传视频"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟
+                      {mobileUploadBlocked
+                        ? "请在电脑浏览器使用，建议 Chrome"
+                        : "支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟"}
                     </p>
                   </div>
                   {!isSignedIn && (
@@ -467,6 +496,12 @@ export default function HomePageClient() {
                 <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 border border-emerald-200">
                   <CheckCircle2 className="h-4 w-4" />
                   {inviteNotice}
+                </div>
+              )}
+
+              {mobileUploadBlocked && (
+                <div className="w-full max-w-lg rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800 text-center">
+                  移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。
                 </div>
               )}
 
@@ -567,6 +602,10 @@ export default function HomePageClient() {
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button
                   onClick={() => {
+                    if (mobileUploadBlocked) {
+                      showMobileUploadError();
+                      return;
+                    }
                     const input = document.querySelector<HTMLInputElement>("input[type='file']");
                     input?.click();
                   }}

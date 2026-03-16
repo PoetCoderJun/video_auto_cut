@@ -19,6 +19,7 @@ import {
   uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
+import { isUnsupportedMobileUploadDevice } from "../lib/device";
 import { tryParseFpsWithMediaInfo } from "../lib/media-metadata";
 import {
   loadCachedJobSourceVideo,
@@ -200,6 +201,15 @@ export default function JobWorkspace({
   const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
   const [autoStep2ConfirmTriggered, setAutoStep2ConfirmTriggered] = useState(false);
   const [autoRenderTriggered, setAutoRenderTriggered] = useState(false);
+  const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
+
+  useEffect(() => {
+    setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
+  }, []);
+
+  const showMobileUploadError = useCallback(() => {
+    setError("移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。");
+  }, []);
 
   const refreshJob = useCallback(async () => {
     try {
@@ -340,6 +350,10 @@ export default function JobWorkspace({
 
   const handleUpload = useCallback(
     async (file: File) => {
+      if (mobileUploadBlocked) {
+        showMobileUploadError();
+        return;
+      }
       setError("");
       const lowerName = file.name.toLowerCase();
       const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
@@ -387,7 +401,7 @@ export default function JobWorkspace({
         setBusy(false);
       }
     },
-    [onSwitchJob]
+    [mobileUploadBlocked, onSwitchJob, showMobileUploadError]
   );
 
   useEffect(() => {
@@ -487,6 +501,10 @@ export default function JobWorkspace({
     const file = input.files?.[0];
     input.value = "";
     if (file) {
+      if (mobileUploadBlocked) {
+        showMobileUploadError();
+        return;
+      }
       setSelectedFile(file);
       void handleUpload(file);
     }
@@ -888,17 +906,22 @@ export default function JobWorkspace({
           </CardHeader>
           <CardContent>
             <div
+              onClick={() => {
+                if (mobileUploadBlocked) showMobileUploadError();
+              }}
               className={cn(
-                "relative group w-full cursor-pointer rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/50 p-10 transition-all hover:border-primary/50 hover:bg-muted",
+                "relative group w-full rounded-xl border-2 border-dashed border-muted-foreground/25 bg-muted/50 p-10 transition-all hover:border-primary/50 hover:bg-muted",
                 selectedFile && "border-primary bg-primary/5",
-                busy && "opacity-70 cursor-not-allowed"
+                busy || mobileUploadBlocked
+                  ? "opacity-70 cursor-not-allowed"
+                  : "cursor-pointer"
               )}
             >
               <input
                 type="file"
                 accept={SUPPORTED_UPLOAD_ACCEPT}
                 onChange={onFileChange}
-                disabled={busy}
+                disabled={busy || mobileUploadBlocked}
                 className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
               />
               <div className="flex flex-col items-center justify-center gap-4">
@@ -913,16 +936,25 @@ export default function JobWorkspace({
                   <h3 className="font-semibold text-lg text-foreground">
                     {busy
                       ? "正在上传..."
+                      : mobileUploadBlocked
+                      ? "移动端暂不支持上传"
                       : selectedFile
                       ? selectedFile.name
                       : "点击或拖拽上传视频"}
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    AI 将自动提取字幕并进行智能分析
+                    {mobileUploadBlocked
+                      ? "请在电脑浏览器使用，建议 Chrome"
+                      : "AI 将自动提取字幕并进行智能分析"}
                   </p>
                 </div>
               </div>
             </div>
+            {mobileUploadBlocked && (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+                移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
