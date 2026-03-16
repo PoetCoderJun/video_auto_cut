@@ -137,6 +137,32 @@ export default function HomePageClient() {
   }, []);
 
   useEffect(() => {
+    if (!isSignedIn) return;
+
+    let alive = true;
+    getMe()
+      .then((me) => {
+        if (!alive) return;
+        setCreditBalance(me.credits.balance);
+        const status = String(me.status || "PENDING_COUPON").toUpperCase();
+        setUserStatus(status === "ACTIVE" ? "ACTIVE" : "PENDING_COUPON");
+      })
+      .catch((err) => {
+        if (!alive) return;
+        if (err instanceof ApiClientError && err.status === 401) {
+          setIsSignedIn(false);
+          setAuthAccount("");
+          setCreditBalance(null);
+          setUserStatus("UNKNOWN");
+        }
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [isSignedIn]);
+
+  useEffect(() => {
     setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
   }, []);
 
