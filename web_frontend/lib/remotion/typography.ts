@@ -75,6 +75,29 @@ export type FittedSingleLineText = {
   visible: boolean;
 };
 
+export type FitUniformSingleLineTextItem = {
+  text: string;
+  maxWidth: number;
+};
+
+export type FitUniformSingleLineTextInput = {
+  items: FitUniformSingleLineTextItem[];
+  baseFontSize: number;
+  minFontSize: number;
+  horizontalPadding?: number;
+  maxFontSize?: number;
+  maxHeight?: number;
+  lineHeight?: number;
+  targetWidthRatio?: number;
+  fontWeight?: number;
+  fontFamily?: string;
+};
+
+export type FittedUniformSingleLineText = {
+  fontSize: number;
+  labels: Array<{visible: boolean}>;
+};
+
 const REFERENCE_WIDTH = 1920;
 const REFERENCE_HEIGHT = 1080;
 const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
@@ -95,7 +118,7 @@ const DEFAULT_FONT_FAMILY = OVERLAY_FONT_FAMILY;
 const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
 const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:…—]/;
 const EM_DASH_RE = /[—―－]/;
-const EM_DASH_SEQUENCE_RE = /[—―－]{2,}/g;
+const EM_DASH_SEQUENCE_RE = /(?:[—―－]+|--+)/g;
 
 const clamp = (value: number, min: number, max: number): number => {
   if (value < min) return min;
@@ -136,7 +159,39 @@ const measureUnits = (text: string): number => {
 };
 
 export const normalizeCaptionDisplayText = (text: string): string =>
-  (text || "").replace(EM_DASH_SEQUENCE_RE, (run) => "―".repeat(run.length));
+  (text || "").replace(EM_DASH_SEQUENCE_RE, "：");
+
+const ASCII_WORD_RE = /[0-9A-Za-z]/;
+
+export const prepareCaptionDisplayText = (rawText: string): string => {
+  const normalized = normalizeCaptionDisplayText((rawText || "").replace(/\r\n?/g, "\n"));
+  let flattened = "";
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const char = normalized[i];
+    if (char !== "\n") {
+      flattened += char;
+      continue;
+    }
+
+    const prev = flattened.at(-1) ?? "";
+    let next = "";
+    for (let j = i + 1; j < normalized.length; j += 1) {
+      const candidate = normalized[j];
+      if (candidate === "\n") continue;
+      if (!/\s/.test(candidate)) {
+        next = candidate;
+        break;
+      }
+    }
+
+    if ((ASCII_WORD_RE.test(prev) || ASCII_WORD_RE.test(next)) && !flattened.endsWith(" ")) {
+      flattened += " ";
+    }
+  }
+
+  return flattened.replace(/[ \t\u3000]+/g, " ").trim();
+};
 
 const findLastBreakPos = (text: string): number => {
   for (let i = text.length - 1; i >= 0; i -= 1) {
@@ -578,8 +633,124 @@ export const fitSingleLineText = ({
   return {fontSize: resolvedMinFontSize, visible: true};
 };
 
+export const fitUniformSingleLineText = ({
+  items,
+  baseFontSize,
+  minFontSize,
+  horizontalPadding = 0,
+  maxFontSize,
+  maxHeight,
+  lineHeight = 1.2,
+  targetWidthRatio = 0.82,
+  fontWeight = 400,
+  fontFamily = DEFAULT_FONT_FAMILY,
+}: FitUniformSingleLineTextInput): FittedUniformSingleLineText => {
+  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
+  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
+  const resolvedLabels = items.map((item) => {
+    const normalized = (item.text || "").trim();
+    const resolvedMaxWidth = Math.max(0, item.maxWidth - Math.max(0, horizontalPadding) * 2);
+    if (!normalized || resolvedMaxWidth <= 0) {
+      return {
+        text: normalized,
+        resolvedMaxWidth,
+        targetWidth: 0,
+        visible: false,
+        resolvedMaxFontSize: resolvedMinFontSize,
+      };
+    }
+
+    const naturalWidthAtOnePx = Math.max(
+      0.0001,
+      measureTextWidth({
+        text: normalized,
+        fontSize: 1,
+        fontWeight,
+        fontFamily,
+      })
+    );
+    const widthDrivenMaxFontSize = atLeast(
+      Math.floor(resolvedMaxWidth / naturalWidthAtOnePx),
+      resolvedMinFontSize
+    );
+    const heightDrivenMaxFontSize =
+      maxHeight && Number.isFinite(maxHeight)
+        ? atLeast(Math.floor(Math.max(0, maxHeight) / Math.max(1, lineHeight)), resolvedMinFontSize)
+        : Number.POSITIVE_INFINITY;
+    const explicitMaxFontSize =
+      maxFontSize !== undefined
+        ? atLeast(round(maxFontSize), resolvedMinFontSize)
+        : Number.POSITIVE_INFINITY;
+    const minWidth = measureTextWidth({
+      text: normalized,
+      fontSize: resolvedMinFontSize,
+      fontWeight,
+      fontFamily,
+    });
+
+    return {
+      text: normalized,
+      resolvedMaxWidth,
+      targetWidth: Math.max(1, resolvedMaxWidth * resolvedTargetWidthRatio),
+      visible: minWidth <= resolvedMaxWidth,
+      resolvedMaxFontSize: Math.min(widthDrivenMaxFontSize, heightDrivenMaxFontSize, explicitMaxFontSize),
+    };
+  });
+
+  if (resolvedLabels.length === 0) {
+    return {fontSize: resolvedBaseFontSize, labels: []};
+  }
+
+  if (resolvedLabels.some((label) => !label.visible)) {
+    return {
+      fontSize: resolvedMinFontSize,
+      labels: resolvedLabels.map((label) => ({visible: label.visible})),
+    };
+  }
+
+  let low = resolvedMinFontSize;
+  let high = Math.max(
+    resolvedMinFontSize,
+    Math.min(...resolvedLabels.map((label) => label.resolvedMaxFontSize))
+  );
+  let best = resolvedLabels.every((label) =>
+    measureTextWidth({
+      text: label.text,
+      fontSize: resolvedMinFontSize,
+      fontWeight,
+      fontFamily,
+    }) <= label.targetWidth
+  )
+    ? resolvedMinFontSize
+    : 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const fitsAll = resolvedLabels.every((label) =>
+      measureTextWidth({
+        text: label.text,
+        fontSize: mid,
+        fontWeight,
+        fontFamily,
+      }) <= label.targetWidth
+    );
+    if (fitsAll) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return {
+    fontSize: best > 0 ? best : resolvedMinFontSize,
+    labels: resolvedLabels.map(() => ({visible: true})),
+  };
+};
+
 export const wrapCaptionText = (rawText: string, input: CaptionWrapInput): string => {
-  const normalized = normalizeCaptionDisplayText((rawText || "").replace(/\r\n?/g, "\n")).trim();
+  const normalized = prepareCaptionDisplayText(rawText);
   if (!normalized) return "";
 
   const usableWidth = Math.max(260, input.width * (input.maxWidthRatio ?? 0.9));

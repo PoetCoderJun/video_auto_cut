@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   fitSingleLineText,
+  fitUniformSingleLineText,
   fitTextToBox,
   getResponsiveOverlayTypography,
   normalizeCaptionDisplayText,
   OVERLAY_FONT_FAMILY,
-  wrapCaptionText,
+  prepareCaptionDisplayText,
 } from "./typography.ts";
 
 test("uses an explicit cross-platform Chinese font stack for overlays", () => {
@@ -16,9 +17,10 @@ test("uses an explicit cross-platform Chinese font stack for overlays", () => {
   assert.match(OVERLAY_FONT_FAMILY, /PingFang SC/);
 });
 
-test("normalizes repeated em dashes into a CJK-safe horizontal bar glyph", () => {
-  assert.equal(normalizeCaptionDisplayText("流量就越高——但AI不会"), "流量就越高――但AI不会");
-  assert.equal(normalizeCaptionDisplayText("讲错一次、两次、三次————没关系"), "讲错一次、两次、三次――――没关系");
+test("normalizes dash-like breaks into a Chinese colon", () => {
+  assert.equal(normalizeCaptionDisplayText("流量就越高——但AI不会"), "流量就越高：但AI不会");
+  assert.equal(normalizeCaptionDisplayText("讲错一次、两次、三次————没关系"), "讲错一次、两次、三次：没关系");
+  assert.equal(normalizeCaptionDisplayText("不是结论--而是选项"), "不是结论：而是选项");
 });
 
 test("keeps overlay typography readable on narrow portrait frames", () => {
@@ -178,36 +180,50 @@ test("fits each progress label independently instead of forcing one global font 
   );
 });
 
-test("wraps portrait subtitles into balanced lines instead of collapsing to tiny fonts", () => {
-  const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
-  const wrapped = wrapCaptionText(
-    "这是一个专门用于验证竖屏视频字幕自适应效果的长句子，需要在合理字号下分成多行显示。",
-    {
-      width: 720,
-      fontSize: typography.subtitleFontSize,
-      maxWidthRatio: typography.subtitleMaxWidthRatio,
-      fontWeight: 700,
-      fontFamily: OVERLAY_FONT_FAMILY,
-    }
-  );
-
-  const lines = wrapped.split("\n");
-  assert.ok(lines.length >= 2, `expected wrapped subtitle to span multiple lines, got ${lines.length}`);
-  assert.ok(lines.every((line) => line.length > 0), "expected all wrapped lines to contain text");
-});
-
-test("wraps Chinese em dash subtitles conservatively on narrow frames", () => {
-  const wrapped = wrapCaptionText("内容越紧凑，流量就越高——但AI不会替你做决定", {
-    width: 360,
-    fontSize: 36,
-    maxWidthRatio: 0.9,
-    safeWidthRatio: 0.86,
+test("fits progress labels to one shared font size instead of mixing sizes", () => {
+  const fitted = fitUniformSingleLineText({
+    items: [
+      {text: "创作与尝试", maxWidth: 194},
+      {text: "掌控生活节奏", maxWidth: 143},
+      {text: "AI高效协作", maxWidth: 184},
+      {text: "尊重感受前行", maxWidth: 307},
+    ],
+    baseFontSize: 32,
+    minFontSize: 14,
+    maxFontSize: 40,
+    maxHeight: 72,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
     fontWeight: 700,
-    fontFamily: OVERLAY_FONT_FAMILY,
   });
 
-  const lines = wrapped.split("\n");
-  assert.ok(lines.length >= 2, `expected em dash subtitle to wrap, got ${lines.length}`);
-  assert.ok(lines.every((line) => line.trim().length > 0), "expected wrapped em dash lines to stay non-empty");
-  assert.ok(wrapped.includes("――"), "expected wrapped subtitle to use normalized horizontal bars");
+  assert.equal(fitted.labels.length, 4, "expected one visibility result per label");
+  assert.ok(fitted.labels.every((label) => label.visible), "expected all labels to remain visible");
+  assert.equal(fitted.fontSize, 18, `expected shared font size to be driven by the narrowest label, got ${fitted.fontSize}`);
+});
+
+test("prepares subtitles for browser-side balanced wrapping without inserting new lines", () => {
+  const prepared = prepareCaptionDisplayText(
+    "这是一个专门用于验证竖屏视频字幕自适应效果的长句子，需要在合理字号下分成多行显示。"
+  );
+
+  assert.equal(
+    prepared,
+    "这是一个专门用于验证竖屏视频字幕自适应效果的长句子，需要在合理字号下分成多行显示。"
+  );
+  assert.equal(prepared.includes("\n"), false, "expected no auto-inserted line breaks");
+});
+
+test("filters hard line breaks while normalizing em dashes", () => {
+  const prepared = prepareCaptionDisplayText("内容越紧凑，流量就越高——但AI不会替你做决定\r\n下一句继续解释");
+
+  assert.equal(prepared, "内容越紧凑，流量就越高：但AI不会替你做决定下一句继续解释");
+  assert.equal(prepared.includes("\n"), false, "expected hard breaks to be flattened");
+});
+
+test("keeps English words separated when flattening hard line breaks", () => {
+  const prepared = prepareCaptionDisplayText("OpenAI\nCodex 帮你\n处理 v2\n版本");
+
+  assert.equal(prepared, "OpenAI Codex 帮你处理 v2 版本");
 });

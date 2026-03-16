@@ -4,10 +4,11 @@ import {Video} from "@remotion/media";
 
 import {
   fitSingleLineText,
+  fitUniformSingleLineText,
   fitTextToBox,
   getResponsiveOverlayTypography,
   OVERLAY_FONT_FAMILY,
-  wrapCaptionText,
+  prepareCaptionDisplayText,
 } from "./typography";
 
 export type RenderCaption = {
@@ -106,7 +107,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         fontVariantLigatures: "none" as const,
         textAlign: "center" as const,
         textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
-        whiteSpace: "pre" as const,
+        whiteSpace: "normal" as const,
+        textWrap: "balance" as const,
         wordBreak: "keep-all" as const,
         overflowWrap: "normal" as const,
         maxWidth: `${round(typography.subtitleMaxWidthRatio * 100)}%`,
@@ -199,16 +201,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     () =>
       captions.map((caption) => ({
         ...caption,
-        wrappedText: wrapCaptionText(caption.text, {
-          width,
-          fontSize: typography.subtitleFontSize,
-          maxWidthRatio: typography.subtitleMaxWidthRatio,
-          safeWidthRatio: typography.subtitleSafeWidthRatio,
-          fontWeight: 700,
-          fontFamily: OVERLAY_FONT_FAMILY,
-        }),
+        displayText: prepareCaptionDisplayText(caption.text),
       })),
-    [captions, typography, width]
+    [captions]
   );
 
   const timelineSegments = useMemo((): TimelineSegment[] => {
@@ -300,7 +295,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const progress = clamp(t / totalDuration);
 
   const topicSegments = useMemo(() => {
-    return normalizedTopics
+    const segmentsForLayout = normalizedTopics
       .map((topic, index) => {
         const startRatio = clamp(topic.start / totalDuration);
         const endRatio = clamp(topic.end / totalDuration);
@@ -313,22 +308,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           startRatio,
           endRatio,
           index,
-          labelFit: fitSingleLineText({
-            text: topic.title,
-            maxWidth: segmentWidth,
-            baseFontSize: typography.progressLabelFontSize,
-            minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
-            maxFontSize: Math.max(
-              typography.progressLabelFontSize,
-              Math.floor(typography.progressHeight * 0.58)
-            ),
-            maxHeight: typography.progressHeight,
-            lineHeight: 1.2,
-            targetWidthRatio: 0.84,
-            horizontalPadding: typography.progressLabelPaddingX,
-            fontWeight: 700,
-            fontFamily: OVERLAY_FONT_FAMILY,
-          }),
+          segmentWidth,
         };
       })
       .filter(
@@ -339,9 +319,36 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           startRatio: number;
           endRatio: number;
           index: number;
-          labelFit: {fontSize: number; visible: boolean};
+          segmentWidth: number;
         } => item !== null
       );
+
+    const uniformLabelFit = fitUniformSingleLineText({
+      items: segmentsForLayout.map((segment) => ({
+        text: segment.title,
+        maxWidth: segment.segmentWidth,
+      })),
+      baseFontSize: typography.progressLabelFontSize,
+      minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+      maxFontSize: Math.max(
+        typography.progressLabelFontSize,
+        Math.floor(typography.progressHeight * 0.58)
+      ),
+      maxHeight: typography.progressHeight,
+      lineHeight: 1.2,
+      targetWidthRatio: 0.84,
+      horizontalPadding: typography.progressLabelPaddingX,
+      fontWeight: 700,
+      fontFamily: OVERLAY_FONT_FAMILY,
+    });
+
+    return segmentsForLayout.map((segment, index) => ({
+      ...segment,
+      labelFit: {
+        fontSize: uniformLabelFit.fontSize,
+        visible: uniformLabelFit.labels[index]?.visible ?? false,
+      },
+    }));
   }, [
     normalizedTopics,
     progressInnerWidth,
@@ -418,7 +425,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       ) : null}
 
       <div style={scaledStyles.subtitleWrap}>
-        <div style={{...scaledStyles.subtitleBox, ...subtitleStyleOverrides}}>{activeCaption ? activeCaption.wrappedText : ""}</div>
+        <div style={{...scaledStyles.subtitleBox, ...subtitleStyleOverrides}}>{activeCaption ? activeCaption.displayText : ""}</div>
       </div>
 
       <div style={scaledStyles.progressWrap}>
