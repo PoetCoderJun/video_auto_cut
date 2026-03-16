@@ -439,3 +439,12 @@ export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta
   const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config?${params.toString()}`);
   return data.render;
 }
+
+export async function markRenderSucceeded(
+  jobId: string
+): Promise<{job: Job; billing: {consumed: boolean; balance: number}}> {
+  return requestAuthed<{job: Job; billing: {consumed: boolean; balance: number}}>(
+    `/jobs/${jobId}/render/complete`,
+    {method: "POST"}
+  );
+}

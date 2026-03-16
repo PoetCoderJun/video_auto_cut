@@ -10,6 +10,7 @@ from ..constants import (
     JOB_STATUS_STEP1_CONFIRMED,
     JOB_STATUS_STEP1_READY,
     JOB_STATUS_STEP2_READY,
+    JOB_STATUS_SUCCEEDED,
     JOB_STATUS_UPLOAD_READY,
     RENDER_GET_ALLOWED_STATUSES,
     STEP1_GET_ALLOWED_STATUSES,
@@ -46,6 +47,7 @@ from ..services.billing import (
 from ..services.step1 import confirm_step1
 from ..services.step2 import confirm_step2, get_step2
 from ..services.tasks import queue_job_task
+from ..services.render_completion import mark_render_success
 from ..services.render_web import build_web_render_config
 
 router = APIRouter()
@@ -258,6 +260,8 @@ def render_config(
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, RENDER_GET_ALLOWED_STATUSES)
+    if not has_available_credits(current_user.user_id, required=1):
+        raise invalid_step_state("额度不足，请先兑换邀请码后重试")
     try:
         render = build_web_render_config(
             job_id,
@@ -269,3 +273,19 @@ def render_config(
     except RuntimeError as exc:
         raise invalid_step_state(str(exc)) from exc
     return _ok({"render": render})
+
+
+@router.post("/jobs/{job_id}/render/complete")
+def render_complete(
+    job_id: str,
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    require_active_user(current_user.user_id, current_user.email)
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_STEP2_CONFIRMED, JOB_STATUS_SUCCEEDED})
+    try:
+        billing = mark_render_success(job_id)
+    except RuntimeError as exc:
+        raise invalid_step_state(str(exc)) from exc
+    latest = load_job_or_404(job_id, current_user.user_id)
+    return _ok({"job": latest, "billing": billing})

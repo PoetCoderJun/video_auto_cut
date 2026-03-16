@@ -16,7 +16,6 @@ from ..constants import (
     PROGRESS_STEP1_READY,
 )
 from ..repository import (
-    consume_step1_credit,
     get_job_owner_user_id,
     replace_step1_lines,
     update_job,
@@ -117,13 +116,6 @@ def run_step1(job_id: str) -> None:
         ),
         final_step1_srt_path=str(final_step1_srt),
     )
-
-    try:
-        consume_step1_credit(owner_user_id, job_id)
-    except LookupError as exc:
-        if str(exc) == "INSUFFICIENT_CREDITS":
-            raise RuntimeError("额度不足，请先兑换邀请码后重试") from exc
-        raise
 
     update_job(
         job_id,

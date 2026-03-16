@@ -326,8 +326,8 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
     ]
 
 
-def consume_step1_credit(user_id: str, job_id: str) -> dict[str, Any]:
-    idempotency_key = f"job:{job_id}:step1_success"
+def consume_job_export_credit(user_id: str, job_id: str) -> dict[str, Any]:
+    idempotency_key = f"job:{job_id}:export_success"
     now = now_iso()
 
     with get_conn() as conn:
@@ -350,7 +350,7 @@ def consume_step1_credit(user_id: str, job_id: str) -> dict[str, Any]:
         inserted = conn.execute(
             """
             INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-            VALUES(?, -1, 'JOB_STEP1_SUCCESS', ?, ?, ?)
+            VALUES(?, -1, 'JOB_EXPORT_SUCCESS', ?, ?, ?)
             """,
             (user_id, job_id, idempotency_key, now),
         )
@@ -540,6 +540,10 @@ def _step2_confirmed_path(job_id: str) -> Path:
     return job_dir(job_id) / "step2" / ".confirmed"
 
 
+def _render_succeeded_path(job_id: str) -> Path:
+    return job_dir(job_id) / "render" / ".succeeded"
+
+
 def _step1_lines_path(job_id: str) -> Path:
     return job_dir(job_id) / "step1" / "final_step1.json"
 
@@ -647,6 +651,8 @@ def _infer_job_status(job_id: str) -> str:
     files = _normalize_files(job_id, _read_files_manifest(job_id))
     if _error_path(job_id).exists():
         return JOB_STATUS_FAILED
+    if _render_succeeded_path(job_id).exists():
+        return JOB_STATUS_SUCCEEDED
     if files.get("final_video_path"):
         return JOB_STATUS_SUCCEEDED
     if _step2_confirmed_path(job_id).exists():
@@ -733,6 +739,7 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
     _error_path(job_id).unlink(missing_ok=True)
     _step1_confirmed_path(job_id).unlink(missing_ok=True)
     _step2_confirmed_path(job_id).unlink(missing_ok=True)
+    _render_succeeded_path(job_id).unlink(missing_ok=True)
     return get_job(job_id, owner_user_id=owner_user_id) or {
         "job_id": job_id,
         "status": JOB_STATUS_CREATED,
@@ -830,6 +837,9 @@ def update_job(
     elif normalized_status == JOB_STATUS_STEP2_CONFIRMED:
         _step2_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
         _step2_confirmed_path(job_id).touch()
+    elif normalized_status == JOB_STATUS_SUCCEEDED:
+        _render_succeeded_path(job_id).parent.mkdir(parents=True, exist_ok=True)
+        _render_succeeded_path(job_id).touch()
     elif normalized_status == JOB_STATUS_FAILED and error_code:
         _write_json(
             _error_path(job_id),

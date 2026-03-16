@@ -14,6 +14,7 @@ import {
   getStep1,
   getStep2,
   getWebRenderConfigWithMeta,
+  markRenderSucceeded,
   runStep1,
   runStep2,
   uploadAudioDirectToOss,
@@ -772,7 +773,14 @@ export default function JobWorkspace({
       autoDownloadLink.click();
       document.body.removeChild(autoDownloadLink);
       setRenderProgress(100);
-      setJob((previous) => mergeJobStatus(previous, STATUS.SUCCEEDED));
+      try {
+        const completion = await markRenderSucceeded(jobId);
+        setJob((previous) => mergeJobSnapshot(previous, completion.job));
+      } catch (syncErr) {
+        const message =
+          syncErr instanceof Error ? syncErr.message : "服务端确认失败，请刷新后重试。";
+        setError(`视频已导出，但服务端确认失败：${message}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "浏览器导出失败，请重试。");
     } finally {
