@@ -11,9 +11,12 @@ import {
 } from "@/lib/remotion/overlay-controls";
 import {
   fitUniformAdaptiveTextToBox,
-  fitTextToBox,
+  CHAPTER_TITLE_LINE_HEIGHT,
+  fitChapterTitleToBox,
   fitUniformSingleLineText,
   fitUniformTextToBox,
+  getChapterCardLayoutMetrics,
+  getChapterCardMinHeight,
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
@@ -25,6 +28,7 @@ type ExportFramePreviewProps = {
   config: WebRenderConfig | null;
   sourceFile: File | null;
   sourceUrlOverride?: string | null;
+  emptyStateMode?: "message" | "blank";
   subtitleTheme: SubtitleTheme;
   previewTimeSec: number;
   overlayControls: OverlayScaleControls;
@@ -149,6 +153,7 @@ export default function ExportFramePreview({
   config,
   sourceFile,
   sourceUrlOverride = null,
+  emptyStateMode = "message",
   subtitleTheme,
   previewTimeSec,
   overlayControls,
@@ -294,36 +299,23 @@ export default function ExportFramePreview({
       subtitleScale: safeSubtitleScale,
       isPortrait,
     });
-    const normalizedChapterScale = Math.max(0.7, Math.min(overlayControls.chapterScale ?? 1, 1.45));
     const activeCaptionIndex = wrappedCaptions.findIndex(
       (caption) => clampedPreviewTime >= caption.start && clampedPreviewTime < caption.end
     );
     const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
-    const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
-    const chapterCardMaxWidth = Math.min(
-      chapterWrapWidth,
-      Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
-    );
-    const chapterCardMinWidth = Math.min(typography.chapterCardMinWidth, chapterCardMaxWidth);
-    const chapterCardBaseWidth = Math.round(chapterWrapWidth * (isPortrait ? 0.58 : 0.5));
-    const chapterCardWidth = Math.max(
-      chapterCardMinWidth,
-      Math.min(chapterCardMaxWidth, Math.round(chapterCardBaseWidth * normalizedChapterScale))
-    );
-    const chapterCardStyleMinWidth = isPortrait
-      ? chapterCardWidth
-      : Math.min(chapterCardMaxWidth, Math.round(typography.chapterTitleFontSize * 6.8));
-    const chapterCardStyleWidth = isPortrait ? chapterCardWidth : "fit-content";
-    const chapterCardStyleMaxWidth = isPortrait ? chapterCardWidth : chapterCardMaxWidth;
-    const chapterTitleMaxWidth = Math.max(
-      1,
-      chapterCardStyleMaxWidth - typography.chapterCardPaddingX * 2
-    );
-    const chapterCardMinHeight =
-      typography.chapterCardPaddingY * 2 +
-      Math.round(typography.chapterMetaFontSize * 1.2) +
-      typography.chapterGap +
-      Math.round(typography.chapterTitleFontSize * 2.4);
+    const chapterCardMetrics = getChapterCardLayoutMetrics({
+      width,
+      height,
+      chapterScale: overlayControls.chapterScale,
+      typography,
+    });
+    const chapterCardMinHeight = getChapterCardMinHeight({
+      titleFontSize: typography.chapterTitleFontSize,
+      titleLineCount: 1,
+      metaFontSize: typography.chapterMetaFontSize,
+      gap: typography.chapterGap,
+      paddingY: typography.chapterCardPaddingY,
+    });
     const subtitleBoxedTheme =
       subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
     const subtitleBoxMaxWidth = Math.max(
@@ -343,14 +335,10 @@ export default function ExportFramePreview({
     const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
     const activeTopicLayout =
       activeTopicIndex >= 0
-        ? fitTextToBox({
+        ? fitChapterTitleToBox({
             text: normalizedTopics[activeTopicIndex].title,
-            maxWidth: chapterTitleMaxWidth,
+            maxWidth: chapterCardMetrics.titleMaxWidth,
             baseFontSize: typography.chapterTitleFontSize,
-            minFontSize: Math.max(18, Math.floor(typography.chapterTitleFontSize * 0.72)),
-            maxLines: 2,
-            fontWeight: 800,
-            fontFamily: OVERLAY_FONT_FAMILY,
           })
         : null;
     const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
@@ -450,11 +438,10 @@ export default function ExportFramePreview({
       allowWrappedProgressLabels,
       progressLabelLineHeight,
       chapterCardMinHeight,
-      chapterCardWidth,
-      chapterCardStyleMinWidth,
-      chapterCardStyleWidth,
-      chapterCardStyleMaxWidth,
-      chapterTitleMaxWidth,
+      chapterCardStyleMinWidth: chapterCardMetrics.cardStyleMinWidth,
+      chapterCardStyleWidth: chapterCardMetrics.cardStyleWidth,
+      chapterCardStyleMaxWidth: chapterCardMetrics.cardStyleMaxWidth,
+      chapterTitleMaxWidth: chapterCardMetrics.titleMaxWidth,
     };
   }, [clampedPreviewTime, config, overlayControls, subtitleTheme, totalDuration]);
 
@@ -581,6 +568,8 @@ export default function ExportFramePreview({
               preload="metadata"
               style={centeredVideoStyle}
             />
+          ) : emptyStateMode === "blank" ? (
+            <div className="h-full w-full bg-white" />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] text-sm text-slate-500">
               当前会话缺少本地原视频，预览不可用
@@ -626,12 +615,13 @@ export default function ExportFramePreview({
                   style={{
                     fontSize:
                       previewModel.activeTopicLayout?.fontSize ?? previewModel.typography.chapterTitleFontSize,
-                    lineHeight: 1.2,
+                    lineHeight: CHAPTER_TITLE_LINE_HEIGHT,
                     fontWeight: 800,
                     fontFamily: OVERLAY_FONT_FAMILY,
                     color: "#ffffff",
                     whiteSpace: "pre-line",
-                    wordBreak: "keep-all",
+                    wordBreak: "normal",
+                    overflowWrap: "anywhere",
                     maxWidth: previewModel.chapterTitleMaxWidth,
                   }}
                 >

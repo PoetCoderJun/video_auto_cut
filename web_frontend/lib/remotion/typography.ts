@@ -45,6 +45,7 @@ export type FitTextToBoxInput = {
   baseFontSize: number;
   minFontSize: number;
   maxLines: number;
+  fontSizeStep?: number;
   fontWeight?: number;
   fontFamily?: string;
 };
@@ -70,6 +71,7 @@ export type FitSingleLineTextInput = {
   maxWidth: number;
   baseFontSize: number;
   minFontSize: number;
+  fontSizeStep?: number;
   horizontalPadding?: number;
   maxFontSize?: number;
   maxHeight?: number;
@@ -93,6 +95,7 @@ export type FitUniformSingleLineTextInput = {
   items: FitUniformSingleLineTextItem[];
   baseFontSize: number;
   minFontSize: number;
+  fontSizeStep?: number;
   horizontalPadding?: number;
   maxFontSize?: number;
   maxHeight?: number;
@@ -140,6 +143,40 @@ export type FittedUniformAdaptiveTextBox = FittedUniformTextBox & {
   maxLines: number;
 };
 
+export type FitAdaptiveProgressLabelsInput = {
+  items: FitUniformTextBoxItem[];
+  baseFontSize: number;
+  minFontSize: number;
+  allowWrapped: boolean;
+  maxLines: number;
+  fontSizeStep?: number;
+  horizontalPadding?: number;
+  maxFontSize?: number;
+  maxHeight?: number;
+  lineHeight?: number;
+  targetWidthRatio?: number;
+  fontWeight?: number;
+  fontFamily?: string;
+};
+
+export type FittedAdaptiveProgressLabels = {
+  sharedFontSize: number;
+  labels: Array<{
+    visible: boolean;
+    text: string;
+    fontSize: number;
+  }>;
+};
+
+export type ChapterCardLayoutMetrics = {
+  cardMinWidth: number;
+  cardMaxWidth: number;
+  cardStyleMinWidth: number;
+  cardStyleWidth: number | "fit-content";
+  cardStyleMaxWidth: number;
+  titleMaxWidth: number;
+};
+
 const REFERENCE_WIDTH = 1920;
 const REFERENCE_HEIGHT = 1080;
 const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
@@ -170,12 +207,22 @@ const clamp = (value: number, min: number, max: number): number => {
 
 const round = (value: number): number => Math.round(value);
 const atLeast = (value: number, min: number): number => Math.max(min, value);
+const roundToStep = (value: number, step = 1): number => {
+  const resolvedStep = Number.isFinite(step) && step > 0 ? step : 1;
+  return Math.round(value / resolvedStep) * resolvedStep;
+};
+const floorToStep = (value: number, step = 1): number => {
+  const resolvedStep = Number.isFinite(step) && step > 0 ? step : 1;
+  return Math.floor(value / resolvedStep) * resolvedStep;
+};
 
 const scaleFromReference = (value: number, reference: number): number =>
   Math.pow(Math.max(1, value) / reference, SCALE_EXPONENT);
 
-const scaleDimension = (base: number, scale: number, min: number): number =>
-  atLeast(round(base * scale), min);
+const scaleDimension = (base: number, scale: number, min: number, precisionStep = 1): number =>
+  Math.max(min, roundToStep(base * scale, precisionStep));
+
+export const CHAPTER_TITLE_LINE_HEIGHT = 1.16;
 
 let measurementContext:
   | CanvasRenderingContext2D
@@ -493,7 +540,7 @@ export const getResponsiveOverlayTypography = ({
   const subtitleVerticalScale = subtitleScale * (1 + portraitStrength * 0.8);
   const chapterScale = verticalScale * (1 + portraitStrength * 0.14);
   const progressScale = verticalScale * (1 + portraitStrength * 0.18);
-  const chapterWidthScale = horizontalScale * (1 + portraitStrength * 0.28);
+  const chapterWidthScale = horizontalScale * (1 + portraitStrength * 0.18);
   const progressLabelFontSize = scaleDimension(18.2, progressScale, 17);
   const progressHeight = atLeast(scaleDimension(42, progressScale, 34), round(progressLabelFontSize * 2.25));
   const progressRadius = atLeast(scaleDimension(12, progressScale, 10), round(progressHeight * 0.28));
@@ -509,14 +556,14 @@ export const getResponsiveOverlayTypography = ({
     subtitleSafeWidthRatio: clamp(0.85 + portraitStrength * 0.05, 0.85, 0.9),
     chapterTop: atLeast(round(resolvedHeight * 0.028), 22),
     chapterInsetX: scaleDimension(44, horizontalScale, 20),
-    chapterGap: scaleDimension(6, chapterScale, 5),
-    chapterCardMinWidth: scaleDimension(422, chapterWidthScale, 280),
-    chapterCardMaxWidthRatio: clamp(0.7 + portraitStrength * 0.1, 0.7, 0.8),
-    chapterCardPaddingX: scaleDimension(14, chapterScale, 12),
-    chapterCardPaddingY: scaleDimension(12, chapterScale, 10),
-    chapterCardRadius: scaleDimension(12, chapterScale, 10),
-    chapterMetaFontSize: scaleDimension(18, chapterScale, 16),
-    chapterTitleFontSize: scaleDimension(32, chapterScale, 26),
+    chapterGap: scaleDimension(5.5, chapterScale, 4.5, 0.25),
+    chapterCardMinWidth: scaleDimension(360, chapterWidthScale, 240, 0.5),
+    chapterCardMaxWidthRatio: clamp(0.64 + portraitStrength * 0.08, 0.64, 0.72),
+    chapterCardPaddingX: scaleDimension(11.5, chapterScale, 9.5, 0.25),
+    chapterCardPaddingY: scaleDimension(9.5, chapterScale, 7.5, 0.25),
+    chapterCardRadius: scaleDimension(11, chapterScale, 9, 0.25),
+    chapterMetaFontSize: scaleDimension(17, chapterScale, 14, 0.25),
+    chapterTitleFontSize: scaleDimension(30, chapterScale, 24, 0.25),
     progressInsetX: scaleDimension(44, horizontalScale, 20),
     progressBottom: atLeast(round(resolvedHeight * 0.012), 10),
     progressHeight,
@@ -532,6 +579,7 @@ export const fitTextToBox = ({
   baseFontSize,
   minFontSize,
   maxLines,
+  fontSizeStep = 1,
   fontWeight = 400,
   fontFamily = DEFAULT_FONT_FAMILY,
 }: FitTextToBoxInput): FittedTextBox => {
@@ -541,12 +589,21 @@ export const fitTextToBox = ({
   }
 
   const resolvedMaxWidth = Math.max(1, maxWidth);
-  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
-  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedFontSizeStep = Math.max(0.05, Number.isFinite(fontSizeStep) ? fontSizeStep : 1);
+  const resolvedBaseFontSize = Math.max(
+    resolvedFontSizeStep,
+    roundToStep(baseFontSize, resolvedFontSizeStep)
+  );
+  const resolvedMinFontSize = Math.min(
+    resolvedBaseFontSize,
+    Math.max(resolvedFontSizeStep, roundToStep(minFontSize, resolvedFontSizeStep))
+  );
   const resolvedMaxLines = Math.max(1, Math.floor(maxLines));
+  const minUnits = Math.round(resolvedMinFontSize / resolvedFontSizeStep);
+  const maxUnits = Math.round(resolvedBaseFontSize / resolvedFontSizeStep);
 
-  let low = resolvedMinFontSize;
-  let high = resolvedBaseFontSize;
+  let low = minUnits;
+  let high = maxUnits;
   let bestFontSize = resolvedMinFontSize;
   let bestLines = layoutTextLines({
     text: normalized,
@@ -559,15 +616,16 @@ export const fitTextToBox = ({
 
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
+    const fontSize = mid * resolvedFontSizeStep;
     const lines = layoutTextLines({
       text: normalized,
       maxWidth: resolvedMaxWidth,
-      fontSize: mid,
+      fontSize,
       fontWeight,
       fontFamily,
     });
     if (lines.length <= resolvedMaxLines) {
-      bestFontSize = mid;
+      bestFontSize = fontSize;
       bestLines = lines;
       fits = true;
       low = mid + 1;
@@ -687,6 +745,89 @@ export const fitUniformAdaptiveTextToBox = ({
 
 export const DEFAULT_SUBTITLE_MAX_LINES = [2, 3, 4] as const;
 
+export const fitChapterTitleToBox = ({
+  text,
+  maxWidth,
+  baseFontSize,
+}: {
+  text: string;
+  maxWidth: number;
+  baseFontSize: number;
+}): AdaptiveFittedTextBox =>
+  fitAdaptiveTextToBox({
+    text,
+    maxWidth,
+    baseFontSize,
+    minFontSize: Math.max(18, baseFontSize * 0.76),
+    preferredMaxLines: 2,
+    fallbackMaxLines: 3,
+    finalMaxLines: 4,
+    fontSizeStep: 0.25,
+    fontWeight: 800,
+    fontFamily: OVERLAY_FONT_FAMILY,
+  });
+
+export const getChapterCardMinHeight = ({
+  titleFontSize,
+  titleLineCount,
+  metaFontSize,
+  gap,
+  paddingY,
+}: {
+  titleFontSize: number;
+  titleLineCount: number;
+  metaFontSize: number;
+  gap: number;
+  paddingY: number;
+}): number =>
+  paddingY * 2 +
+  metaFontSize * 1.08 +
+  gap +
+  titleFontSize * CHAPTER_TITLE_LINE_HEIGHT * Math.max(1, Math.floor(titleLineCount));
+
+export const getChapterCardLayoutMetrics = ({
+  width,
+  height,
+  chapterScale = 1,
+  typography,
+}: {
+  width: number;
+  height: number;
+  chapterScale?: number;
+  typography: Pick<
+    OverlayTypography,
+    "chapterInsetX" | "chapterCardMinWidth" | "chapterCardMaxWidthRatio" | "chapterTitleFontSize" | "chapterCardPaddingX"
+  >;
+}): ChapterCardLayoutMetrics => {
+  const isPortrait = height > width;
+  const normalizedChapterScale = clamp(chapterScale, 0.7, 1.45);
+  const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
+  const cardMaxWidth = Math.min(
+    chapterWrapWidth,
+    Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
+  );
+  const cardMinWidth = Math.min(typography.chapterCardMinWidth, cardMaxWidth);
+  const cardBaseWidth = chapterWrapWidth * (isPortrait ? 0.52 : 0.46);
+  const resolvedCardWidth = Math.max(
+    cardMinWidth,
+    Math.min(cardMaxWidth, cardBaseWidth * normalizedChapterScale)
+  );
+  const cardStyleMinWidth = isPortrait
+    ? resolvedCardWidth
+    : Math.min(cardMaxWidth, typography.chapterTitleFontSize * 5.8);
+  const cardStyleWidth = isPortrait ? resolvedCardWidth : "fit-content";
+  const cardStyleMaxWidth = isPortrait ? resolvedCardWidth : cardMaxWidth;
+
+  return {
+    cardMinWidth,
+    cardMaxWidth,
+    cardStyleMinWidth,
+    cardStyleWidth,
+    cardStyleMaxWidth,
+    titleMaxWidth: Math.max(1, cardStyleMaxWidth - typography.chapterCardPaddingX * 2),
+  };
+};
+
 export const getSubtitleLineHeight = ({
   subtitleScale = 1,
   isPortrait,
@@ -805,6 +946,7 @@ export const fitSingleLineText = ({
   maxWidth,
   baseFontSize,
   minFontSize,
+  fontSizeStep = 1,
   horizontalPadding = 0,
   maxFontSize,
   maxHeight,
@@ -821,8 +963,15 @@ export const fitSingleLineText = ({
     return {fontSize: atLeast(round(minFontSize), 1), visible: false};
   }
 
-  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
-  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedFontSizeStep = Math.max(0.05, Number.isFinite(fontSizeStep) ? fontSizeStep : 1);
+  const resolvedBaseFontSize = Math.max(
+    resolvedFontSizeStep,
+    roundToStep(baseFontSize, resolvedFontSizeStep)
+  );
+  const resolvedMinFontSize = Math.min(
+    resolvedBaseFontSize,
+    Math.max(resolvedFontSizeStep, roundToStep(minFontSize, resolvedFontSizeStep))
+  );
   const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
   const targetWidth = Math.max(1, resolvedMaxWidth * resolvedTargetWidthRatio);
   const minWidth = measureTextWidth({
@@ -844,29 +993,35 @@ export const fitSingleLineText = ({
       fontFamily,
     })
   );
-  const widthDrivenMaxFontSize = atLeast(Math.floor(resolvedMaxWidth / naturalWidthAtOnePx), resolvedMinFontSize);
+  const widthDrivenMaxFontSize = atLeast(
+    floorToStep(resolvedMaxWidth / naturalWidthAtOnePx, resolvedFontSizeStep),
+    resolvedMinFontSize
+  );
   const heightDrivenMaxFontSize =
     maxHeight && Number.isFinite(maxHeight)
-      ? atLeast(Math.floor(Math.max(0, maxHeight) / Math.max(1, lineHeight)), resolvedMinFontSize)
+      ? atLeast(
+          floorToStep(Math.max(0, maxHeight) / Math.max(1, lineHeight), resolvedFontSizeStep),
+          resolvedMinFontSize
+        )
       : Number.POSITIVE_INFINITY;
   const explicitMaxFontSize =
     maxFontSize !== undefined
-      ? atLeast(round(maxFontSize), resolvedMinFontSize)
+      ? atLeast(floorToStep(maxFontSize, resolvedFontSizeStep), resolvedMinFontSize)
       : Number.POSITIVE_INFINITY;
   const resolvedMaxFontSize = Math.min(widthDrivenMaxFontSize, heightDrivenMaxFontSize, explicitMaxFontSize);
 
-  let low = resolvedMinFontSize;
-  let high = Math.max(resolvedMinFontSize, resolvedMaxFontSize);
+  let low = Math.round(resolvedMinFontSize / resolvedFontSizeStep);
+  let high = Math.max(low, Math.round(resolvedMaxFontSize / resolvedFontSizeStep));
   let best = minWidth <= targetWidth ? resolvedMinFontSize : 0;
 
   while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
+    const mid = Math.floor((low + high) / 2) * resolvedFontSizeStep;
     const width = measureTextWidth({text: normalized, fontSize: mid, fontWeight, fontFamily});
     if (width <= targetWidth) {
       best = mid;
-      low = mid + 1;
+      low = Math.round(mid / resolvedFontSizeStep) + 1;
     } else {
-      high = mid - 1;
+      high = Math.round(mid / resolvedFontSizeStep) - 1;
     }
   }
 
@@ -878,6 +1033,7 @@ export const fitUniformSingleLineText = ({
   items,
   baseFontSize,
   minFontSize,
+  fontSizeStep = 1,
   horizontalPadding = 0,
   maxFontSize,
   maxHeight,
@@ -886,8 +1042,15 @@ export const fitUniformSingleLineText = ({
   fontWeight = 400,
   fontFamily = DEFAULT_FONT_FAMILY,
 }: FitUniformSingleLineTextInput): FittedUniformSingleLineText => {
-  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
-  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedFontSizeStep = Math.max(0.05, Number.isFinite(fontSizeStep) ? fontSizeStep : 1);
+  const resolvedBaseFontSize = Math.max(
+    resolvedFontSizeStep,
+    roundToStep(baseFontSize, resolvedFontSizeStep)
+  );
+  const resolvedMinFontSize = Math.min(
+    resolvedBaseFontSize,
+    Math.max(resolvedFontSizeStep, roundToStep(minFontSize, resolvedFontSizeStep))
+  );
   const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
   const resolvedLabels = items.map((item) => {
     const normalized = (item.text || "").trim();
@@ -912,16 +1075,19 @@ export const fitUniformSingleLineText = ({
       })
     );
     const widthDrivenMaxFontSize = atLeast(
-      Math.floor(resolvedMaxWidth / naturalWidthAtOnePx),
+      floorToStep(resolvedMaxWidth / naturalWidthAtOnePx, resolvedFontSizeStep),
       resolvedMinFontSize
     );
     const heightDrivenMaxFontSize =
       maxHeight && Number.isFinite(maxHeight)
-        ? atLeast(Math.floor(Math.max(0, maxHeight) / Math.max(1, lineHeight)), resolvedMinFontSize)
+        ? atLeast(
+            floorToStep(Math.max(0, maxHeight) / Math.max(1, lineHeight), resolvedFontSizeStep),
+            resolvedMinFontSize
+          )
         : Number.POSITIVE_INFINITY;
     const explicitMaxFontSize =
       maxFontSize !== undefined
-        ? atLeast(round(maxFontSize), resolvedMinFontSize)
+        ? atLeast(floorToStep(maxFontSize, resolvedFontSizeStep), resolvedMinFontSize)
         : Number.POSITIVE_INFINITY;
     const minWidth = measureTextWidth({
       text: normalized,
@@ -950,10 +1116,10 @@ export const fitUniformSingleLineText = ({
     };
   }
 
-  let low = resolvedMinFontSize;
+  let low = Math.round(resolvedMinFontSize / resolvedFontSizeStep);
   let high = Math.max(
-    resolvedMinFontSize,
-    Math.min(...resolvedLabels.map((label) => label.resolvedMaxFontSize))
+    low,
+    Math.round(Math.min(...resolvedLabels.map((label) => label.resolvedMaxFontSize)) / resolvedFontSizeStep)
   );
   let best = resolvedLabels.every((label) =>
     measureTextWidth({
@@ -967,7 +1133,7 @@ export const fitUniformSingleLineText = ({
     : 0;
 
   while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
+    const mid = Math.floor((low + high) / 2) * resolvedFontSizeStep;
     const fitsAll = resolvedLabels.every((label) =>
       measureTextWidth({
         text: label.text,
@@ -978,15 +1144,169 @@ export const fitUniformSingleLineText = ({
     );
     if (fitsAll) {
       best = mid;
-      low = mid + 1;
+      low = Math.round(mid / resolvedFontSizeStep) + 1;
     } else {
-      high = mid - 1;
+      high = Math.round(mid / resolvedFontSizeStep) - 1;
     }
   }
 
   return {
     fontSize: best > 0 ? best : resolvedMinFontSize,
     labels: resolvedLabels.map(() => ({visible: true})),
+  };
+};
+
+const PROGRESS_LABEL_LIFT_RATIO = 0.9;
+
+export const fitAdaptiveProgressLabels = ({
+  items,
+  baseFontSize,
+  minFontSize,
+  allowWrapped,
+  maxLines,
+  fontSizeStep = 0.25,
+  horizontalPadding = 0,
+  maxFontSize,
+  maxHeight,
+  lineHeight = 1.2,
+  targetWidthRatio = 0.82,
+  fontWeight = 400,
+  fontFamily = DEFAULT_FONT_FAMILY,
+}: FitAdaptiveProgressLabelsInput): FittedAdaptiveProgressLabels => {
+  const resolvedFontSizeStep = Math.max(0.05, Number.isFinite(fontSizeStep) ? fontSizeStep : 0.25);
+  const resolvedBaseFontSize = Math.max(
+    resolvedFontSizeStep,
+    roundToStep(baseFontSize, resolvedFontSizeStep)
+  );
+  const resolvedMinFontSize = Math.min(
+    resolvedBaseFontSize,
+    Math.max(resolvedFontSizeStep, roundToStep(minFontSize, resolvedFontSizeStep))
+  );
+  const resolvedPadding = Math.max(0, horizontalPadding);
+  const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
+  const sharedFit = allowWrapped
+    ? fitUniformTextToBox({
+        items,
+        baseFontSize: resolvedBaseFontSize,
+        minFontSize: resolvedMinFontSize,
+        maxLines,
+        horizontalPadding: resolvedPadding,
+        maxFontSize,
+        maxHeight,
+        lineHeight,
+        targetWidthRatio: resolvedTargetWidthRatio,
+        fontWeight,
+        fontFamily,
+      })
+    : fitUniformSingleLineText({
+        items,
+        baseFontSize: resolvedBaseFontSize,
+        minFontSize: resolvedMinFontSize,
+        fontSizeStep: resolvedFontSizeStep,
+        horizontalPadding: resolvedPadding,
+        maxFontSize,
+        maxHeight,
+        lineHeight,
+        targetWidthRatio: resolvedTargetWidthRatio,
+        fontWeight,
+        fontFamily,
+      });
+  const sharedFontSize = Math.max(
+    resolvedMinFontSize,
+    floorToStep(sharedFit.fontSize, resolvedFontSizeStep)
+  );
+  const adaptiveCap = Math.max(
+    sharedFontSize,
+    floorToStep(
+      sharedFontSize + Math.max(0, resolvedBaseFontSize - sharedFontSize) * PROGRESS_LABEL_LIFT_RATIO,
+      resolvedFontSizeStep
+    )
+  );
+
+  return {
+    sharedFontSize,
+    labels: items.map((item) => {
+      const normalized = (item.text || "").trim();
+      const resolvedMaxWidth = Math.max(0, item.maxWidth - resolvedPadding * 2);
+      if (!normalized || resolvedMaxWidth <= 0) {
+        return {visible: false, text: "", fontSize: sharedFontSize};
+      }
+
+      if (allowWrapped) {
+        const targetWidth = Math.max(1, resolvedMaxWidth * resolvedTargetWidthRatio);
+        const preferred = fitTextToBox({
+          text: normalized,
+          maxWidth: targetWidth,
+          baseFontSize: resolvedBaseFontSize,
+          minFontSize: resolvedMinFontSize,
+          maxLines,
+          fontSizeStep: resolvedFontSizeStep,
+          fontWeight,
+          fontFamily,
+        });
+        const finalFontSize = Math.max(
+          sharedFontSize,
+          floorToStep(Math.min(preferred.fontSize, adaptiveCap), resolvedFontSizeStep)
+        );
+        const layout = fitTextToBox({
+          text: normalized,
+          maxWidth: targetWidth,
+          baseFontSize: finalFontSize,
+          minFontSize: finalFontSize,
+          maxLines,
+          fontSizeStep: resolvedFontSizeStep,
+          fontWeight,
+          fontFamily,
+        });
+        return {
+          visible: true,
+          text: layout.text,
+          fontSize: finalFontSize,
+        };
+      }
+
+      const preferred = fitSingleLineText({
+        text: normalized,
+        maxWidth: item.maxWidth,
+        baseFontSize: resolvedBaseFontSize,
+        minFontSize: resolvedMinFontSize,
+        fontSizeStep: resolvedFontSizeStep,
+        horizontalPadding: resolvedPadding,
+        maxFontSize,
+        maxHeight,
+        lineHeight,
+        targetWidthRatio: resolvedTargetWidthRatio,
+        fontWeight,
+        fontFamily,
+      });
+      if (!preferred.visible) {
+        return {visible: false, text: "", fontSize: sharedFontSize};
+      }
+
+      const finalFontSize = Math.max(
+        sharedFontSize,
+        floorToStep(Math.min(preferred.fontSize, adaptiveCap), resolvedFontSizeStep)
+      );
+      const finalVisibility = fitSingleLineText({
+        text: normalized,
+        maxWidth: item.maxWidth,
+        baseFontSize: finalFontSize,
+        minFontSize: finalFontSize,
+        fontSizeStep: resolvedFontSizeStep,
+        horizontalPadding: resolvedPadding,
+        maxFontSize: finalFontSize,
+        maxHeight,
+        lineHeight,
+        targetWidthRatio: resolvedTargetWidthRatio,
+        fontWeight,
+        fontFamily,
+      }).visible;
+      return {
+        visible: finalVisibility,
+        text: normalized,
+        fontSize: finalFontSize,
+      };
+    }),
   };
 };
 

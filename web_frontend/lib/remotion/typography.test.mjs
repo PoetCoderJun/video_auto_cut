@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  fitAdaptiveProgressLabels,
   fitSingleLineText,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
+  fitChapterTitleToBox,
   fitUniformSingleLineText,
   fitUniformAdaptiveTextToBox,
   fitUniformTextToBox,
@@ -14,6 +16,7 @@ import {
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "./typography.ts";
+import {applyOverlayScaleToTypography} from "./overlay-controls.ts";
 
 test("uses an explicit cross-platform Chinese font stack for overlays", () => {
   assert.match(OVERLAY_FONT_FAMILY, /Noto Sans SC/);
@@ -133,6 +136,33 @@ test("fits chapter titles into two lines before truncating", () => {
   assert.ok(fitted.text.length > 0, "expected fitted chapter text to stay non-empty");
 });
 
+test("chapter title fitting can fall back to three lines before forcing a harsh font drop", () => {
+  const strict = fitTextToBox({
+    text: "这是一个专门用来验证章节标题在临界宽度下不应该突然缩得很小的测试样例",
+    maxWidth: 210,
+    baseFontSize: 30,
+    minFontSize: 18,
+    maxLines: 2,
+    fontWeight: 800,
+  });
+  const adaptive = fitChapterTitleToBox({
+    text: "这是一个专门用来验证章节标题在临界宽度下不应该突然缩得很小的测试样例",
+    maxWidth: 210,
+    baseFontSize: 30,
+  });
+
+  assert.ok(adaptive.maxLines >= 2, `expected adaptive layout to keep a multi-line budget, got ${adaptive.maxLines}`);
+  assert.ok(adaptive.lines.length <= adaptive.maxLines, "expected adaptive chapter layout to honor its own line budget");
+  assert.ok(
+    adaptive.fontSize >= strict.fontSize,
+    `expected adaptive chapter font to stay at least as large as the strict two-line fit, got ${adaptive.fontSize} vs ${strict.fontSize}`
+  );
+  assert.ok(
+    adaptive.text.length > strict.text.length,
+    "expected adaptive chapter layout to preserve more visible text than the strict two-line fit"
+  );
+});
+
 test("fits long portrait subtitles into two lines without truncation", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1268});
   const fitted = fitTextToBox({
@@ -229,6 +259,92 @@ test("fits progress labels to one shared font size instead of mixing sizes", () 
   assert.equal(fitted.labels.length, 4, "expected one visibility result per label");
   assert.ok(fitted.labels.every((label) => label.visible), "expected all labels to remain visible");
   assert.equal(fitted.fontSize, 18, `expected shared font size to be driven by the narrowest label, got ${fitted.fontSize}`);
+});
+
+test("lets wider progress segments reclaim some font size as the bar scale increases", () => {
+  const smaller = fitAdaptiveProgressLabels({
+    items: [
+      {text: "怎样保留真实感受", maxWidth: 138},
+      {text: "落地执行", maxWidth: 284},
+    ],
+    baseFontSize: 19,
+    minFontSize: 12,
+    allowWrapped: false,
+    maxLines: 1,
+    maxFontSize: 30,
+    maxHeight: 44,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
+    fontWeight: 700,
+    fontSizeStep: 0.25,
+  });
+  const larger = fitAdaptiveProgressLabels({
+    items: [
+      {text: "怎样保留真实感受", maxWidth: 138},
+      {text: "落地执行", maxWidth: 284},
+    ],
+    baseFontSize: 26,
+    minFontSize: 12,
+    allowWrapped: false,
+    maxLines: 1,
+    maxFontSize: 34,
+    maxHeight: 58,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
+    fontWeight: 700,
+    fontSizeStep: 0.25,
+  });
+
+  assert.ok(smaller.labels.every((label) => label.visible), "expected smaller scaled labels to stay visible");
+  assert.ok(larger.labels.every((label) => label.visible), "expected larger scaled labels to stay visible");
+  assert.ok(
+    larger.labels[1].fontSize > smaller.labels[1].fontSize,
+    `expected wide segment label to grow with bar scale, got ${smaller.labels[1].fontSize} -> ${larger.labels[1].fontSize}`
+  );
+  assert.ok(
+    larger.labels[1].fontSize > larger.labels[0].fontSize,
+    `expected wider segment to use a larger font than the narrow one, got ${larger.labels[0].fontSize} vs ${larger.labels[1].fontSize}`
+  );
+  assert.ok(
+    larger.labels[1].fontSize > larger.sharedFontSize,
+    `expected wide segment to grow beyond shared floor, got ${larger.labels[1].fontSize} vs ${larger.sharedFontSize}`
+  );
+});
+
+test("applies quarter-step progress label scaling instead of snapping to full pixels", () => {
+  const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
+  const scaled = applyOverlayScaleToTypography(typography, {progressScale: 1.13});
+
+  assert.equal(scaled.progressLabelFontSize % 0.25, 0, "expected quarter-step progress label scaling");
+  assert.notEqual(
+    scaled.progressLabelFontSize,
+    Math.round(scaled.progressLabelFontSize),
+    `expected progress label scaling to preserve sub-pixel precision, got ${scaled.progressLabelFontSize}`
+  );
+});
+
+test("makes progress scale change the track footprint instead of only thickening the bar", () => {
+  const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
+  const scaled = applyOverlayScaleToTypography(typography, {progressScale: 1.24});
+
+  assert.ok(
+    scaled.progressHeight > typography.progressHeight,
+    `expected progress height to grow, got ${typography.progressHeight} -> ${scaled.progressHeight}`
+  );
+  assert.ok(
+    scaled.progressLabelFontSize > typography.progressLabelFontSize,
+    `expected progress label font to grow, got ${typography.progressLabelFontSize} -> ${scaled.progressLabelFontSize}`
+  );
+  assert.ok(
+    scaled.progressInsetX < typography.progressInsetX,
+    `expected larger progress scale to reduce inset and widen the track, got ${typography.progressInsetX} -> ${scaled.progressInsetX}`
+  );
+  assert.ok(
+    scaled.progressBottom > typography.progressBottom,
+    `expected larger progress scale to lift the track slightly, got ${typography.progressBottom} -> ${scaled.progressBottom}`
+  );
 });
 
 test("allows portrait progress labels to wrap to two lines with one shared font size", () => {

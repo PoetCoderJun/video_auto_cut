@@ -34,6 +34,11 @@
   - `cd web_frontend && npx tsc --noEmit`
   - `npm --prefix web_frontend run build`
 - No strict coverage gate yet; include manual verification steps (upload, Step1/Step2, render/export).
+- For overlay / export UI work, use `web_frontend/app/dev-export-preview/page.tsx` as the reusable mock lab:
+  - The mock lab uses a plain white background instead of a real source video so overlay density and wrapping are easier to inspect.
+  - Switch scenario presets to inspect long chapter titles, compact single-line titles, and landscape progress labels.
+  - Use the editable text inputs to test extreme title lengths, manual line breaks, and same-length copy with different wrap strategies before changing layout logic.
+  - Switch resolution presets or use the built-in compare grid to cover low-res landscape, 2K/4K landscape, low-res portrait, and high-res portrait before asking for screenshots or export clips.
 
 ## Commit & Pull Request Guidelines
 - Follow Conventional Commit style when possible (`feat:`, `fix:`, `docs:`, `chore:`), optionally scoped (e.g., `feat(web): ...`).

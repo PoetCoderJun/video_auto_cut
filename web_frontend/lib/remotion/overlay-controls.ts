@@ -22,8 +22,20 @@ const clamp = (value: number, min: number, max: number): number => {
   return value;
 };
 
-const scaleDimension = (value: number, factor: number, minimum: number): number =>
-  Math.max(minimum, Math.round(value * factor));
+const roundToStep = (value: number, step = 1): number => {
+  const resolvedStep = Number.isFinite(step) && step > 0 ? step : 1;
+  return Math.round(value / resolvedStep) * resolvedStep;
+};
+
+const emphasizeScale = (factor: number, strength: number, min: number, max: number): number =>
+  clamp(1 + (factor - 1) * strength, min, max);
+
+const scaleDimension = (
+  value: number,
+  factor: number,
+  minimum: number,
+  precisionStep = 1
+): number => Math.max(minimum, roundToStep(value * factor, precisionStep));
 
 export const normalizeOverlayScaleControls = (
   controls: OverlayScaleControls
@@ -50,6 +62,9 @@ export const applyOverlayScaleToTypography = (
   controls: OverlayScaleControls
 ): OverlayTypography => {
   const normalized = normalizeOverlayScaleControls(controls);
+  const progressVisualScale = emphasizeScale(normalized.progressScale, 1.35, 0.55, 2.05);
+  const progressTypeScale = emphasizeScale(normalized.progressScale, 1.65, 0.5, 2.15);
+  const progressInsetScale = clamp(1 - (progressVisualScale - 1) * 0.28, 0.72, 1.18);
   const subtitleFontSize = scaleDimension(
     typography.subtitleFontSize,
     normalized.subtitleScale,
@@ -57,17 +72,19 @@ export const applyOverlayScaleToTypography = (
   );
   const progressLabelFontSize = scaleDimension(
     typography.progressLabelFontSize,
-    normalized.progressScale,
-    10
+    progressTypeScale,
+    10,
+    0.25
   );
   const chapterTitleFontSize = scaleDimension(
     typography.chapterTitleFontSize,
     normalized.chapterScale,
-    16
+    16,
+    0.25
   );
   const progressHeight = Math.max(
-    scaleDimension(typography.progressHeight, normalized.progressScale, 18),
-    Math.round(progressLabelFontSize * 2.25)
+    scaleDimension(typography.progressHeight, progressVisualScale, 18, 0.25),
+    Math.round(progressLabelFontSize * 2.4)
   );
 
   return {
@@ -76,35 +93,42 @@ export const applyOverlayScaleToTypography = (
     subtitlePaddingX: scaleDimension(typography.subtitlePaddingX, normalized.subtitleScale, 8),
     subtitlePaddingY: scaleDimension(typography.subtitlePaddingY, normalized.subtitleScale, 6),
     subtitleRadius: scaleDimension(typography.subtitleRadius, normalized.subtitleScale, 6),
-    chapterGap: scaleDimension(typography.chapterGap, normalized.chapterScale, 6),
+    chapterGap: scaleDimension(typography.chapterGap, normalized.chapterScale, 4.5, 0.25),
     chapterCardMinWidth: scaleDimension(
       typography.chapterCardMinWidth,
       normalized.chapterScale,
-      120
+      120,
+      0.5
     ),
     chapterCardPaddingX: scaleDimension(
       typography.chapterCardPaddingX,
       normalized.chapterScale,
-      10
+      9,
+      0.25
     ),
     chapterCardPaddingY: scaleDimension(
       typography.chapterCardPaddingY,
       normalized.chapterScale,
-      8
+      7.5,
+      0.25
     ),
-    chapterCardRadius: scaleDimension(typography.chapterCardRadius, normalized.chapterScale, 10),
+    chapterCardRadius: scaleDimension(typography.chapterCardRadius, normalized.chapterScale, 8.5, 0.25),
     chapterMetaFontSize: scaleDimension(
       typography.chapterMetaFontSize,
       normalized.chapterScale,
-      12
+      12,
+      0.25
     ),
     chapterTitleFontSize,
+    progressInsetX: scaleDimension(typography.progressInsetX, progressInsetScale, 12, 0.25),
+    progressBottom: scaleDimension(typography.progressBottom, progressVisualScale, 8, 0.25),
     progressHeight,
-    progressRadius: scaleDimension(typography.progressRadius, normalized.progressScale, 8),
+    progressRadius: scaleDimension(typography.progressRadius, progressVisualScale, 8, 0.25),
     progressLabelPaddingX: scaleDimension(
       typography.progressLabelPaddingX,
-      normalized.progressScale,
-      2
+      emphasizeScale(normalized.progressScale, 0.6, 0.72, 1.4),
+      2,
+      0.25
     ),
     progressLabelFontSize,
   };

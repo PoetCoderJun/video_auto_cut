@@ -763,6 +763,87 @@ export default function JobWorkspace({
     setError("移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。");
   }, []);
 
+  const loadRenderConfigWithMeta = useCallback(
+    async (
+      sourceFile: File,
+      meta: RenderMeta,
+      { timeoutMs }: { timeoutMs?: { config?: number } } = {}
+    ): Promise<WebRenderConfig> => {
+      const configRequest = getWebRenderConfigWithMeta(jobId, meta);
+      const config =
+        typeof timeoutMs?.config === "number"
+          ? await withTimeout(
+              configRequest,
+              timeoutMs.config,
+              "生成预览配置超时，请重试。"
+            )
+          : await configRequest;
+      const sourceMismatchMessage = getSourceVideoMismatchMessage(
+        sourceFile.name,
+        meta,
+        config
+      );
+      if (sourceMismatchMessage) {
+        throw new Error(sourceMismatchMessage);
+      }
+      return config;
+    },
+    [jobId]
+  );
+
+  const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
+    if (renderBusy) return null;
+
+    setRenderConfigBusy(true);
+    setRenderSetupError("");
+    try {
+      let sourceFile = selectedFile;
+      if (!sourceFile) {
+        sourceFile = await loadCachedJobSourceVideo(jobId);
+        if (sourceFile) {
+          setSelectedFile(sourceFile);
+        }
+      }
+      if (!sourceFile) {
+        throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
+      }
+
+      const meta = await withTimeout(
+        resolveRenderMetaFromFile(sourceFile),
+        10000,
+        "读取本地视频元数据超时，请刷新页面后重试。"
+      );
+      const config = await loadRenderConfigWithMeta(sourceFile, meta, {
+        timeoutMs: { config: 15000 },
+      });
+      setRenderConfig(config);
+      setPreviewTimeSec((previous) => {
+        const totalDuration = Math.max(
+          1,
+          config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
+          config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
+          config.input_props.segments.reduce(
+            (sum, item) => sum + Math.max(0, item.end - item.start),
+            0
+          )
+        );
+        if (previous > 0 && previous < totalDuration) {
+          return previous;
+        }
+        return getRandomPreviewTime(config);
+      });
+      return config;
+    } catch (err) {
+      setRenderConfig(null);
+      setRenderSetupError(
+        err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
+      );
+      return null;
+    } finally {
+      setRenderConfigBusy(false);
+    }
+  }, [jobId, loadRenderConfigWithMeta, renderBusy, selectedFile]);
+
   const refreshJob = useCallback(async () => {
     try {
       const next = await getJob(jobId);
@@ -950,78 +1031,9 @@ export default function JobWorkspace({
       job?.status === STATUS.STEP2_CONFIRMED || job?.status === STATUS.SUCCEEDED;
     if (!exportReady) return;
     if (renderConfig) return;
-
-    let cancelled = false;
-
-    const prepareRenderPreview = async () => {
-      setRenderConfigBusy(true);
-      setRenderSetupError("");
-      try {
-        let sourceFile = selectedFile;
-        if (!sourceFile) {
-          sourceFile = await loadCachedJobSourceVideo(jobId);
-          if (sourceFile && !cancelled) {
-            setSelectedFile(sourceFile);
-          }
-        }
-        if (!sourceFile) {
-          throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
-        }
-
-        const meta = await withTimeout(
-          resolveRenderMetaFromFile(sourceFile),
-          10000,
-          "读取本地视频元数据超时，请刷新页面后重试。"
-        );
-        if (cancelled) return;
-        const config = await withTimeout(
-          getWebRenderConfigWithMeta(jobId, meta),
-          15000,
-          "生成预览配置超时，请重试。"
-        );
-        if (cancelled) return;
-        const sourceMismatchMessage = getSourceVideoMismatchMessage(
-          sourceFile.name,
-          meta,
-          config
-        );
-        if (sourceMismatchMessage) {
-          throw new Error(sourceMismatchMessage);
-        }
-        setRenderConfig(config);
-        setPreviewTimeSec((previous) => {
-          const totalDuration = Math.max(
-            1,
-            config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
-            config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
-            config.input_props.segments.reduce(
-              (sum, item) => sum + Math.max(0, item.end - item.start),
-              0
-            )
-          );
-          if (previous > 0 && previous < totalDuration) {
-            return previous;
-          }
-          return getRandomPreviewTime(config);
-        });
-      } catch (err) {
-        if (cancelled) return;
-        setRenderConfig(null);
-        setRenderSetupError(
-          err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
-        );
-      } finally {
-        if (!cancelled) {
-          setRenderConfigBusy(false);
-        }
-      }
-    };
-
+    if (renderConfigBusy || renderSetupError) return;
     void prepareRenderPreview();
-    return () => {
-      cancelled = true;
-    };
-  }, [job?.status, jobId, selectedFile]);
+  }, [job?.status, prepareRenderPreview, renderConfig, renderConfigBusy, renderSetupError]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -1288,10 +1300,6 @@ export default function JobWorkspace({
     setRenderSetupError("");
     setRenderBusy(true);
     setRenderProgress(0);
-    setRenderDownloadUrl((previous) => {
-      if (previous) URL.revokeObjectURL(previous);
-      return null;
-    });
     let sourceObjectUrl: string | null = null;
     try {
       let sourceFile = selectedFile;
@@ -1304,19 +1312,7 @@ export default function JobWorkspace({
       }
       const sourceMeta = await resolveRenderMetaFromFile(sourceFile);
       const config =
-        renderConfig ??
-        (await getWebRenderConfigWithMeta(
-          jobId,
-          sourceMeta
-        ));
-      const sourceMismatchMessage = getSourceVideoMismatchMessage(
-        sourceFile.name,
-        sourceMeta,
-        config
-      );
-      if (sourceMismatchMessage) {
-        throw new Error(sourceMismatchMessage);
-      }
+        renderConfig ?? (await loadRenderConfigWithMeta(sourceFile, sourceMeta));
       setRenderConfig((previous) => previous ?? config);
       sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
@@ -1452,6 +1448,7 @@ export default function JobWorkspace({
     }
   }, [
     jobId,
+    loadRenderConfigWithMeta,
     overlayControls.progressLabelMode,
     overlayControls.progressScale,
     overlayControls.chapterScale,
@@ -1463,11 +1460,6 @@ export default function JobWorkspace({
 
   useEffect(() => {
     if (renderBusy) return;
-    setRenderDownloadUrl((previous) => {
-      if (!previous) return previous;
-      URL.revokeObjectURL(previous);
-      return null;
-    });
     setRenderProgress(0);
   }, [
     overlayControls.progressLabelMode,
@@ -2145,24 +2137,31 @@ export default function JobWorkspace({
 
                 <div className="mt-auto flex flex-col gap-2 border-t border-slate-200 pt-3">
                   <Button
+                    type="button"
+                    variant="outline"
                     size="lg"
                     className="w-full"
-                    onClick={() => {
-                      if (renderDownloadUrl) {
-                        triggerFileDownload(renderDownloadUrl, renderFileName);
-                        return;
-                      }
-                      void handleStartRender();
-                    }}
-                    disabled={renderBusy || busy || renderConfigBusy || Boolean(renderSetupError)}
+                    onClick={() => void prepareRenderPreview()}
+                    disabled={busy || renderBusy || renderConfigBusy}
+                  >
+                    {renderConfigBusy ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在生成预览
+                      </>
+                    ) : (
+                      "刷新预览"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="w-full"
+                    onClick={() => void handleStartRender()}
+                    disabled={renderBusy || busy}
                   >
                     {renderBusy ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出
-                      </>
-                    ) : renderDownloadUrl ? (
-                      <>
-                        <Download className="mr-2 h-4 w-4" /> 再次下载
                       </>
                     ) : (
                       <>
@@ -2170,6 +2169,17 @@ export default function JobWorkspace({
                       </>
                     )}
                   </Button>
+                  {renderDownloadUrl && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      className="w-full"
+                      onClick={() => triggerFileDownload(renderDownloadUrl, renderFileName)}
+                    >
+                      <Download className="mr-2 h-4 w-4" /> 下载上次导出
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
