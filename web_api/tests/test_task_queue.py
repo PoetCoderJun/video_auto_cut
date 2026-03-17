@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import os
 import tempfile
 import unittest
@@ -8,12 +9,14 @@ from unittest.mock import patch
 
 from web_api.config import get_settings
 from web_api.constants import TASK_STATUS_RUNNING, TASK_TYPE_STEP1
+from web_api.db import get_conn
 from web_api.task_queue import (
     claim_next_task,
     enqueue_task,
     get_queue_db_path,
+    heartbeat_task,
     init_task_queue_db,
-    set_task_succeeded,
+    reclaim_stale_running_tasks,
 )
 
 
@@ -43,8 +46,88 @@ class TaskQueueTest(unittest.TestCase):
                     self.assertEqual(claimed["task_type"], TASK_TYPE_STEP1)
                     self.assertEqual(claimed["status"], TASK_STATUS_RUNNING)
                     self.assertEqual(claimed["payload"], {"hello": "world"})
+                finally:
+                    get_settings.cache_clear()
 
-                    set_task_succeeded(task_id)
+    def test_stale_task_is_reclaimed_before_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            replica_path = str(Path(tmpdir) / "queue.db")
+            with patch.dict(
+                os.environ,
+                {
+                    "WEB_DB_LOCAL_ONLY": "1",
+                    "TURSO_LOCAL_REPLICA_PATH": replica_path,
+                    "TASK_QUEUE_LEASE_SECONDS": "10",
+                },
+                clear=False,
+            ):
+                get_settings.cache_clear()
+                try:
+                    init_task_queue_db()
+                    task_id = enqueue_task("job_stale_queue", TASK_TYPE_STEP1)
+                    claimed = claim_next_task()
+                    self.assertIsNotNone(claimed)
+                    self.assertEqual(claimed["task_id"], task_id)
+
+                    with get_conn() as conn:
+                        conn.execute(
+                            """
+                            UPDATE queue_tasks
+                            SET updated_at = ?, worker_id = ?
+                            WHERE task_id = ?
+                            """,
+                            ("2000-01-01T00:00:00Z", str(claimed["worker_id"]), task_id),
+                        )
+                        conn.commit()
+
+                    reclaimed = reclaim_stale_running_tasks(
+                        now=datetime(2020, 1, 1, tzinfo=timezone.utc),
+                    )
+                    self.assertEqual(reclaimed, 1)
+
+                    reclaimed_claim = claim_next_task()
+                    self.assertIsNotNone(reclaimed_claim)
+                    self.assertEqual(reclaimed_claim["task_id"], task_id)
+                    self.assertEqual(reclaimed_claim["status"], TASK_STATUS_RUNNING)
+                finally:
+                    get_settings.cache_clear()
+
+    def test_heartbeat_updates_running_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            replica_path = str(Path(tmpdir) / "queue.db")
+            with patch.dict(
+                os.environ,
+                {
+                    "WEB_DB_LOCAL_ONLY": "1",
+                    "TURSO_LOCAL_REPLICA_PATH": replica_path,
+                },
+                clear=False,
+            ):
+                get_settings.cache_clear()
+                try:
+                    init_task_queue_db()
+                    task_id = enqueue_task("job_heartbeat", TASK_TYPE_STEP1)
+                    claimed = claim_next_task()
+                    self.assertIsNotNone(claimed)
+
+                    with get_conn() as conn:
+                        conn.execute(
+                            "UPDATE queue_tasks SET updated_at = ? WHERE task_id = ?",
+                            ("2000-01-01T00:00:00Z", task_id),
+                        )
+                        conn.commit()
+
+                    stale_worker_id = "pid-" + str(os.getpid())
+                    self.assertFalse(heartbeat_task(task_id, worker_id="other-worker"))
+                    self.assertTrue(heartbeat_task(task_id, worker_id=stale_worker_id))
+
+                    with get_conn() as conn:
+                        row = conn.execute(
+                            "SELECT updated_at FROM queue_tasks WHERE task_id = ? LIMIT 1",
+                            (task_id,),
+                        ).fetchone()
+                    self.assertIsNotNone(row)
+                    self.assertNotEqual(str(row[0]), "2000-01-01T00:00:00Z")
                 finally:
                     get_settings.cache_clear()
 

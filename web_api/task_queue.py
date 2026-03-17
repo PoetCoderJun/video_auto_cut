@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .config import get_settings
@@ -19,6 +19,18 @@ from .db import get_conn
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def get_queue_db_path() -> str:
@@ -101,6 +113,83 @@ def _task_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
+def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
+    settings = get_settings()
+    lease_seconds = float(settings.task_queue_lease_seconds)
+    if lease_seconds <= 0:
+        return 0
+
+    now_utc = now or datetime.now(timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    cutoff = now_utc - timedelta(seconds=lease_seconds)
+    reclaimed = 0
+
+    with get_conn() as conn:
+        stale_rows = conn.execute(
+            """
+            SELECT task_id, updated_at
+            FROM queue_tasks
+            WHERE status = ?
+            ORDER BY task_id ASC
+            """,
+            (TASK_STATUS_RUNNING,),
+        ).fetchall()
+
+        stale_task_ids: list[int] = []
+        for row in stale_rows:
+            task_id = int(_row_get(row, "task_id", 0) or 0)
+            updated_at = _parse_iso_datetime(_row_get(row, "updated_at", 8))
+            if task_id <= 0:
+                continue
+            if updated_at is None or updated_at < cutoff:
+                stale_task_ids.append(task_id)
+
+        for task_id in stale_task_ids:
+            updated = conn.execute(
+                """
+                UPDATE queue_tasks
+                SET status = ?,
+                    worker_id = NULL,
+                    error_message = CASE
+                        WHEN error_message IS NULL OR TRIM(error_message) = ''
+                        THEN 'TASK_HEARTBEAT_TIMEOUT'
+                        ELSE error_message
+                    END,
+                    updated_at = ?
+                WHERE task_id = ? AND status = ?
+                """,
+                (TASK_STATUS_QUEUED, _now_iso(), task_id, TASK_STATUS_RUNNING),
+            )
+            if int(getattr(updated, "rowcount", 0) or 0) > 0:
+                reclaimed += 1
+        conn.commit()
+
+    return reclaimed
+
+
+def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
+    now = _now_iso()
+    with get_conn() as conn:
+        updated = conn.execute(
+            """
+            UPDATE queue_tasks
+            SET updated_at = ?,
+                error_message = CASE
+                    WHEN error_message IS NULL OR error_message = 'TASK_HEARTBEAT_TIMEOUT'
+                    THEN NULL
+                    ELSE error_message
+                END
+            WHERE task_id = ?
+              AND status = ?
+              AND worker_id = ?
+            """,
+            (now, int(task_id), TASK_STATUS_RUNNING, str(worker_id)),
+        )
+        conn.commit()
+    return int(getattr(updated, "rowcount", 0) or 0) > 0
+
+
 def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = None) -> int:
     if task_type not in {TASK_TYPE_STEP1, TASK_TYPE_STEP2}:
         raise RuntimeError(f"unsupported task type: {task_type}")
@@ -169,6 +258,7 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
 def claim_next_task() -> dict[str, Any] | None:
     worker_id = f"pid-{os.getpid()}"
     now = _now_iso()
+    reclaim_stale_running_tasks(now=datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(timezone.utc))
     with get_conn() as conn:
         for _ in range(3):
             conn.execute("BEGIN IMMEDIATE")

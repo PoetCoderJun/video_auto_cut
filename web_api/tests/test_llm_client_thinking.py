@@ -188,6 +188,120 @@ class LlmClientThinkingTest(unittest.TestCase):
 
         self.assertEqual(mock_openai.call_count, 2)
 
+    def test_chat_completion_retries_transient_request_errors(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 3,
+            "retry_backoff_seconds": 0,
+            "enable_thinking": False,
+        }
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [RuntimeError("HTTP 429"), response]
+
+        with patch("video_auto_cut.editing.llm_client.OpenAI", return_value=client):
+            result = llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(client.chat.completions.create.call_count, 2)
+
+    def test_chat_completion_retries_empty_response(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 2,
+            "retry_backoff_seconds": 0,
+            "enable_thinking": False,
+        }
+        empty_response = MagicMock()
+        empty_response.choices = [MagicMock(message=MagicMock(content=""))]
+        good_response = MagicMock()
+        good_response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [empty_response, good_response]
+
+        with patch("video_auto_cut.editing.llm_client.OpenAI", return_value=client):
+            result = llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(client.chat.completions.create.call_count, 2)
+
+    def test_request_json_repairs_invalid_json(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 1,
+            "repair_retries": 1,
+            "enable_thinking": False,
+        }
+        responses = iter(
+            [
+                '{"titles":["创作" "节奏"]}',
+                '{"titles":["创作","节奏"]}',
+            ]
+        )
+
+        with patch.object(llm_client, "chat_completion", side_effect=lambda *_args, **_kwargs: next(responses)):
+            payload = llm_client.request_json(
+                cfg,
+                [{"role": "user", "content": "return titles"}],
+                repair_retries=1,
+            )
+
+        self.assertEqual(payload["titles"], ["创作", "节奏"])
+
+    def test_request_json_repairs_invalid_payload_with_validator(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 1,
+            "repair_retries": 1,
+            "enable_thinking": False,
+        }
+        responses = iter(
+            [
+                '{"titles":["太长标题"]}',
+                '{"titles":["创作"]}',
+            ]
+        )
+
+        def _validate(payload: dict[str, object]) -> dict[str, object]:
+            titles = payload.get("titles")
+            if not isinstance(titles, list):
+                raise RuntimeError("missing titles")
+            normalized = [str(item) for item in titles]
+            if any(len(item) > 2 for item in normalized):
+                raise RuntimeError("title too long")
+            return {"titles": normalized}
+
+        with patch.object(llm_client, "chat_completion", side_effect=lambda *_args, **_kwargs: next(responses)):
+            payload = llm_client.request_json(
+                cfg,
+                [{"role": "user", "content": "return titles"}],
+                validate=_validate,
+                repair_retries=1,
+            )
+
+        self.assertEqual(payload["titles"], ["创作"])
+
     def test_chat_completion_reports_missing_openai_sdk(self) -> None:
         cfg = {
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",

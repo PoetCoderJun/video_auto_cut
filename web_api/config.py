@@ -15,6 +15,8 @@ class Settings:
     turso_sync_interval: float
     max_upload_mb: int
     worker_poll_seconds: float
+    task_queue_lease_seconds: float
+    task_heartbeat_seconds: float
     cleanup_enabled: bool
     cleanup_interval_seconds: float
     cleanup_ttl_seconds: int
@@ -202,6 +204,14 @@ def get_settings() -> Settings:
         topic_max_topics=min(6, int(os.getenv("TOPIC_MAX_TOPICS", "5"))),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         cut_merge_gap=float(os.getenv("CUT_MERGE_GAP", "0.0")),
+        task_queue_lease_seconds=max(
+            30.0,
+            float(os.getenv("TASK_QUEUE_LEASE_SECONDS", "300")),
+        ),
+        task_heartbeat_seconds=max(
+            1.0,
+            float(os.getenv("TASK_QUEUE_HEARTBEAT_SECONDS", "10")),
+        ),
         auth_enabled=os.getenv("WEB_AUTH_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         auth_jwks_url=auth_jwks_url,
         auth_issuer=auth_issuer,

@@ -927,7 +927,7 @@ def _has_artifacts(files: dict[str, Any]) -> bool:
 
 
 def _is_cleanup_candidate_status(status: str | None) -> bool:
-    return status in {JOB_STATUS_SUCCEEDED, JOB_STATUS_STEP2_CONFIRMED}
+    return status == JOB_STATUS_SUCCEEDED
 
 
 def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:

@@ -7,7 +7,8 @@ import {
   type ProgressLabelMode,
 } from "./overlay-controls";
 import {
-  fitAdaptiveProgressLabels,
+  fitUniformSingleLineText,
+  fitUniformTextToBox,
   fitUniformAdaptiveTextToBox,
   CHAPTER_TITLE_LINE_HEIGHT,
   fitChapterTitleToBox,
@@ -431,36 +432,52 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         } => item !== null
       );
 
-    const labelFit = fitAdaptiveProgressLabels({
-      items: segmentsForLayout.map((segment) => ({
-        text: segment.title,
-        maxWidth: segment.segmentWidth,
-      })),
-      baseFontSize: typography.progressLabelFontSize,
-      minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
-      allowWrapped: allowWrappedProgressLabels,
-      maxLines: allowWrappedProgressLabels ? 2 : 1,
-      maxFontSize: allowWrappedProgressLabels
-        ? Math.max(
+    const uniformLabelFit = allowWrappedProgressLabels
+      ? fitUniformTextToBox({
+          items: segmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxLines: 2,
+          maxFontSize: Math.max(
             typography.progressLabelFontSize,
             Math.floor(typography.progressHeight / (progressLabelLineHeight * 1.82))
-          )
-        : Math.max(typography.progressLabelFontSize, Math.floor(typography.progressHeight * 0.7)),
-      maxHeight: typography.progressHeight,
-      lineHeight: allowWrappedProgressLabels ? progressLabelLineHeight : 1.2,
-      targetWidthRatio: allowWrappedProgressLabels ? 0.9 : 0.84,
-      horizontalPadding: typography.progressLabelPaddingX,
-      fontWeight: 700,
-      fontFamily: OVERLAY_FONT_FAMILY,
-      fontSizeStep: 0.25,
-    });
+          ),
+          maxHeight: typography.progressHeight,
+          lineHeight: progressLabelLineHeight,
+          targetWidthRatio: 0.9,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        })
+      : fitUniformSingleLineText({
+          items: segmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxFontSize: Math.max(typography.progressLabelFontSize, Math.floor(typography.progressHeight * 0.7)),
+          maxHeight: typography.progressHeight,
+          lineHeight: 1.2,
+          targetWidthRatio: 0.84,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+          fontSizeStep: 0.25,
+        });
 
     return segmentsForLayout.map((segment, index) => ({
       ...segment,
       labelFit: {
-        fontSize: labelFit.labels[index]?.fontSize ?? labelFit.sharedFontSize,
-        visible: labelFit.labels[index]?.visible ?? false,
-        text: labelFit.labels[index]?.text ?? segment.title,
+        fontSize: uniformLabelFit.fontSize,
+        visible: uniformLabelFit.labels[index]?.visible ?? false,
+        text:
+          allowWrappedProgressLabels
+            ? (uniformLabelFit.labels[index] as {text?: string} | undefined)?.text ?? segment.title
+            : segment.title,
       },
     }));
   }, [

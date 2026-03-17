@@ -7,14 +7,12 @@ from pathlib import Path
 from typing import Iterable
 
 from ..config import get_settings, job_dir
-from ..constants import JOB_STATUS_SUCCEEDED, PROGRESS_SUCCEEDED
 from ..repository import (
     clear_step_data,
     get_job_files,
     list_expired_succeeded_jobs,
     list_succeeded_jobs_with_artifacts,
     touch_job,
-    update_job,
     upsert_job_files,
 )
 
@@ -167,7 +165,6 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
         final_topics_path=None,
         final_video_path=None,
     )
-    update_job(job_id, status=JOB_STATUS_SUCCEEDED, progress=PROGRESS_SUCCEEDED)
     logging.info("[web_api] cleaned artifacts job=%s reason=%s removed_paths=%s", job_id, reason, removed)
     return removed
 

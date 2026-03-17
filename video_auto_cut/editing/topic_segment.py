@@ -152,54 +152,34 @@ class PiAgentTopicLoop:
             TOPIC_MIN_SEGMENTS_PER_CHAPTER if len(segments) >= TOPIC_MIN_SEGMENTS_PER_CHAPTER else 1
         )
 
+        draft_messages = self.build_topic_draft_prompt(
+            blocks,
+            resolved_min_topics,
+            resolved_max_topics,
+            resolved_recommended_topics,
+            min_segments_per_topic,
+        )
+
+        used_repair = False
+
         try:
-            raw_draft = self._run_json_prompt(
-                self.build_topic_draft_prompt(
-                    blocks,
-                    resolved_min_topics,
-                    resolved_max_topics,
-                    resolved_recommended_topics,
-                    min_segments_per_topic,
-                )
+            raw_draft = self._run_json_prompt(draft_messages)
+            strict_payload, used_repair = self._normalize_validated_payload(
+                raw_draft,
+                messages=draft_messages,
+                blocks=blocks,
+                segments=segments,
+                min_topics=resolved_min_topics,
+                max_topics=resolved_max_topics,
+                min_segments_per_topic=min_segments_per_topic,
             )
         except Exception as exc:
-            if self.strict:
-                raise
             logging.warning(
-                "Topic segmentation JSON parse failed; falling back to deterministic plan for %d segments: %s",
+                "Topic segmentation repair failed for %d segments: %s",
                 len(segments),
                 exc,
             )
-            fallback_payload = _build_fallback_topic_payload(
-                segments,
-                topic_count=resolved_recommended_topics,
-                title_max_chars=self.title_max_chars,
-                min_segments_per_topic=min_segments_per_topic,
-            )
-            plan, titles = _parse_topic_plan_payload(fallback_payload)
-            topics = _compose_topics(plan, titles, segments)
-            return TopicAgentLoopResult(
-                payload={"topics": topics},
-                debug={
-                    "iterations": 1,
-                    "blocks": [_topic_block_to_dict(block) for block in blocks],
-                    "draft": None,
-                    "final": fallback_payload,
-                    "final_source": "parse_fallback",
-                    "issues": [],
-                    "error": str(exc),
-                },
-            )
-        strict_payload = self._coerce_payload(raw_draft, blocks, segments)
-        issues = self._build_validation_issues(
-            strict_payload,
-            segments,
-            resolved_min_topics,
-            resolved_max_topics,
-            min_segments_per_topic=min_segments_per_topic,
-        )
-        if issues:
-            raise RuntimeError("; ".join(str(issue.get("message") or "").strip() for issue in issues))
+            raise
 
         plan, titles = _parse_topic_plan_payload(strict_payload)
         topics = _compose_topics(plan, titles, segments)
@@ -210,15 +190,88 @@ class PiAgentTopicLoop:
                 "blocks": [_topic_block_to_dict(block) for block in blocks],
                 "draft": raw_draft,
                 "final": strict_payload,
-                "final_source": "draft",
-                "issues": issues,
+                "final_source": "repair" if used_repair else "draft",
+                "issues": [],
             },
         )
 
-    def _run_json_prompt(self, messages: List[Dict[str, str]]) -> dict[str, Any]:
+    def _run_json_prompt(self, messages: List[Dict[str, str]]) -> str:
         chat_completion_fn = self.chat_completion_fn or llm_utils.chat_completion
-        response = chat_completion_fn(self.llm_config, messages)
-        return _json_loads(response)
+        return chat_completion_fn(self.llm_config, messages)
+
+    def _normalize_validated_payload(
+        self,
+        raw_payload: str,
+        *,
+        messages: List[Dict[str, str]],
+        blocks: List["TopicBlock"],
+        segments: List["TopicSegment"],
+        min_topics: int,
+        max_topics: int,
+        min_segments_per_topic: int,
+    ) -> tuple[dict[str, Any], bool]:
+        try:
+            return (
+                self._validate_payload(
+                _json_loads(raw_payload),
+                blocks=blocks,
+                segments=segments,
+                min_topics=min_topics,
+                max_topics=max_topics,
+                min_segments_per_topic=min_segments_per_topic,
+                ),
+                False,
+            )
+        except Exception:
+            if self.strict:
+                raise
+            return (
+                llm_utils.request_json(
+                    self.llm_config,
+                    messages,
+                    validate=lambda payload: self._validate_payload(
+                        payload,
+                        blocks=blocks,
+                        segments=segments,
+                        min_topics=min_topics,
+                        max_topics=max_topics,
+                        min_segments_per_topic=min_segments_per_topic,
+                    ),
+                    repair_instructions=(
+                        "返回一个 JSON 对象，格式为 "
+                        '{"topics":[{"block_range":"1-3","title":"标题"}]} '
+                        "或 "
+                        '{"topics":[{"segment_ids":[1,2,3],"title":"标题"}]}。'
+                        "topics 必须按顺序完整覆盖全部内容，章节数量要在要求范围内，"
+                        "每章至少保留要求的字幕句数，标题必须简短自然。"
+                    ),
+                    chat_completion_fn=self.chat_completion_fn,
+                    initial_response=raw_payload,
+                ),
+                True,
+            )
+
+    def _validate_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        blocks: List["TopicBlock"],
+        segments: List["TopicSegment"],
+        min_topics: int,
+        max_topics: int,
+        min_segments_per_topic: int,
+    ) -> dict[str, Any]:
+        strict_payload = self._coerce_payload(payload, blocks, segments)
+        issues = self._build_validation_issues(
+            strict_payload,
+            segments,
+            min_topics,
+            max_topics,
+            min_segments_per_topic=min_segments_per_topic,
+        )
+        if issues:
+            raise RuntimeError("; ".join(str(issue.get("message") or "").strip() for issue in issues))
+        return strict_payload
 
     def _coerce_payload(
         self,

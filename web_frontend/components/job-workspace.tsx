@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import {
   ApiClientError,
   Chapter,
@@ -15,6 +23,9 @@ import {
   getStep1,
   getStep2,
   getWebRenderConfigWithMeta,
+  getRenderCompletionPending,
+  clearRenderCompletionPending,
+  setRenderCompletionPending,
   markRenderSucceeded,
   runStep1,
   runStep2,
@@ -142,6 +153,10 @@ const PROGRESS_LABEL_MODE_OPTIONS: Array<{ value: ProgressLabelMode; label: stri
 ];
 const MAX_VIDEO_DURATION_SEC = 10 * 60;
 const MIN_STEP2_LINES_PER_CHAPTER = 3;
+const JOB_LOAD_RETRY_DELAY_MS = 4000;
+const STEP_DRAFT_RETRY_DELAY_MS = 3000;
+const RENDER_COMPLETE_RETRY_BASE_MS = 3000;
+const RENDER_COMPLETE_RETRY_MAX_MS = 120000;
 const STEP1_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
   UPLOAD_COMPLETE: 8,
   STEP1_QUEUED: 12,
@@ -207,6 +222,13 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+function getFriendlyError(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return "网络异常，请稍后重试。";
 }
 
 async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
@@ -615,13 +637,17 @@ function Step1ProcessingState({
   lines,
   busy,
   autoStep1Triggered,
+  draftError,
   onRetry,
+  onRetryDraft,
 }: {
   job: Job;
   lines: Step1Line[];
   busy: boolean;
   autoStep1Triggered: boolean;
+  draftError: string;
   onRetry: () => void;
+  onRetryDraft: () => void;
 }) {
   const visualProgress = getStep1VisualProgress(job);
   const previewLines = useMemo(() => getStep1PreviewLines(lines), [lines]);
@@ -681,18 +707,34 @@ function Step1ProcessingState({
               {job.stage?.message || "正在提取字幕"}
             </h2>
             <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-slate-500">
-              {getStep1ProcessingNote(job.stage?.code)}
+            {getStep1ProcessingNote(job.stage?.code)}
+          </p>
+          {draftError && (
+            <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-red-600">
+              {draftError}
             </p>
+          )}
 
-            <Progress
-              value={visualProgress}
-              className="relative mx-auto mt-3 h-1 w-20 bg-slate-200/80"
-              indicatorClassName="bg-gradient-to-r from-[#60a5fa] via-[#2563eb] to-[#0f172a]"
-            />
+          <Progress
+            value={visualProgress}
+            className="relative mx-auto mt-3 h-1 w-20 bg-slate-200/80"
+            indicatorClassName="bg-gradient-to-r from-[#60a5fa] via-[#2563eb] to-[#0f172a]"
+          />
 
-            {job.status === STATUS.UPLOAD_READY && !busy && autoStep1Triggered && (
-              <Button
-                type="button"
+          {draftError && (
+            <Button
+              type="button"
+              variant="outline"
+              className="relative mt-4 h-8 rounded-full px-3 text-xs"
+              onClick={onRetryDraft}
+            >
+              重新加载字幕草稿
+            </Button>
+          )}
+
+          {job.status === STATUS.UPLOAD_READY && !busy && autoStep1Triggered && (
+            <Button
+              type="button"
                 variant="outline"
                 className="relative mt-4 h-8 rounded-full px-3 text-xs"
                 onClick={onRetry}
@@ -726,6 +768,12 @@ export default function JobWorkspace({
   );
   const [error, setError] = useState("");
   const [renderNote, setRenderNote] = useState("");
+  const [jobLoadError, setJobLoadError] = useState("");
+  const [isLoadingJob, setIsLoadingJob] = useState(true);
+  const [step1DraftError, setStep1DraftError] = useState("");
+  const [step2DraftError, setStep2DraftError] = useState("");
+  const [step2DraftLoaded, setStep2DraftLoaded] = useState(false);
+  const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
@@ -754,6 +802,14 @@ export default function JobWorkspace({
   const [step1ReadyHandoffActive, setStep1ReadyHandoffActive] = useState(false);
   const [step1ReadyLinesLoaded, setStep1ReadyLinesLoaded] = useState(false);
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
+  const renderSourceInputRef = useRef<HTMLInputElement>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
@@ -791,21 +847,28 @@ export default function JobWorkspace({
     [jobId]
   );
 
+  const loadRenderSourceFile = useCallback(async (): Promise<File | null> => {
+    let sourceFile = selectedFile;
+    if (!sourceFile) {
+      sourceFile = await loadCachedJobSourceVideo(jobId);
+      if (sourceFile) {
+        setSelectedFile(sourceFile);
+      }
+    }
+    return sourceFile ?? null;
+  }, [jobId, selectedFile]);
+
   const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
     if (renderBusy) return null;
 
     setRenderConfigBusy(true);
     setRenderSetupError("");
     try {
-      let sourceFile = selectedFile;
+      const sourceFile = await loadRenderSourceFile();
       if (!sourceFile) {
-        sourceFile = await loadCachedJobSourceVideo(jobId);
-        if (sourceFile) {
-          setSelectedFile(sourceFile);
-        }
-      }
-      if (!sourceFile) {
-        throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
+        throw new Error(
+          "当前会话缺少本地原始视频，请先重新选择当前任务对应的源文件。"
+        );
       }
 
       const meta = await withTimeout(
@@ -862,55 +925,137 @@ export default function JobWorkspace({
     }
   }, [jobId, onBackHome]);
 
-  useEffect(() => {
-    let active = true;
-    refreshJob()
-      .then(() => {
-        if (!active) return;
-        setError((prev) => (prev.startsWith("无法连接 API") ? "" : prev));
-      })
-      .catch((err) => {
-        if (!active) return;
+  const loadJob = useCallback(
+    async (opts: { background?: boolean } = {}) => {
+      const isBackground = Boolean(opts.background);
+      if (!isBackground) {
+        if (isMountedRef.current) {
+          setIsLoadingJob(true);
+          setJobLoadError("");
+        }
+      }
+
+      try {
+        const next = await refreshJob();
+        if (isMountedRef.current) {
+          setJobLoadError("");
+          setError((previous) =>
+            previous.includes("正在重试") || previous.includes("无法连接 API")
+              ? ""
+              : previous
+          );
+        }
+        return next;
+      } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (
-          (err instanceof ApiClientError && err.code === "NOT_FOUND") ||
-          message.includes("job not found")
-        ) {
-          setError("项目不存在或已被清理，已返回首页。");
+        if (isBackground) {
+          if (isMountedRef.current) {
+            setError(
+              message.includes("无法连接 API")
+                ? `${message}，正在重试。`
+                : `项目状态刷新失败：${message}，正在重试。`
+            );
+          }
           return;
         }
-        if (
+
+        const isJobMissing =
+          (err instanceof ApiClientError && err.code === "NOT_FOUND") ||
+          message.includes("job not found");
+        if (isJobMissing) {
+          if (isMountedRef.current) {
+            setJobLoadError("项目不存在或已被清理，已返回首页。");
+          }
+          return;
+        }
+
+        const isUnauthorized =
           (err instanceof ApiClientError && err.code === "UNAUTHORIZED") ||
           message.includes("请先登录") ||
-          message.includes("登录状态无效")
-        ) {
-          setError("登录状态已失效，请重新登录。");
+          message.includes("登录状态无效");
+        if (isUnauthorized) {
+          if (isMountedRef.current) {
+            setJobLoadError("登录状态已失效，请重新登录。");
+          }
           return;
         }
-        setError(message.includes("无法连接 API") ? message : "无法连接 API，请确认后端服务正在运行。");
-      });
-    return () => {
-      active = false;
-    };
-  }, [refreshJob]);
+
+        if (isMountedRef.current) {
+          setJobLoadError(
+            message.includes("无法连接 API")
+              ? message
+              : "无法连接 API，请确认后端服务正在运行。"
+          );
+        }
+      } finally {
+        if (!isBackground) {
+          if (isMountedRef.current) {
+            setIsLoadingJob(false);
+          }
+        }
+      }
+    },
+    [refreshJob]
+  );
+
+  const handleRetryLoadJob = useCallback(() => {
+    void loadJob();
+  }, [loadJob]);
 
   useEffect(() => {
-    if (!job) return;
-    if (
-      job.status === STATUS.STEP1_READY ||
-      job.status === STATUS.STEP2_READY
-    ) {
+    void loadJob();
+  }, [loadJob]);
+
+  useEffect(() => {
+    if (job || !jobLoadError || isLoadingJob) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (isMountedRef.current) {
+        void loadJob();
+      }
+    }, JOB_LOAD_RETRY_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isLoadingJob, job, jobLoadError, loadJob]);
+
+  useEffect(() => {
+    if (!job || job.status !== STATUS.STEP1_READY) {
+      setStep1ReadyHandoffActive(false);
+      setStep1ReadyLinesLoaded(false);
+      setStep1DraftError("");
+      return;
+    }
+
+    setStep1ReadyHandoffActive(true);
+    let cancelled = false;
+    const pollStep1Lines = () => {
       getStep1(jobId)
         .then((nextLines) => {
+          if (cancelled) return;
+          setStep1DraftError("");
           setLines((previous) =>
             areStep1LinesEqual(previous, nextLines) ? previous : nextLines
           );
-          if (job.status === STATUS.STEP1_READY) {
-            setStep1ReadyLinesLoaded(true);
-          }
+          setStep1ReadyLinesLoaded(nextLines.length > 0);
         })
-        .catch(() => undefined);
-    }
+        .catch((err) => {
+          if (cancelled) return;
+          setStep1DraftError(
+            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+          );
+        });
+    };
+
+    pollStep1Lines();
+    const intervalId = window.setInterval(pollStep1Lines, STEP_DRAFT_RETRY_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
   }, [job?.status, jobId]);
 
   useEffect(() => {
@@ -922,31 +1067,28 @@ export default function JobWorkspace({
     const pollStep1Lines = () => {
       getStep1(jobId)
         .then((nextLines) => {
-          if (cancelled || nextLines.length === 0) return;
+          if (cancelled) return;
+          if (nextLines.length === 0) return;
+          setStep1DraftError("");
           setLines((previous) =>
             areStep1LinesEqual(previous, nextLines) ? previous : nextLines
           );
         })
-        .catch(() => undefined);
+        .catch((err) => {
+          if (cancelled) return;
+          setStep1DraftError(
+            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+          );
+        });
     };
 
     pollStep1Lines();
-    const intervalId = window.setInterval(pollStep1Lines, 2000);
+    const intervalId = window.setInterval(pollStep1Lines, STEP_DRAFT_RETRY_DELAY_MS);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
   }, [job?.status, job?.stage?.code, jobId]);
-
-  useEffect(() => {
-    if (!job || job.status !== STATUS.STEP1_READY) {
-      setStep1ReadyHandoffActive(false);
-      setStep1ReadyLinesLoaded(false);
-      return;
-    }
-    setStep1ReadyHandoffActive(true);
-    setStep1ReadyLinesLoaded(false);
-  }, [job?.status, jobId]);
 
   useEffect(() => {
     if (
@@ -967,13 +1109,84 @@ export default function JobWorkspace({
   }, [job?.status, step1ReadyHandoffActive, step1ReadyLinesLoaded]);
 
   useEffect(() => {
-    if (!job) return;
-    if (job.status === STATUS.STEP2_READY) {
-      if (chapters.length === 0) {
-        getStep2(jobId).then(setChapters).catch(() => undefined);
-      }
+    if (!job || job.status !== STATUS.STEP2_READY) {
+      setStep2DraftLoaded(false);
+      setStep2DraftError("");
+      return;
     }
-  }, [job, chapters.length, jobId]);
+    if (step2DraftLoaded) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollChapters = () => {
+      getStep2(jobId)
+        .then((nextChapters) => {
+          if (cancelled) return;
+          if (!nextChapters || nextChapters.length === 0) return;
+          setStep2DraftError("");
+          setChapters((previous) => (previous.length ? previous : nextChapters));
+          setStep2DraftLoaded(true);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setStep2DraftError(
+            `章节草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+          );
+        });
+    };
+
+    pollChapters();
+    const intervalId = window.setInterval(pollChapters, STEP_DRAFT_RETRY_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [job?.status, jobId, step2DraftLoaded]);
+
+  useEffect(() => {
+    if (!job || job.status !== STATUS.STEP2_READY) {
+      return;
+    }
+
+    let cancelled = false;
+    const pollStep2Lines = () => {
+      getStep1(jobId)
+        .then((nextLines) => {
+          if (cancelled) return;
+          if (nextLines.length === 0) return;
+          setStep2DraftError("");
+          setLines((previous) =>
+            areStep1LinesEqual(previous, nextLines) ? previous : nextLines
+          );
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setStep2DraftError(
+            `章节页字幕加载失败：${getFriendlyError(err)}，已自动重试。`
+          );
+        });
+    };
+
+    pollStep2Lines();
+    const intervalId = window.setInterval(pollStep2Lines, STEP_DRAFT_RETRY_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [job?.status, jobId]);
+
+  const handleRetryStep1DraftLoad = useCallback(() => {
+    if (!job || job.status !== STATUS.STEP1_READY) return;
+    setStep1DraftError("");
+    setStep1ReadyLinesLoaded(false);
+  }, [job?.status]);
+
+  const handleRetryStep2DraftLoad = useCallback(() => {
+    if (!job || job.status !== STATUS.STEP2_READY) return;
+    setStep2DraftLoaded(false);
+    setStep2DraftError("");
+  }, [job?.status]);
 
   useEffect(() => {
     return () => {
@@ -989,10 +1202,15 @@ export default function JobWorkspace({
     setRenderConfig(null);
     setRenderConfigBusy(false);
     setRenderSetupError("");
+    setRenderCompletionMarkerMessage("");
     setPreviewTimeSec(0);
     setJob(null);
     setLines([]);
     setChapters([]);
+    setStep2DraftLoaded(false);
+    setStep1ReadyLinesLoaded(false);
+    setStep1DraftError("");
+    setStep2DraftError("");
     setError("");
     setRenderNote("");
     setAutoStep1Triggered(false);
@@ -1025,6 +1243,90 @@ export default function JobWorkspace({
       active = false;
     };
   }, [jobId]);
+
+  const handleSourceFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0];
+      input.value = "";
+      if (!file) return;
+
+      const lowerName = file.name.toLowerCase();
+      const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
+        lowerName.endsWith(ext)
+      );
+      if (!hasSupportedExt) {
+        setRenderSetupError(
+          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+        );
+        return;
+      }
+
+      setSelectedFile(file);
+      setRenderSetupError("");
+      setRenderCompletionMarkerMessage("");
+      setStep1DraftError("");
+      setStep2DraftError("");
+      if (selectedFile?.name !== file.name || selectedFile?.size !== file.size) {
+        setRenderFileName("output.mp4");
+      }
+      void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
+      void prepareRenderPreview();
+    },
+    [jobId, prepareRenderPreview, selectedFile]
+  );
+
+  useEffect(() => {
+    if (!job) return;
+    if (job.status === STATUS.SUCCEEDED) {
+      setRenderCompletionMarkerMessage("");
+      clearRenderCompletionPending(jobId);
+      return;
+    }
+    if (job.status !== STATUS.STEP2_CONFIRMED) {
+      return;
+    }
+
+    const marker = getRenderCompletionPending(jobId);
+    if (!marker) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | number | null = null;
+
+    const retry = async () => {
+      if (cancelled) return;
+      const latestMarker = getRenderCompletionPending(jobId);
+      if (!latestMarker) return;
+      try {
+        const completion = await markRenderSucceeded(jobId, {keepalive: true});
+        if (cancelled) return;
+        clearRenderCompletionPending(jobId);
+        setRenderCompletionMarkerMessage("");
+        setJob((previous) => mergeJobSnapshot(previous, completion.job));
+      } catch (err) {
+        if (cancelled) return;
+        const message = getFriendlyError(err);
+        const nextMarker = setRenderCompletionPending(jobId, message);
+        const delay = Math.min(
+          RENDER_COMPLETE_RETRY_MAX_MS,
+          RENDER_COMPLETE_RETRY_BASE_MS * 2 ** Math.max((nextMarker?.attempts || 1) - 1, 0)
+        );
+        setRenderCompletionMarkerMessage(
+          `导出确认未完成：${message}，约 ${Math.ceil(delay / 1000)} 秒后将自动重试。`
+        );
+        timer = window.setTimeout(retry, delay);
+      }
+    };
+
+    void retry();
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [job?.status, jobId]);
 
   useEffect(() => {
     const exportReady =
@@ -1177,14 +1479,14 @@ export default function JobWorkspace({
     if (!shouldPollJobStatus(job.status)) return;
 
     const timer = setInterval(() => {
-      refreshJob().catch(() => undefined);
+      loadJob({background: true}).catch(() => undefined);
     }, 2500);
     return () => {
       clearInterval(timer);
     };
-  }, [job?.status, refreshJob]);
+  }, [job?.status, loadJob]);
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const input = e.currentTarget;
     const file = input.files?.[0];
     input.value = "";
@@ -1261,10 +1563,14 @@ export default function JobWorkspace({
     );
   }, []);
 
-  const handleDragStart = useCallback((event: React.DragEvent, lineId: number) => {
+  const handleDragStart = useCallback((event: DragEvent, lineId: number) => {
     event.dataTransfer.setData("text/plain", lineId.toString());
     event.dataTransfer.effectAllowed = "move";
     setDraggedLineId(lineId);
+  }, []);
+
+  const triggerRenderSourceFileInput = useCallback(() => {
+    renderSourceInputRef.current?.click();
   }, []);
 
   const handleDragEnd = useCallback(() => {
@@ -1272,7 +1578,7 @@ export default function JobWorkspace({
   }, []);
 
   const handleDropOnLine = useCallback(
-    (event: React.DragEvent, targetChapterId: number) => {
+    (event: DragEvent, targetChapterId: number) => {
       event.preventDefault();
       setDraggedLineId(null);
 
@@ -1302,13 +1608,11 @@ export default function JobWorkspace({
     setRenderProgress(0);
     let sourceObjectUrl: string | null = null;
     try {
-      let sourceFile = selectedFile;
+      const sourceFile = await loadRenderSourceFile();
       if (!sourceFile) {
-        sourceFile = await loadCachedJobSourceVideo(jobId);
-        if (sourceFile) setSelectedFile(sourceFile);
-      }
-      if (!sourceFile) {
-        throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
+        throw new Error(
+          "当前会话缺少本地原始视频，请先选择对应的源文件后再导出。"
+        );
       }
       const sourceMeta = await resolveRenderMetaFromFile(sourceFile);
       const config =
@@ -1428,15 +1732,20 @@ export default function JobWorkspace({
         if (previous) URL.revokeObjectURL(previous);
         return objectUrl;
       });
+      setRenderCompletionPending(jobId);
       triggerFileDownload(objectUrl, outputName);
       setRenderProgress(100);
       try {
-        const completion = await markRenderSucceeded(jobId);
+        const completion = await markRenderSucceeded(jobId, {keepalive: true});
         setJob((previous) => mergeJobSnapshot(previous, completion.job));
+        clearRenderCompletionPending(jobId);
+        setRenderCompletionMarkerMessage("");
       } catch (syncErr) {
-        const message =
-          syncErr instanceof Error ? syncErr.message : "服务端确认失败，请刷新后重试。";
-        setError(`视频已导出，但服务端确认失败：${message}`);
+        const message = getFriendlyError(syncErr);
+        setRenderCompletionMarkerMessage(
+          `视频已导出，但服务端确认失败：${message}。页面刷新后会自动继续重试确认。`
+        );
+        setRenderCompletionPending(jobId, message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "浏览器导出失败，请重试。");
@@ -1453,8 +1762,8 @@ export default function JobWorkspace({
     overlayControls.progressScale,
     overlayControls.chapterScale,
     overlayControls.subtitleScale,
+    loadRenderSourceFile,
     renderConfig,
-    selectedFile,
     subtitleTheme,
   ]);
 
@@ -1485,13 +1794,37 @@ export default function JobWorkspace({
   if (!job) {
     return (
       <main className="container mx-auto flex h-[50vh] flex-col items-center justify-center gap-4">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <p className="text-muted-foreground">正在加载项目数据...</p>
+        {isLoadingJob ? (
+          <>
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">正在加载项目数据...</p>
+          </>
+        ) : jobLoadError ? (
+          <div className="w-full max-w-md space-y-4 rounded-md bg-destructive/10 p-4 text-sm text-destructive border border-destructive/20">
+            <p>{jobLoadError}</p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={handleRetryLoadJob}>
+                重新加载项目
+              </Button>
+              {onBackHome && (
+                <Button size="sm" variant="outline" onClick={onBackHome}>
+                  返回首页
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-muted-foreground">正在加载项目数据...</p>
+          </>
+        )}
       </main>
     );
   }
 
   const activeStep = getActiveStep(job.status);
+  const hasRenderSource = Boolean(selectedFile);
   return (
     <main className="container mx-auto max-w-6xl px-4 py-8">
       {/* Stepper */}
@@ -1546,6 +1879,12 @@ export default function JobWorkspace({
       {(job.error || error) && (
         <div className="mb-6 rounded-md bg-destructive/10 p-4 text-sm font-medium text-destructive border border-destructive/20">
           {job.error?.message || error}
+        </div>
+      )}
+
+      {renderCompletionMarkerMessage && (
+        <div className="mb-6 rounded-md bg-amber-50 p-4 text-sm font-medium text-amber-800 border border-amber-200">
+          {renderCompletionMarkerMessage}
         </div>
       )}
 
@@ -1625,14 +1964,16 @@ export default function JobWorkspace({
       {(job.status === STATUS.UPLOAD_READY ||
         job.status === STATUS.STEP1_RUNNING ||
         (job.status === STATUS.STEP1_READY && step1ReadyHandoffActive)) && (
-        <Step1ProcessingState
-          job={job}
-          lines={lines}
-          busy={busy}
-          autoStep1Triggered={autoStep1Triggered}
-          onRetry={handleRetryStep1AutoRun}
-        />
-      )}
+          <Step1ProcessingState
+            job={job}
+            lines={lines}
+            busy={busy}
+            autoStep1Triggered={autoStep1Triggered}
+            draftError={step1DraftError}
+            onRetry={handleRetryStep1AutoRun}
+            onRetryDraft={handleRetryStep1DraftLoad}
+          />
+        )}
 
       {(job.status === STATUS.STEP1_CONFIRMED ||
         job.status === STATUS.STEP2_RUNNING) && (
@@ -1660,118 +2001,144 @@ export default function JobWorkspace({
       {/* Step 2: Edit Subtitles */}
       {job.status === STATUS.STEP1_READY && !step1ReadyHandoffActive && (
         <div className="space-y-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold tracking-tight">用字幕编辑视频</h2>
-              <p className="text-muted-foreground">
-                直接修改字幕，点击句尾“×”可剔除该句。
+          {lines.length === 0 ? (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
+              <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+              <p className="font-medium text-slate-900">正在载入字幕草稿...</p>
+              <p className="text-sm text-slate-500">
+                字幕整理完成后，这里会显示可编辑内容。
               </p>
-            </div>
-            <div className="hidden md:block">
-              <Badge variant="outline" className="text-sm">
-                共 {lines.length} 行字幕
-              </Badge>
-            </div>
-          </div>
-
-          <div className="relative min-h-[500px] w-full rounded-md bg-white border border-[#e2e8f0] shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6">
-            <div className="max-w-3xl mx-auto flex flex-col gap-[6px]">
-              {lines.map((line) => {
-                const isRemoved = line.user_final_remove;
-                const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
-                const lineTime = formatDuration(Number(line.start) || 0);
-                
-                return (
-                  <div 
-                    key={line.line_id} 
-                    className="group relative flex items-start gap-3"
-                  >
-                    <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
-                      {lineTime}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      {isRemoved ? (
-                        <div
-                          className="text-[12px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
-                          onClick={() => updateLine(line.line_id, { user_final_remove: false })}
-                          title="点击恢复此行"
-                        >
-                          {isNoSpeech ? "<No Speech>" : line.optimized_text}
-                        </div>
-                      ) : (
-                        <Textarea
-                          value={line.optimized_text}
-                          onChange={(e) =>
-                            updateLine(line.line_id, {
-                              optimized_text: e.target.value,
-                            })
-                          }
-                          rows={1}
-                          onInput={(e) =>
-                            autoResize(e.target as HTMLTextAreaElement)
-                          }
-                          ref={(el) => {
-                            if (el) autoResize(el);
-                          }}
-                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
-                          placeholder={isNoSpeech ? "<No Speech>" : ""}
-                        />
-                      )}
-                    </div>
-                    {!isRemoved && (
-                      <div
-                        className="opacity-0 group-hover:opacity-100 shrink-0 ml-2 text-[#cbd5e1] hover:text-[#ef4444] cursor-pointer flex items-center h-6 px-1 transition-opacity"
-                        onClick={() => updateLine(line.line_id, { user_final_remove: true })}
-                        title="剔除此行"
-                      >
-                        <X className="h-4 w-4" />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="sticky bottom-6 z-10 mx-auto max-w-2xl">
-            <Card className="border-t-4 border-t-primary shadow-xl">
-              <CardContent className="flex items-center justify-between p-6">
-                <div className="flex items-center gap-8">
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground">
-                      原始时长
-                    </div>
-                    <div className="text-2xl font-bold font-mono">
-                      {formatDuration(originalDuration)}
-                    </div>
-                  </div>
-                  <ArrowRight className="h-6 w-6 text-muted-foreground/50" />
-                  <div>
-                    <div className="text-sm font-medium text-muted-foreground">
-                      预计时长
-                    </div>
-                    <div className="text-2xl font-bold font-mono text-emerald-600">
-                      {formatDuration(estimatedDuration)}
-                    </div>
-                  </div>
-                </div>
+              {step1DraftError && (
+                <p className="mx-auto max-w-md text-sm text-red-600">{step1DraftError}</p>
+              )}
+              {step1DraftError && (
                 <Button
-                  size="lg"
-                  onClick={handleConfirmStep1}
-                  disabled={lines.length === 0 || busy}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetryStep1DraftLoad}
+                  className="mx-auto"
                 >
-                  {busy ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      正在保存字幕...
-                    </>
-                  ) : (
-                    "确认字幕，生成章节"
-                  )}
+                  重新加载字幕草稿
                 </Button>
-              </CardContent>
-            </Card>
-          </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight">用字幕编辑视频</h2>
+                  <p className="text-muted-foreground">
+                    直接修改字幕，点击句尾“×”可剔除该句。
+                  </p>
+                </div>
+                <div className="hidden md:block">
+                  <Badge variant="outline" className="text-sm">
+                    共 {lines.length} 行字幕
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="relative min-h-[500px] w-full rounded-md bg-white border border-[#e2e8f0] shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6">
+                <div className="max-w-3xl mx-auto flex flex-col gap-[6px]">
+                  {lines.map((line) => {
+                    const isRemoved = line.user_final_remove;
+                    const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
+                    const lineTime = formatDuration(Number(line.start) || 0);
+                    
+                    return (
+                      <div 
+                        key={line.line_id} 
+                        className="group relative flex items-start gap-3"
+                      >
+                        <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
+                          {lineTime}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          {isRemoved ? (
+                            <div
+                              className="text-[12px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
+                              onClick={() => updateLine(line.line_id, { user_final_remove: false })}
+                              title="点击恢复此行"
+                            >
+                              {isNoSpeech ? "<No Speech>" : line.optimized_text}
+                            </div>
+                          ) : (
+                            <Textarea
+                              value={line.optimized_text}
+                              onChange={(e) =>
+                                updateLine(line.line_id, {
+                                  optimized_text: e.target.value,
+                                })
+                              }
+                              rows={1}
+                              onInput={(e) =>
+                                autoResize(e.target as HTMLTextAreaElement)
+                              }
+                              ref={(el) => {
+                                if (el) autoResize(el);
+                              }}
+                              className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                              placeholder={isNoSpeech ? "<No Speech>" : ""}
+                            />
+                          )}
+                        </div>
+                        {!isRemoved && (
+                          <div
+                            className="opacity-0 group-hover:opacity-100 shrink-0 ml-2 text-[#cbd5e1] hover:text-[#ef4444] cursor-pointer flex items-center h-6 px-1 transition-opacity"
+                            onClick={() => updateLine(line.line_id, { user_final_remove: true })}
+                            title="剔除此行"
+                          >
+                            <X className="h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="sticky bottom-6 z-10 mx-auto max-w-2xl">
+                <Card className="border-t-4 border-t-primary shadow-xl">
+                  <CardContent className="flex items-center justify-between p-6">
+                    <div className="flex items-center gap-8">
+                      <div>
+                        <div className="text-sm font-medium text-muted-foreground">
+                          原始时长
+                        </div>
+                        <div className="text-2xl font-bold font-mono">
+                          {formatDuration(originalDuration)}
+                        </div>
+                      </div>
+                      <ArrowRight className="h-6 w-6 text-muted-foreground/50" />
+                      <div>
+                        <div className="text-sm font-medium text-muted-foreground">
+                          预计时长
+                        </div>
+                        <div className="text-2xl font-bold font-mono text-emerald-600">
+                          {formatDuration(estimatedDuration)}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      size="lg"
+                      onClick={handleConfirmStep1}
+                      disabled={lines.length === 0 || busy}
+                    >
+                      {busy ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          正在保存字幕...
+                        </>
+                      ) : (
+                        "确认字幕，生成章节"
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -1794,6 +2161,19 @@ export default function JobWorkspace({
                   章节和字幕准备好后，这里会自动显示可编辑内容。
                 </p>
               </div>
+              {step2DraftError && (
+                <p className="max-w-md text-sm text-red-600">{step2DraftError}</p>
+              )}
+              {step2DraftError && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetryStep2DraftLoad}
+                >
+                  重新加载章节草稿
+                </Button>
+              )}
             </div>
           )}
 
@@ -1984,6 +2364,47 @@ export default function JobWorkspace({
 
             <Card className="xl:h-[min(70vh,760px)]">
               <CardContent className="flex h-full flex-col gap-4 p-3">
+                <input
+                  ref={renderSourceInputRef}
+                  type="file"
+                  accept={SUPPORTED_UPLOAD_ACCEPT}
+                  className="hidden"
+                  onChange={handleSourceFileChange}
+                  disabled={renderBusy || busy}
+                />
+
+                {!hasRenderSource ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <p>尚未读取到当前项目的本地源视频缓存，导出前请重新选择源文件。</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={triggerRenderSourceFileInput}
+                      disabled={renderBusy || busy}
+                    >
+                      重新选择源文件
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <p className="truncate">
+                      当前导出源文件：{selectedFile?.name}
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={triggerRenderSourceFileInput}
+                      disabled={renderBusy || busy}
+                    >
+                      更换源文件
+                    </Button>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-sm font-medium">标题行数</label>
                   <Select
@@ -2157,7 +2578,7 @@ export default function JobWorkspace({
                     size="lg"
                     className="w-full"
                     onClick={() => void handleStartRender()}
-                    disabled={renderBusy || busy}
+                    disabled={renderBusy || busy || !hasRenderSource}
                   >
                     {renderBusy ? (
                       <>

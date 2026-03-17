@@ -141,9 +141,19 @@ export function invalidateTokenCache(): void {
 
 type RequestOptions = {
   requireAuth?: boolean;
+  keepalive?: boolean;
+};
+
+export type RenderCompletionPendingMarker = {
+  job_id: string;
+  createdAt: number;
+  attempts: number;
+  lastError?: string;
 };
 
 const base = (process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000/api/v1").replace(/\/$/, "");
+const RENDER_COMPLETION_PENDING_STORAGE_KEY = "video_auto_cut_render_completion_pending";
+const RENDER_COMPLETION_PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class ApiClientError extends Error {
   code: string;
@@ -228,6 +238,7 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
       ...init,
       headers,
       cache: "no-store",
+      keepalive: options?.keepalive ?? false,
     });
   } catch (err) {
     throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
@@ -239,8 +250,12 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
   return payload.data;
 }
 
-async function requestAuthed<T>(path: string, init?: RequestInit): Promise<T> {
-  return request<T>(path, init, {requireAuth: true});
+async function requestAuthed<T>(
+  path: string,
+  init?: RequestInit,
+  options?: RequestOptions
+): Promise<T> {
+  return request<T>(path, init, {requireAuth: true, ...options});
 }
 
 async function requestWithExplicitToken<T>(path: string, token: string, init?: RequestInit): Promise<T> {
@@ -266,6 +281,86 @@ async function requestWithExplicitToken<T>(path: string, token: string, init?: R
 
   const payload = (await response.json()) as ApiResponse<T>;
   return payload.data;
+}
+
+function readRenderCompletionStore(): Record<string, RenderCompletionPendingMarker> {
+  if (typeof window === "undefined" || !window.localStorage) return {};
+  const raw = window.localStorage.getItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as Record<string, RenderCompletionPendingMarker>;
+  } catch {
+    return {};
+  }
+}
+
+function pruneExpiredRenderCompletionMarkers(
+  store: Record<string, RenderCompletionPendingMarker>,
+  now: number
+): Record<string, RenderCompletionPendingMarker> {
+  Object.keys(store).forEach((jobId) => {
+    const marker = store[jobId];
+    if (!marker || typeof marker.createdAt !== "number") {
+      delete store[jobId];
+      return;
+    }
+    if (now - marker.createdAt > RENDER_COMPLETION_PENDING_TTL_MS) {
+      delete store[jobId];
+    }
+  });
+  return store;
+}
+
+function saveRenderCompletionStore(store: Record<string, RenderCompletionPendingMarker>): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  if (!store || Object.keys(store).length === 0) {
+    window.localStorage.removeItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(
+    RENDER_COMPLETION_PENDING_STORAGE_KEY,
+    JSON.stringify(store)
+  );
+}
+
+export function getRenderCompletionPending(jobId: string): RenderCompletionPendingMarker | null {
+  if (typeof window === "undefined" || !jobId) return null;
+  const now = Date.now();
+  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
+  saveRenderCompletionStore(store);
+  return store[jobId] ?? null;
+}
+
+export function setRenderCompletionPending(
+  jobId: string,
+  lastError?: string
+): RenderCompletionPendingMarker | null {
+  if (typeof window === "undefined" || !jobId) return null;
+  const now = Date.now();
+  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
+  const existing = store[jobId];
+  const marker: RenderCompletionPendingMarker = {
+    job_id: jobId,
+    createdAt: existing?.createdAt || now,
+    attempts: typeof existing?.attempts === "number" ? existing.attempts + 1 : 1,
+    lastError: lastError || existing?.lastError,
+  };
+  store[jobId] = marker;
+  saveRenderCompletionStore(store);
+  return marker;
+}
+
+export function clearRenderCompletionPending(jobId: string): void {
+  if (typeof window === "undefined" || !jobId) return;
+  const now = Date.now();
+  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
+  if (!store[jobId]) {
+    return;
+  }
+  delete store[jobId];
+  saveRenderCompletionStore(store);
 }
 
 export async function createJob(): Promise<Job> {
@@ -447,10 +542,12 @@ export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta
 }
 
 export async function markRenderSucceeded(
-  jobId: string
+  jobId: string,
+  options?: { keepalive?: boolean }
 ): Promise<{job: Job; billing: {consumed: boolean; balance: number}}> {
   return requestAuthed<{job: Job; billing: {consumed: boolean; balance: number}}>(
     `/jobs/${jobId}/render/complete`,
-    {method: "POST"}
+    {method: "POST"},
+    {keepalive: options?.keepalive}
   );
 }

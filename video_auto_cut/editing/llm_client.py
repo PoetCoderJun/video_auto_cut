@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from openai import OpenAI
@@ -17,6 +20,11 @@ else:
 _ENV_LOADED = False
 _OPENAI_CLIENTS_BY_CFG: Dict[Tuple[str, str], Any] = {}
 _TRAILING_COMMA_RE = re.compile(r",(?=\s*[}\]])")
+_DEFAULT_REQUEST_RETRIES = 3
+_DEFAULT_REPAIR_RETRIES = 2
+_DEFAULT_RETRY_BACKOFF_SECONDS = 1.0
+
+JsonValidator = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 
 def _strip_quotes(value: str) -> str:
@@ -84,6 +92,23 @@ def build_llm_config(
         "timeout": int(timeout),
         "temperature": float(temperature),
         "max_tokens": int(max_tokens) if max_tokens is not None else None,
+        "request_retries": max(
+            1,
+            int(os.environ.get("LLM_REQUEST_RETRIES", str(_DEFAULT_REQUEST_RETRIES))),
+        ),
+        "repair_retries": max(
+            0,
+            int(os.environ.get("LLM_REPAIR_RETRIES", str(_DEFAULT_REPAIR_RETRIES))),
+        ),
+        "retry_backoff_seconds": max(
+            0.0,
+            float(
+                os.environ.get(
+                    "LLM_RETRY_BACKOFF_SECONDS",
+                    str(_DEFAULT_RETRY_BACKOFF_SECONDS),
+                )
+            ),
+        ),
         "enable_thinking": (
             bool(enable_thinking)
             if enable_thinking is not None
@@ -141,27 +166,127 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
     if max_tokens is not None:
         request_kwargs["max_tokens"] = int(max_tokens)
 
-    logging.info(
-        "LLM request start model=%s attempt=1/1 message_count=%d",
-        model,
-        len(messages),
+    attempts = max(1, int(cfg.get("request_retries", _DEFAULT_REQUEST_RETRIES) or 1))
+    backoff_seconds = max(
+        0.0,
+        float(cfg.get("retry_backoff_seconds", _DEFAULT_RETRY_BACKOFF_SECONDS) or 0.0),
     )
-    try:
-        response = client.chat.completions.create(
-            timeout=cfg.get("timeout", 60),
-            **request_kwargs,
-        )
-        logging.info("LLM request success model=%s attempt=1/1", model)
-    except Exception as exc:
-        logging.error(f"LLM request failed: {exc}")
-        raise
+    last_error: Exception | None = None
 
+    for attempt in range(1, attempts + 1):
+        logging.info(
+            "LLM request start model=%s attempt=%s/%s message_count=%d",
+            model,
+            attempt,
+            attempts,
+            len(messages),
+        )
+        try:
+            response = client.chat.completions.create(
+                timeout=cfg.get("timeout", 60),
+                **request_kwargs,
+            )
+            content = _extract_response_text(response)
+            logging.info(
+                "LLM request success model=%s attempt=%s/%s",
+                model,
+                attempt,
+                attempts,
+            )
+            return content
+        except Exception as exc:
+            last_error = exc
+            if attempt >= attempts:
+                logging.error(
+                    "LLM request failed model=%s attempt=%s/%s error=%s",
+                    model,
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                raise
+            delay = backoff_seconds * (2 ** (attempt - 1))
+            logging.warning(
+                "LLM request failed model=%s attempt=%s/%s retry_in=%.1fs error=%s",
+                model,
+                attempt,
+                attempts,
+                delay,
+                exc,
+            )
+            if delay > 0:
+                time.sleep(delay)
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("LLM request failed without an error.")
+
+
+def _extract_response_text(response: Any) -> str:
     try:
         if response is None:
             raise RuntimeError("LLM request returned no data.")
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
     except Exception as exc:
         raise RuntimeError(f"Unexpected LLM response: {response}") from exc
+
+    if not isinstance(content, str) or not content.strip():
+        raise RuntimeError("Empty LLM response.")
+    return content
+
+
+def request_json(
+    cfg: Dict[str, Any],
+    messages: List[Dict[str, str]],
+    *,
+    validate: JsonValidator | None = None,
+    repair_retries: int | None = None,
+    repair_instructions: str | None = None,
+    chat_completion_fn: Callable[[Dict[str, Any], List[Dict[str, str]]], str] | None = None,
+    initial_response: str | None = None,
+) -> Dict[str, Any]:
+    chat_fn = chat_completion_fn or chat_completion
+    max_repairs = (
+        int(cfg.get("repair_retries", _DEFAULT_REPAIR_RETRIES))
+        if repair_retries is None
+        else int(repair_retries)
+    )
+    max_repairs = max(0, max_repairs)
+    current_response = initial_response if initial_response is not None else chat_fn(cfg, messages)
+    last_error: Exception | None = None
+
+    for attempt in range(0, max_repairs + 1):
+        try:
+            payload = extract_json(current_response)
+            if validate is not None:
+                payload = validate(payload)
+            if not isinstance(payload, dict):
+                raise RuntimeError("LLM output must be a JSON object.")
+            return payload
+        except Exception as exc:
+            last_error = exc
+            if attempt >= max_repairs:
+                raise
+            logging.warning(
+                "LLM output repair start model=%s attempt=%s/%s error=%s",
+                cfg.get("model") or "",
+                attempt + 1,
+                max_repairs,
+                exc,
+            )
+            current_response = chat_fn(
+                cfg,
+                _build_json_repair_messages(
+                    messages,
+                    raw_response=current_response,
+                    error=str(exc),
+                    repair_instructions=repair_instructions,
+                ),
+            )
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("LLM JSON request failed without an error.")
 
 
 def extract_json(text: str) -> Dict[str, Any]:
@@ -226,3 +351,39 @@ def _sanitize_json_like(text: str) -> str:
     if not value:
         return value
     return _TRAILING_COMMA_RE.sub("", value)
+
+
+def _build_json_repair_messages(
+    messages: List[Dict[str, str]],
+    *,
+    raw_response: str,
+    error: str,
+    repair_instructions: str | None,
+) -> List[Dict[str, str]]:
+    system = (
+        "你是 JSON 修复代理。"
+        "你会拿到原始任务说明、上一次模型输出和当前错误。"
+        "请在尽量保留原意的前提下，把输出修复成一个合法的 JSON 对象。"
+        "只输出 JSON，不要解释，不要 Markdown，不要额外前后缀。"
+    )
+    if repair_instructions:
+        system += f" 额外要求：{repair_instructions.strip()}"
+
+    formatted_messages = []
+    for item in messages:
+        role = str(item.get("role") or "user").strip() or "user"
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        formatted_messages.append(f"[{role}]\n{content}")
+
+    user = (
+        "原始任务说明：\n"
+        f"{chr(10).join(formatted_messages) or '[empty]'}\n\n"
+        "上一次模型输出：\n"
+        f"{raw_response.strip() or '[empty]'}\n\n"
+        "当前错误：\n"
+        f"{error.strip() or '[unknown error]'}\n\n"
+        "请直接返回修复后的 JSON 对象。"
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from .filetrans_like import (
 )
 
 SEGMENT_PUNCT_LIMIT = 2
+HTTP_REQUEST_MAX_ATTEMPTS = 3
+HTTP_RETRY_BACKOFF_SECONDS = 1.0
+HTTP_RETRY_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
 # Only count clause-ending/sub-clause punctuation for forced split.
 # Do NOT count list separator "、".
 SEGMENT_PUNCT_CHARS = set("，,。！？!?；;")
@@ -415,50 +419,89 @@ class DashScopeFiletransClient:
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
         logging.info("[asr] dashscope http POST %s bytes=%s", self._resolve(path), len(body))
-        req = urllib.request.Request(
-            url=self._resolve(path),
-            data=body,
-            headers=self._headers(extra_headers),
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = _read_error_text(exc)
-            raise RuntimeError(f"DashScope submit failed: HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"DashScope submit failed: {exc}") from exc
+        last_error: Exception | None = None
+        for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
+            req = urllib.request.Request(
+                url=self._resolve(path),
+                data=body,
+                headers=self._headers(extra_headers),
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = _read_error_text(exc)
+                error = RuntimeError(f"DashScope submit failed: HTTP {exc.code}: {detail}")
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("submit", attempt, error)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                error = RuntimeError(f"DashScope submit failed: {exc}")
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("submit", attempt, error)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("DashScope submit failed without an error.")
 
     def _get_json(self, path: str) -> dict[str, Any]:
         logging.info("[asr] dashscope http GET %s", self._resolve(path))
-        req = urllib.request.Request(
-            url=self._resolve(path),
-            headers=self._headers(),
-            method="GET",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = _read_error_text(exc)
-            raise RuntimeError(f"DashScope poll failed: HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"DashScope poll failed: {exc}") from exc
+        last_error: Exception | None = None
+        for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
+            req = urllib.request.Request(
+                url=self._resolve(path),
+                headers=self._headers(),
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = _read_error_text(exc)
+                error = RuntimeError(f"DashScope poll failed: HTTP {exc.code}: {detail}")
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("poll", attempt, error)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                error = RuntimeError(f"DashScope poll failed: {exc}")
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("poll", attempt, error)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("DashScope poll failed without an error.")
 
     def _open_json_url(self, url: str, *, headers: dict[str, str]) -> dict[str, Any]:
         logging.info("[asr] dashscope open result url=%s", url)
-        req = urllib.request.Request(url=url, headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            detail = _read_error_text(exc)
-            raise RuntimeError(
-                f"DashScope transcription result fetch failed: HTTP {exc.code}: {detail}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"DashScope transcription result fetch failed: {exc}") from exc
+        last_error: Exception | None = None
+        for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
+            req = urllib.request.Request(url=url, headers=headers, method="GET")
+            try:
+                with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                detail = _read_error_text(exc)
+                error = RuntimeError(
+                    f"DashScope transcription result fetch failed: HTTP {exc.code}: {detail}"
+                )
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("result_fetch", attempt, error)
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                error = RuntimeError(f"DashScope transcription result fetch failed: {exc}")
+                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
+                    raise error from exc
+                last_error = error
+                _sleep_before_retry("result_fetch", attempt, error)
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("DashScope transcription result fetch failed without an error.")
 
     def _resolve(self, path: str) -> str:
         base = self._config.base_url.rstrip("/")
@@ -473,6 +516,20 @@ def _read_error_text(exc: urllib.error.HTTPError) -> str:
     except Exception:
         body = ""
     return body.strip() or exc.reason or "unknown error"
+
+
+def _sleep_before_retry(stage: str, attempt: int, error: Exception) -> None:
+    delay = HTTP_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
+    logging.warning(
+        "[asr] dashscope %s request failed attempt=%s/%s retry_in=%.1fs error=%s",
+        stage,
+        attempt,
+        HTTP_REQUEST_MAX_ATTEMPTS,
+        delay,
+        error,
+    )
+    if delay > 0:
+        time.sleep(delay)
 
 
 def _normalize_status(status: str) -> str:

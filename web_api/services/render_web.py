@@ -446,6 +446,20 @@ def _validate_render_titles(titles: list[str], budgets: list[int]) -> list[str] 
     return normalized
 
 
+def _validate_render_title_payload(
+    payload: dict[str, Any],
+    budgets: list[int],
+) -> dict[str, Any]:
+    titles = payload.get("titles")
+    if not isinstance(titles, list):
+        raise RuntimeError("LLM output must contain a titles array.")
+    normalized_titles = [str(item) for item in titles]
+    validated = _validate_render_titles(normalized_titles, budgets)
+    if not validated:
+        raise RuntimeError("LLM output titles failed validation.")
+    return {"titles": validated}
+
+
 def _rewrite_render_titles(
     topics: list[dict[str, Any]],
     captions: list[dict[str, Any]],
@@ -502,17 +516,21 @@ def _rewrite_render_titles(
         },
     ]
 
-    chat_fn = chat_completion_fn or llm_utils.chat_completion
     try:
-        raw = chat_fn(llm_config, messages)
-        data = llm_utils.extract_json(raw)
+        data = llm_utils.request_json(
+            llm_config,
+            messages,
+            validate=lambda payload: _validate_render_title_payload(payload, budgets),
+            repair_instructions=(
+                '返回一个 JSON 对象，格式必须是 {"titles":["标题1","标题2"]}。'
+                "titles 数量必须与输入章节一致，每个标题都必须满足对应字数上限，"
+                "并且要自然、具体、非占位。"
+            ),
+            chat_completion_fn=chat_completion_fn,
+        )
         titles = data.get("titles")
-        if not isinstance(titles, list):
-            return None
-        normalized_titles = [str(item) for item in titles]
-        validated = _validate_render_titles(normalized_titles, budgets)
-        if validated:
-            return validated
+        if isinstance(titles, list):
+            return [str(item) for item in titles]
     except Exception as exc:
         logging.warning("Render title rewrite failed: %s", exc)
     return None
