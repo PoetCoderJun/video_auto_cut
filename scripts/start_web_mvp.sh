@@ -51,12 +51,18 @@ else
   echo "[start_web_mvp] Turso mode enabled"
 fi
 
-if [[ -n "${TURSO_LOCAL_REPLICA_PATH:-}" ]]; then
-  API_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.api"
-  WORKER_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.worker"
+if [[ "$DB_LOCAL_ONLY" == "1" || "$DB_LOCAL_ONLY" == "true" || "$DB_LOCAL_ONLY" == "yes" ]]; then
+  SHARED_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH:-$ROOT_DIR/workdir/web_api_turso_replica.db}"
+  API_REPLICA_DEFAULT="$SHARED_REPLICA_DEFAULT"
+  WORKER_REPLICA_DEFAULT="$SHARED_REPLICA_DEFAULT"
 else
-  API_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_api.db"
-  WORKER_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_worker.db"
+  if [[ -n "${TURSO_LOCAL_REPLICA_PATH:-}" ]]; then
+    API_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.api"
+    WORKER_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.worker"
+  else
+    API_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_api.db"
+    WORKER_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_worker.db"
+  fi
 fi
 API_TURSO_LOCAL_REPLICA_PATH="${API_TURSO_LOCAL_REPLICA_PATH:-$API_REPLICA_DEFAULT}"
 WORKER_TURSO_LOCAL_REPLICA_PATH="${WORKER_TURSO_LOCAL_REPLICA_PATH:-$WORKER_REPLICA_DEFAULT}"
@@ -100,9 +106,9 @@ if ! command -v "${PYTHON_CMD[0]}" >/dev/null 2>&1; then
 fi
 
 if ! python_can_run "${PYTHON_CMD[@]}"; then
-  if command -v conda >/dev/null 2>&1 && python_can_run conda run -n qwen312 python; then
+  if command -v conda >/dev/null 2>&1 && python_can_run conda run --no-capture-output -n qwen312 python; then
     echo "[start_web_mvp] current python cannot run Step1 (Python>=3.10), fallback to conda env: qwen312"
-    PYTHON_CMD=(conda run -n qwen312 python)
+    PYTHON_CMD=(conda run --no-capture-output -n qwen312 python)
   else
     echo "[start_web_mvp] current python cannot run Step1 (requires Python>=3.10)."
     echo "[start_web_mvp] fix: activate a compatible env or set PYTHON_BIN."

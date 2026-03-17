@@ -1,0 +1,677 @@
+"use client";
+
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
+
+import type {WebRenderConfig} from "@/lib/api";
+import type {SubtitleTheme} from "@/lib/remotion/stitch-video-web";
+import {
+  applyOverlayScaleToTypography,
+  type OverlayScaleControls,
+  type ProgressLabelMode,
+} from "@/lib/remotion/overlay-controls";
+import {
+  fitAdaptiveTextToBox,
+  fitTextToBox,
+  fitUniformSingleLineText,
+  fitUniformTextToBox,
+  getResponsiveOverlayTypography,
+  OVERLAY_FONT_FAMILY,
+  prepareCaptionDisplayText,
+} from "@/lib/remotion/typography";
+
+type ExportFramePreviewProps = {
+  config: WebRenderConfig | null;
+  sourceFile: File | null;
+  sourceUrlOverride?: string | null;
+  subtitleTheme: SubtitleTheme;
+  previewTimeSec: number;
+  overlayControls: OverlayScaleControls;
+};
+
+type TimelineSegment = {
+  start: number;
+  end: number;
+  cutStart: number;
+  cutEnd: number;
+};
+
+const clamp = (value: number, min: number, max: number): number => {
+  if (!Number.isFinite(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+};
+
+const getTotalDuration = (config: WebRenderConfig | null): number => {
+  if (!config) return 1;
+  const input = config.input_props;
+  const topicEnd = input.topics.reduce((max, item) => Math.max(max, item.end), 0);
+  const captionEnd = input.captions.reduce((max, item) => Math.max(max, item.end), 0);
+  const segmentEnd = input.segments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0);
+  return Math.max(1, topicEnd, captionEnd, segmentEnd);
+};
+
+const buildTimelineSegments = (config: WebRenderConfig): TimelineSegment[] => {
+  let cursor = 0;
+  return config.input_props.segments
+    .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+    .slice()
+    .sort((a, b) => a.start - b.start)
+    .map((segment) => {
+      const duration = Math.max(0, segment.end - segment.start);
+      const item = {
+        start: segment.start,
+        end: segment.end,
+        cutStart: cursor,
+        cutEnd: cursor + duration,
+      };
+      cursor += duration;
+      return item;
+    });
+};
+
+const mapPreviewTimeToSourceTime = (segments: TimelineSegment[], previewTimeSec: number): number => {
+  if (segments.length === 0) return Math.max(0, previewTimeSec);
+  const clamped = Math.max(0, previewTimeSec);
+  for (const segment of segments) {
+    if (clamped < segment.cutEnd) {
+      return segment.start + (clamped - segment.cutStart);
+    }
+  }
+  const last = segments[segments.length - 1];
+  return last.end;
+};
+
+export default function ExportFramePreview({
+  config,
+  sourceFile,
+  sourceUrlOverride = null,
+  subtitleTheme,
+  previewTimeSec,
+  overlayControls,
+}: ExportFramePreviewProps) {
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [frameWidth, setFrameWidth] = useState(0);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const subtitleRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (sourceUrlOverride) {
+      setSourceUrl(sourceUrlOverride);
+      return;
+    }
+    if (!sourceFile) {
+      setSourceUrl((previous) => {
+        if (previous && previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+        return null;
+      });
+      return;
+    }
+
+    const nextUrl = URL.createObjectURL(sourceFile);
+    setSourceUrl((previous) => {
+      if (previous && previous.startsWith("blob:")) URL.revokeObjectURL(previous);
+      return nextUrl;
+    });
+
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [sourceFile, sourceUrlOverride]);
+
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) return;
+
+    const update = () => {
+      const nextWidth = Math.round(element.clientWidth);
+      setFrameWidth((previous) => (previous === nextWidth ? previous : nextWidth));
+    };
+
+    update();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", update);
+      return () => {
+        window.removeEventListener("resize", update);
+      };
+    }
+
+    const observer = new ResizeObserver(() => {
+      update();
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [config?.composition.width]);
+
+  const totalDuration = useMemo(() => getTotalDuration(config), [config]);
+  const clampedPreviewTime = clamp(previewTimeSec, 0, totalDuration);
+
+  const timelineSegments = useMemo(() => (config ? buildTimelineSegments(config) : []), [config]);
+  const sourceTime = useMemo(
+    () => mapPreviewTimeToSourceTime(timelineSegments, clampedPreviewTime),
+    [clampedPreviewTime, timelineSegments]
+  );
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(sourceTime)) return;
+    const applyTime = () => {
+      video.pause();
+      const maxTime = Number.isFinite(video.duration) && video.duration > 0 ? Math.max(0, video.duration - 0.05) : sourceTime;
+      const nextTime = clamp(sourceTime, 0, maxTime);
+      if (Math.abs(video.currentTime - nextTime) > 0.033) {
+        video.currentTime = nextTime;
+      }
+    };
+
+    if (video.readyState >= 1) {
+      applyTime();
+      return;
+    }
+
+    video.addEventListener("loadedmetadata", applyTime, {once: true});
+    return () => {
+      video.removeEventListener("loadedmetadata", applyTime);
+    };
+  }, [sourceTime, sourceUrl]);
+
+  const previewModel = useMemo(() => {
+    if (!config) return null;
+    const composition = config.composition;
+    const width = composition.width;
+    const height = composition.height;
+    const typography = applyOverlayScaleToTypography(
+      getResponsiveOverlayTypography({width, height}),
+      overlayControls
+    );
+    const input = config.input_props;
+    const wrappedCaptions = input.captions.map((caption) => ({
+      ...caption,
+      displayText: prepareCaptionDisplayText(caption.text),
+    }));
+    const isPortrait = height > width;
+    const normalizedChapterScale = Math.max(0.7, Math.min(overlayControls.chapterScale ?? 1, 1.45));
+    const activeCaption = wrappedCaptions.find(
+      (caption) => clampedPreviewTime >= caption.start && clampedPreviewTime < caption.end
+    );
+    const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
+    const chapterCardMaxWidth = Math.min(
+      chapterWrapWidth,
+      Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
+    );
+    const chapterCardMinWidth = Math.min(typography.chapterCardMinWidth, chapterCardMaxWidth);
+    const chapterCardBaseWidth = Math.round(chapterWrapWidth * (isPortrait ? 0.58 : 0.5));
+    const chapterCardWidth = Math.max(
+      chapterCardMinWidth,
+      Math.min(chapterCardMaxWidth, Math.round(chapterCardBaseWidth * normalizedChapterScale))
+    );
+    const chapterTitleMaxWidth = Math.max(1, chapterCardWidth - typography.chapterCardPaddingX * 2);
+    const chapterCardMinHeight =
+      typography.chapterCardPaddingY * 2 +
+      Math.round(typography.chapterMetaFontSize * 1.2) +
+      typography.chapterGap +
+      Math.round(typography.chapterTitleFontSize * 2.4);
+    const subtitleTextMaxWidth = Math.max(
+      1,
+      width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio - typography.subtitlePaddingX * 2
+    );
+    const activeCaptionLayout = activeCaption
+      ? fitAdaptiveTextToBox({
+          text: activeCaption.displayText,
+          maxWidth: subtitleTextMaxWidth,
+          baseFontSize: typography.subtitleFontSize,
+          minFontSize: Math.max(
+            isPortrait ? 23 : 26,
+            Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
+          ),
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        })
+      : null;
+    const normalizedTopics = input.topics
+      .filter((topic) => Number.isFinite(topic.start) && Number.isFinite(topic.end) && topic.end > topic.start)
+      .slice()
+      .sort((a, b) => a.start - b.start);
+    const activeTopicIndex = normalizedTopics.findIndex((topic, index) => {
+      const isLast = index === normalizedTopics.length - 1;
+      if (isLast) {
+        return clampedPreviewTime >= topic.start && clampedPreviewTime <= topic.end;
+      }
+      return clampedPreviewTime >= topic.start && clampedPreviewTime < topic.end;
+    });
+    const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
+    const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
+    const activeTopicLayout =
+      activeTopicIndex >= 0
+        ? fitTextToBox({
+            text: normalizedTopics[activeTopicIndex].title,
+            maxWidth: chapterTitleMaxWidth,
+            baseFontSize: typography.chapterTitleFontSize,
+            minFontSize: Math.max(18, Math.floor(typography.chapterTitleFontSize * 0.72)),
+            maxLines: 2,
+            fontWeight: 800,
+            fontFamily: OVERLAY_FONT_FAMILY,
+          })
+        : null;
+    const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
+    const progressLabelMode = (overlayControls.progressLabelMode ?? "auto") as ProgressLabelMode;
+    const allowWrappedProgressLabels =
+      progressLabelMode === "double" || (progressLabelMode === "auto" && isPortrait);
+    const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
+    const topicSegmentsForLayout = normalizedTopics
+      .map((topic, index) => {
+        const startRatio = clamp(topic.start / totalDuration, 0, 1);
+        const endRatio = clamp(topic.end / totalDuration, 0, 1);
+        if (endRatio <= startRatio) {
+          return null;
+        }
+        return {
+          title: topic.title,
+          startRatio,
+          endRatio,
+          index,
+          segmentWidth: progressInnerWidth * (endRatio - startRatio),
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is {
+          title: string;
+          startRatio: number;
+          endRatio: number;
+          index: number;
+          segmentWidth: number;
+        } => item !== null
+      );
+    const uniformLabelFit = allowWrappedProgressLabels
+      ? fitUniformTextToBox({
+          items: topicSegmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxLines: 2,
+          maxFontSize: Math.max(
+            typography.progressLabelFontSize,
+            Math.floor(typography.progressHeight / (progressLabelLineHeight * 2))
+          ),
+          maxHeight: typography.progressHeight,
+          lineHeight: progressLabelLineHeight,
+          targetWidthRatio: 0.9,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        })
+      : fitUniformSingleLineText({
+          items: topicSegmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxFontSize: Math.max(
+            typography.progressLabelFontSize,
+            Math.floor(typography.progressHeight * 0.58)
+          ),
+          maxHeight: typography.progressHeight,
+          lineHeight: 1.2,
+          targetWidthRatio: 0.84,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        });
+
+    return {
+      composition,
+      typography,
+      subtitleTextMaxWidth,
+      activeCaption,
+      activeCaptionLayout,
+      activeTopic,
+      activeTopicLabel,
+      activeTopicLayout,
+      progressRatio: clamp(clampedPreviewTime / totalDuration, 0, 1),
+      topicSegments: topicSegmentsForLayout.map((segment, index) => ({
+        ...segment,
+        labelFit: {
+          fontSize: uniformLabelFit.fontSize,
+          visible: uniformLabelFit.labels[index]?.visible ?? false,
+          text:
+            allowWrappedProgressLabels
+              ? (uniformLabelFit.labels[index] as {text?: string} | undefined)?.text ?? segment.title
+              : segment.title,
+        },
+      })),
+      allowWrappedProgressLabels,
+      progressLabelLineHeight,
+      chapterCardMinHeight,
+      chapterCardWidth,
+      chapterTitleMaxWidth,
+    };
+  }, [clampedPreviewTime, config, overlayControls, totalDuration]);
+
+  const subtitleInitialFontSize =
+    previewModel?.activeCaptionLayout?.fontSize ?? previewModel?.typography.subtitleFontSize ?? 0;
+  const subtitleMaxLines = previewModel?.activeCaptionLayout?.maxLines ?? 2;
+  const subtitleRenderText = previewModel?.activeCaption
+    ? previewModel.activeCaptionLayout?.truncated
+      ? previewModel.activeCaptionLayout.text
+      : previewModel.activeCaption.displayText
+    : "";
+  const subtitleMinFontSize = previewModel
+    ? Math.max(
+        previewModel.composition.height > previewModel.composition.width ? 23 : 26,
+        Math.floor(
+          previewModel.typography.subtitleFontSize *
+            (previewModel.composition.height > previewModel.composition.width ? 0.44 : 0.68)
+        )
+      )
+    : 0;
+  const [resolvedSubtitleFontSize, setResolvedSubtitleFontSize] = useState(subtitleInitialFontSize);
+
+  useLayoutEffect(() => {
+    setResolvedSubtitleFontSize(subtitleInitialFontSize);
+  }, [previewModel?.activeCaption?.index, previewModel?.activeCaption?.text, subtitleInitialFontSize]);
+
+  useLayoutEffect(() => {
+    const element = subtitleRef.current;
+    const text = subtitleRenderText;
+    if (!element || !text) {
+      return;
+    }
+
+    let nextFontSize = subtitleInitialFontSize;
+    element.style.fontSize = `${nextFontSize}px`;
+
+    while (nextFontSize > subtitleMinFontSize) {
+      const computed = window.getComputedStyle(element);
+      const lineHeight = Number.parseFloat(computed.lineHeight) || nextFontSize * 1.35;
+      const allowedHeight = lineHeight * subtitleMaxLines + 1;
+      const fitsHeight = element.scrollHeight <= allowedHeight;
+      const fitsWidth = element.scrollWidth <= element.clientWidth + 1;
+      if (fitsHeight && fitsWidth) {
+        break;
+      }
+      nextFontSize -= 1;
+      element.style.fontSize = `${nextFontSize}px`;
+    }
+
+    if (nextFontSize !== resolvedSubtitleFontSize) {
+      setResolvedSubtitleFontSize(nextFontSize);
+    }
+  }, [
+    subtitleRenderText,
+    resolvedSubtitleFontSize,
+    subtitleInitialFontSize,
+    subtitleMinFontSize,
+    subtitleMaxLines,
+  ]);
+
+  const subtitleStyleOverrides = useMemo(() => {
+    if (!previewModel) return {};
+    const typography = previewModel.typography;
+    const p = typography.subtitlePaddingY;
+    const px = typography.subtitlePaddingX;
+    const br = typography.subtitleRadius;
+
+    switch (subtitleTheme) {
+      case "text-black":
+        return {
+          color: "#111111",
+          backgroundColor: "transparent",
+          padding: "0",
+          borderRadius: 0,
+          textShadow: "0 1px 1px rgba(255, 255, 255, 0.45)",
+        } as React.CSSProperties;
+      case "text-white":
+        return {
+          color: "#ffffff",
+          backgroundColor: "transparent",
+          padding: "0",
+          borderRadius: 0,
+          textShadow: "0 1px 2px rgba(0, 0, 0, 0.75)",
+        } as React.CSSProperties;
+      case "box-black-on-white":
+        return {
+          boxSizing: "border-box",
+          color: "#111111",
+          backgroundColor: "rgba(255, 255, 255, 0.92)",
+          padding: `${p}px ${px}px`,
+          borderRadius: br,
+          maxWidth: previewModel.subtitleTextMaxWidth,
+          textShadow: "none",
+        } as React.CSSProperties;
+      case "box-white-on-black":
+      default:
+        return {
+          boxSizing: "border-box",
+          color: "#ffffff",
+          backgroundColor: "rgba(0, 0, 0, 0.82)",
+          padding: `${p}px ${px}px`,
+          borderRadius: br,
+          maxWidth: previewModel.subtitleTextMaxWidth,
+          textShadow: "none",
+        } as React.CSSProperties;
+    }
+  }, [previewModel, subtitleTheme]);
+
+  if (!config || !previewModel) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">
+        正在准备导出预览...
+      </div>
+    );
+  }
+
+  const compositionWidth = config.composition.width;
+  const compositionHeight = config.composition.height;
+  const previewScale = frameWidth > 0 ? frameWidth / compositionWidth : 1;
+
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <div
+        ref={frameRef}
+        className="relative w-full max-w-full overflow-hidden bg-slate-950 xl:h-full xl:w-auto"
+        style={{
+          aspectRatio: `${compositionWidth} / ${compositionHeight}`,
+        }}
+      >
+        <div
+          className="absolute left-0 top-0 origin-top-left"
+          style={{
+            width: compositionWidth,
+            height: compositionHeight,
+            transform: `scale(${previewScale || 1})`,
+          }}
+        >
+          {sourceUrl ? (
+            <video
+              ref={videoRef}
+              src={sourceUrl}
+              muted
+              playsInline
+              preload="metadata"
+              className="h-full w-full bg-black object-contain"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-slate-900 text-sm text-slate-400">
+              当前会话缺少本地原视频，预览不可用
+            </div>
+          )}
+
+          {previewModel?.activeTopic ? (
+            <div
+              style={{
+                position: "absolute",
+                top: previewModel.typography.chapterTop,
+                left: previewModel.typography.chapterInsetX,
+                right: previewModel.typography.chapterInsetX,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-flex",
+                  flexDirection: "column",
+                  gap: previewModel.typography.chapterGap,
+                  width: previewModel.chapterCardWidth,
+                  maxWidth: "100%",
+                  padding: `${previewModel.typography.chapterCardPaddingY}px ${previewModel.typography.chapterCardPaddingX}px`,
+                  borderRadius: previewModel.typography.chapterCardRadius,
+                  backgroundColor: "rgba(8, 12, 20, 0.74)",
+                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: previewModel.typography.chapterMetaFontSize,
+                    fontWeight: 700,
+                    fontFamily: OVERLAY_FONT_FAMILY,
+                    color: "#8ee0ff",
+                  }}
+                >
+                  CHAPTER {previewModel.activeTopicLabel}
+                </div>
+                <div
+                  style={{
+                    fontSize:
+                      previewModel.activeTopicLayout?.fontSize ?? previewModel.typography.chapterTitleFontSize,
+                    lineHeight: 1.2,
+                    fontWeight: 800,
+                    fontFamily: OVERLAY_FONT_FAMILY,
+                    color: "#ffffff",
+                    whiteSpace: "pre-line",
+                    wordBreak: "keep-all",
+                    maxWidth: previewModel.chapterTitleMaxWidth,
+                  }}
+                >
+                  {previewModel.activeTopicLayout?.text ?? previewModel.activeTopic.title}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: previewModel?.typography.subtitleBottom,
+              display: "flex",
+              justifyContent: "center",
+              pointerEvents: "none",
+              paddingLeft: previewModel?.typography.subtitleSidePadding,
+              paddingRight: previewModel?.typography.subtitleSidePadding,
+            }}
+          >
+            <div
+              ref={subtitleRef}
+              style={{
+                boxSizing: "border-box",
+                color: "#ffffff",
+                fontSize: resolvedSubtitleFontSize,
+                fontWeight: 700,
+                fontFamily: OVERLAY_FONT_FAMILY,
+                lineHeight: 1.5,
+                textAlign: "center",
+                whiteSpace: "normal",
+                wordBreak: "normal",
+                overflowWrap: "anywhere",
+                overflow: "hidden",
+                maxWidth: previewModel?.subtitleTextMaxWidth,
+                ...subtitleStyleOverrides,
+              }}
+            >
+              {subtitleRenderText}
+            </div>
+          </div>
+
+          <div
+            style={{
+              position: "absolute",
+              left: previewModel?.typography.progressInsetX,
+              right: previewModel?.typography.progressInsetX,
+              bottom: previewModel?.typography.progressBottom,
+              height: previewModel?.typography.progressHeight,
+              pointerEvents: "none",
+            }}
+          >
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                height: "100%",
+                borderRadius: previewModel?.typography.progressRadius,
+                overflow: "hidden",
+                backgroundColor: "rgba(16, 22, 30, 0.42)",
+                border: "1px solid rgba(255, 255, 255, 0.22)",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: `${(previewModel?.progressRatio ?? 0) * 100}%`,
+                  background:
+                    "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+                }}
+              />
+              {(previewModel?.topicSegments ?? []).map((segment) => (
+                <div
+                  key={`preview-segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    bottom: 0,
+                    left: `${segment.startRatio * 100}%`,
+                    width: `${(segment.endRatio - segment.startRatio) * 100}%`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                    borderRight: "1px solid rgba(255, 255, 255, 0.2)",
+                    backgroundColor:
+                      segment.index ===
+                      (previewModel?.activeTopicLabel ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1 : -1)
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "rgba(255, 255, 255, 0.02)",
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: "100%",
+                      padding: `0 ${previewModel?.typography.progressLabelPaddingX ?? 0}px`,
+                      fontSize: segment.labelFit.fontSize,
+                      fontWeight: 700,
+                      fontFamily: OVERLAY_FONT_FAMILY,
+                      lineHeight: previewModel?.progressLabelLineHeight ?? 1.2,
+                      whiteSpace: previewModel?.allowWrappedProgressLabels ? "pre-line" : "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      textAlign: "center",
+                      color:
+                        segment.index ===
+                        (previewModel?.activeTopicLabel ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1 : -1)
+                          ? "#ffffff"
+                          : "rgba(238, 244, 255, 0.84)",
+                    }}
+                  >
+                    {segment.labelFit.visible ? segment.labelFit.text : ""}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

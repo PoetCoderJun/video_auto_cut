@@ -704,9 +704,16 @@ def _normalize_meta_status(value: object) -> str | None:
 
 
 def _effective_status(meta_status: str | None, inferred_status: str) -> str:
-    if meta_status == JOB_STATUS_STEP1_RUNNING and inferred_status in {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY}:
+    if meta_status == JOB_STATUS_STEP1_RUNNING and inferred_status in {
+        JOB_STATUS_CREATED,
+        JOB_STATUS_UPLOAD_READY,
+        JOB_STATUS_STEP1_READY,
+    }:
         return JOB_STATUS_STEP1_RUNNING
-    if meta_status == JOB_STATUS_STEP2_RUNNING and inferred_status in {JOB_STATUS_STEP1_CONFIRMED}:
+    if meta_status == JOB_STATUS_STEP2_RUNNING and inferred_status in {
+        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_STEP2_READY,
+    }:
         return JOB_STATUS_STEP2_RUNNING
     if meta_status == JOB_STATUS_FAILED and inferred_status in {
         JOB_STATUS_CREATED,
@@ -1041,13 +1048,18 @@ def list_step2_chapters(job_id: str) -> list[dict[str, Any]]:
             continue
 
         line_ids_raw = row.get("line_ids")
-        line_ids = [int(item) for item in line_ids_raw if isinstance(item, (int, float))] if isinstance(line_ids_raw, list) else []
+        line_ids = (
+            [int(item) for item in line_ids_raw if isinstance(item, (int, float))]
+            if isinstance(line_ids_raw, list)
+            else []
+        )
         result.append(
             {
                 "chapter_id": chapter_id,
                 "title": str(row.get("title") or f"章节{chapter_id}"),
                 "start": start,
                 "end": end,
+                "block_range": str(row.get("block_range") or row.get("segment_range") or "").strip(),
                 "line_ids": line_ids,
             }
         )

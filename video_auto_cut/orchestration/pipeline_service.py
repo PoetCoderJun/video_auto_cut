@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,7 @@ class PipelineOptions:
     llm_timeout: int = 300
     llm_temperature: float = 0.2
     llm_max_tokens: int | None = None
+    auto_edit_llm_concurrency: int = 4
 
     auto_edit_merge_gap: float = 0.5
     auto_edit_pad_head: float = 0.0
@@ -66,6 +67,8 @@ class PipelineOptions:
 
 RenderProgressCallback = Callable[[str, Optional[float]], None]
 ASRProgressCallback = Callable[[float], None]
+AutoEditStageCallback = Callable[[str, str], None]
+AutoEditPreviewCallback = Callable[[list[dict[str, Any]]], None]
 
 
 def require_llm(options: PipelineOptions, stage_name: str) -> None:
@@ -136,6 +139,7 @@ def build_auto_edit_args(srt_path: Path, options: PipelineOptions) -> SimpleName
         auto_edit_merge_gap=float(options.auto_edit_merge_gap),
         auto_edit_pad_head=float(options.auto_edit_pad_head),
         auto_edit_pad_tail=float(options.auto_edit_pad_tail),
+        auto_edit_llm_concurrency=max(1, int(options.auto_edit_llm_concurrency)),
         auto_edit_output=None,
         auto_edit_topics=False,
         llm_base_url=options.llm_base_url,
@@ -202,12 +206,22 @@ def run_transcribe(
     return srt_path
 
 
-def run_auto_edit(srt_path: Path, options: PipelineOptions) -> Path:
+def run_auto_edit(
+    srt_path: Path,
+    options: PipelineOptions,
+    *,
+    stage_callback: AutoEditStageCallback | None = None,
+    preview_callback: AutoEditPreviewCallback | None = None,
+) -> Path:
     from video_auto_cut.editing.auto_edit import AutoEdit
 
     require_llm(options, "Auto-edit")
     logging.info("Step 2/3: auto edit -> optimized SRT")
     args = build_auto_edit_args(srt_path, options)
+    if stage_callback is not None:
+        setattr(args, "auto_edit_stage_callback", stage_callback)
+    if preview_callback is not None:
+        setattr(args, "auto_edit_preview_callback", preview_callback)
     AutoEdit(args).run()
 
     optimized = srt_path.with_name(f"{srt_path.stem}.optimized.srt")

@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import datetime
 import json
 import logging
@@ -5,7 +6,7 @@ import os
 import re
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import srt
 
@@ -404,11 +405,18 @@ def _build_optimized_subtitles(
 class AutoEdit:
     def __init__(self, args):
         self.args = args
+        self.stage_callback: Callable[[str, str], None] | None = getattr(
+            args, "auto_edit_stage_callback", None
+        )
+        self.preview_callback: Callable[[List[Dict[str, Any]]], None] | None = getattr(
+            args, "auto_edit_preview_callback", None
+        )
         self.cfg = AutoEditConfig(
             merge_gap_s=float(getattr(args, "auto_edit_merge_gap", 0.5)),
             pad_head_s=float(getattr(args, "auto_edit_pad_head", 0.0)),
             pad_tail_s=float(getattr(args, "auto_edit_pad_tail", 0.0)),
         )
+        self.llm_concurrency = max(1, int(getattr(args, "auto_edit_llm_concurrency", 4)))
 
         if not bool(getattr(args, "auto_edit_llm", False)):
             raise RuntimeError("Auto-edit requires --auto-edit-llm.")
@@ -487,15 +495,36 @@ class AutoEdit:
                         raise
                     logging.warning(f"Topic segmentation skipped due to error: {exc}")
 
+    def _emit_stage(self, code: str, message: str) -> None:
+        callback = self.stage_callback
+        if not callable(callback):
+            return
+        try:
+            callback(code, message)
+        except Exception as exc:
+            logging.warning("Auto-edit stage callback failed: %s", exc)
+
+    def _emit_preview(self, lines: List[Dict[str, Any]]) -> None:
+        callback = self.preview_callback
+        if not callable(callback):
+            return
+        try:
+            callback(lines)
+        except Exception as exc:
+            logging.warning("Auto-edit preview callback failed: %s", exc)
+
     def _auto_edit_segments(
         self, segments: List[Dict[str, Any]], total_length: Optional[float]
     ) -> Dict[str, Any]:
+        self._emit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
         chunk_states = self._run_pi_agent_remove_states(segments)
         final_decisions = self._collect_core_decisions(segments, chunk_states)
         kept_decisions = [decision for decision in final_decisions if decision.remove_action == "KEEP"]
         if not kept_decisions:
             raise RuntimeError("All segments removed. Check LLM output.")
+        self._emit_preview(_build_step1_lines(segments, final_decisions))
 
+        self._emit_stage("MERGING_SHORT_LINES", "正在合并短句...")
         merged_groups = build_merged_groups(
             segments,
             final_decisions,
@@ -503,7 +532,14 @@ class AutoEdit:
         )
         if not merged_groups:
             raise RuntimeError("All segments removed. Check LLM output.")
+        merged_preview_subs, _ = self._build_subtitles_from_rewritten_groups(
+            segments,
+            final_decisions,
+            merged_groups,
+        )
+        self._emit_preview(_build_step1_lines_from_subtitles(merged_preview_subs))
 
+        self._emit_stage("POLISHING_EXPRESSION", "正在润色表达...")
         rewritten_groups, polish_debug = self._rewrite_merged_groups(merged_groups)
         raw_optimized_subs = _build_optimized_subtitles(segments, final_decisions)
         merged_optimized_subs, merged_segments = self._build_subtitles_from_rewritten_groups(
@@ -511,6 +547,7 @@ class AutoEdit:
             final_decisions,
             rewritten_groups,
         )
+        self._emit_preview(_build_step1_lines_from_subtitles(merged_optimized_subs))
         edl = _segments_to_edl(merged_segments, self.cfg, total_length)
         return {
             "optimized_subs": merged_optimized_subs,
@@ -523,6 +560,7 @@ class AutoEdit:
                 "chunk_size": AUTO_EDIT_CHUNK_LINES,
                 "chunk_overlap_lines": AUTO_EDIT_CHUNK_OVERLAP_LINES,
                 "chunk_count": len(chunk_states),
+                "llm_concurrency": self.llm_concurrency,
                 "chunks": [
                     {
                         "window": state.window.to_dict(),
@@ -562,37 +600,10 @@ class AutoEdit:
         if not windows:
             return []
 
-        chunk_states: List[ChunkExecutionState] = []
-        for window in windows:
-            seg_chunk = segments[window.context_start - 1 : window.context_end]
-            remove_result = self.remove_loop.run(seg_chunk)
-            normalized_decisions = []
-            for decision in remove_result.decisions:
-                if _is_no_speech_text(decision.original_text):
-                    normalized_decisions.append(
-                        type(decision)(
-                            line_id=decision.line_id,
-                            original_text=decision.original_text,
-                            current_text=decision.current_text,
-                            remove_action="REMOVE",
-                            reason="No-speech placeholder",
-                            confidence=1.0,
-                            source_line_ids=list(decision.source_line_ids),
-                        )
-                    )
-                else:
-                    normalized_decisions.append(decision)
-            chunk_states.append(
-                ChunkExecutionState(
-                    window=window,
-                    decisions=normalized_decisions,
-                    merged_groups=[],
-                    core_line_ids=[
-                        int(seg.get("id") or 0)
-                        for seg in segments[window.core_start - 1 : window.core_end]
-                    ],
-                )
-            )
+        chunk_states = self._ordered_parallel_map(
+            windows,
+            lambda window: self._run_remove_window(window, segments),
+        )
 
         for index in range(1, len(chunk_states)):
             previous_state, current_state = apply_boundary_review(
@@ -631,14 +642,72 @@ class AutoEdit:
         if not merged_groups:
             return [], []
 
+        batches = [
+            merged_groups[start : start + PI_AGENT_GROUP_BATCH_SIZE]
+            for start in range(0, len(merged_groups), PI_AGENT_GROUP_BATCH_SIZE)
+        ]
+        batch_results = self._ordered_parallel_map(batches, self.chunk_polish_loop.run)
         rewritten_groups: List[MergedGroup] = []
         debug_payloads: List[Dict[str, Any]] = []
-        for start in range(0, len(merged_groups), PI_AGENT_GROUP_BATCH_SIZE):
-            batch = merged_groups[start : start + PI_AGENT_GROUP_BATCH_SIZE]
-            result = self.chunk_polish_loop.run(batch)
+        for result in batch_results:
             rewritten_groups.extend(result.groups)
             debug_payloads.append(result.debug)
         return rewritten_groups, debug_payloads
+
+    def _ordered_parallel_map(
+        self,
+        items: List[Any],
+        fn: Callable[[Any], Any],
+    ) -> List[Any]:
+        if not items:
+            return []
+
+        max_workers = min(len(items), self.llm_concurrency)
+        if max_workers <= 1:
+            return [fn(item) for item in items]
+
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="auto-edit",
+        ) as executor:
+            return list(executor.map(fn, items))
+
+    def _run_remove_window(
+        self,
+        window: Any,
+        segments: List[Dict[str, Any]],
+    ) -> ChunkExecutionState:
+        seg_chunk = segments[window.context_start - 1 : window.context_end]
+        remove_result = self.remove_loop.run(seg_chunk)
+        normalized_decisions = self._normalize_remove_decisions(remove_result.decisions)
+        return ChunkExecutionState(
+            window=window,
+            decisions=normalized_decisions,
+            merged_groups=[],
+            core_line_ids=[
+                int(seg.get("id") or 0)
+                for seg in segments[window.core_start - 1 : window.core_end]
+            ],
+        )
+
+    def _normalize_remove_decisions(self, decisions: List[Any]) -> List[Any]:
+        normalized_decisions = []
+        for decision in decisions:
+            if _is_no_speech_text(decision.original_text):
+                normalized_decisions.append(
+                    type(decision)(
+                        line_id=decision.line_id,
+                        original_text=decision.original_text,
+                        current_text=decision.current_text,
+                        remove_action="REMOVE",
+                        reason="No-speech placeholder",
+                        confidence=1.0,
+                        source_line_ids=list(decision.source_line_ids),
+                    )
+                )
+            else:
+                normalized_decisions.append(decision)
+        return normalized_decisions
 
     def _build_subtitles_from_rewritten_groups(
         self,

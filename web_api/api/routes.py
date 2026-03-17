@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 import uuid
 
@@ -84,6 +85,11 @@ def _resolve_client_ip(request: Request) -> str:
 @router.post("/jobs")
 def create_job_endpoint(current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
     job = create_new_job(current_user.user_id)
+    logging.info(
+        "[web_api] route=create_job user=%s job=%s",
+        current_user.user_id,
+        job.get("job_id"),
+    )
     return _ok({"job": job})
 
 
@@ -162,6 +168,12 @@ def audio_oss_ready(
     require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
     result = mark_audio_oss_ready(job_id, request.object_key)
     job = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=audio_oss_ready user=%s job=%s object_key=%s",
+        current_user.user_id,
+        job_id,
+        request.object_key,
+    )
     return _ok({"job": job, "upload": result})
 
 
@@ -176,6 +188,13 @@ async def upload_job_audio(
     require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
     upload = await save_uploaded_audio(job_id, file)
     job = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=upload_audio user=%s job=%s filename=%s bytes=%s",
+        current_user.user_id,
+        job_id,
+        upload.get("filename"),
+        upload.get("size_bytes"),
+    )
     return _ok({"job": job, "upload": upload})
 
 
@@ -191,6 +210,12 @@ def step1_run(job_id: str, current_user: CurrentUser = Depends(require_current_u
     except RuntimeError as exc:
         raise invalid_step_state(str(exc)) from exc
     latest = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=step1_run user=%s job=%s task_id=%s",
+        current_user.user_id,
+        job_id,
+        task_id,
+    )
     return _ok({"accepted": True, "task_id": task_id, "job": latest})
 
 
@@ -199,6 +224,12 @@ def step1_get(job_id: str, current_user: CurrentUser = Depends(require_current_u
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, STEP1_GET_ALLOWED_STATUSES)
     lines = list_step1_lines(job_id)
+    logging.debug(
+        "[web_api] route=step1_get user=%s job=%s line_count=%s",
+        current_user.user_id,
+        job_id,
+        len(lines),
+    )
     return _ok({"lines": lines})
 
 
@@ -207,12 +238,18 @@ def step1_confirm(
     job_id: str, request: Step1ConfirmRequest, current_user: CurrentUser = Depends(require_current_user)
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP1_READY})
+    require_status(job, {JOB_STATUS_STEP1_READY, JOB_STATUS_STEP2_READY})
     lines = [item.model_dump() for item in request.lines]
     if not lines:
         raise invalid_step_state("lines cannot be empty")
     confirm_step1(job_id, lines)
     job = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=step1_confirm user=%s job=%s line_count=%s",
+        current_user.user_id,
+        job_id,
+        len(lines),
+    )
     return _ok({"confirmed": True, "status": job["status"]})
 
 
@@ -225,6 +262,12 @@ def step2_run(job_id: str, current_user: CurrentUser = Depends(require_current_u
     except RuntimeError as exc:
         raise invalid_step_state(str(exc)) from exc
     latest = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=step2_run user=%s job=%s task_id=%s",
+        current_user.user_id,
+        job_id,
+        task_id,
+    )
     return _ok({"accepted": True, "task_id": task_id, "job": latest})
 
 

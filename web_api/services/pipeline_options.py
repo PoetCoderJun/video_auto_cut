@@ -47,6 +47,7 @@ def build_pipeline_options(**overrides: object) -> PipelineOptions:
         "llm_timeout": settings.llm_timeout,
         "llm_temperature": settings.llm_temperature,
         "llm_max_tokens": settings.llm_max_tokens,
+        "auto_edit_llm_concurrency": getattr(settings, "auto_edit_llm_concurrency", 4),
         "auto_edit_merge_gap": 0.5,
         "auto_edit_pad_head": 0.0,
         "auto_edit_pad_tail": 0.0,

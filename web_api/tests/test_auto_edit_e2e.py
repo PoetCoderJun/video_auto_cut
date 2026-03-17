@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 from unittest.mock import patch
 
 from video_auto_cut.editing.auto_edit import AUTO_EDIT_CHUNK_LINES, AutoEdit, REMOVE_TOKEN
+from video_auto_cut.editing.pi_agent_models import BoundaryReviewState, LineDecision, MergedGroup
+from video_auto_cut.editing.pi_agent_polish import ChunkPolishLoopResult
+from video_auto_cut.editing.pi_agent_remove import RemoveLoopResult
 
 
 class DummyArgs:
@@ -25,6 +29,7 @@ class DummyArgs:
         self.llm_timeout = 60
         self.llm_temperature = 0.0
         self.llm_max_tokens = None
+        self.auto_edit_llm_concurrency = 1
 
 
 def make_segments(texts: list[str]) -> list[dict[str, object]]:
@@ -283,6 +288,88 @@ class AutoEditPiAgentE2ETest(unittest.TestCase):
             AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
         self.assertIn("All segments removed", str(ctx.exception))
+
+    def test_remove_chunk_calls_can_run_in_parallel(self) -> None:
+        args = DummyArgs()
+        args.auto_edit_llm_concurrency = 2
+        editor = AutoEdit(args)
+        total_lines = AUTO_EDIT_CHUNK_LINES + 10
+        segments = make_segments([f"字幕 {index}" for index in range(1, total_lines + 1)])
+        barrier = threading.Barrier(2)
+        thread_ids: set[int] = set()
+        lock = threading.Lock()
+
+        def fake_remove(seg_chunk: list[dict[str, object]]) -> RemoveLoopResult:
+            with lock:
+                thread_ids.add(threading.get_ident())
+            barrier.wait(timeout=1.0)
+            return RemoveLoopResult(
+                decisions=[
+                    LineDecision(
+                        line_id=int(segment["id"]),
+                        original_text=str(segment["text"]),
+                        current_text=str(segment["text"]),
+                        remove_action="KEEP",
+                        reason="keep",
+                        confidence=0.9,
+                    )
+                    for segment in seg_chunk
+                ],
+                debug={"chunk_head": int(seg_chunk[0]["id"])},
+            )
+
+        def fake_boundary(
+            previous_state: object,
+            current_state: object,
+        ) -> BoundaryReviewState:
+            return BoundaryReviewState(
+                previous_chunk_id=previous_state.window.chunk_id,
+                current_chunk_id=current_state.window.chunk_id,
+                dropped_line_ids=[],
+                reason="",
+            )
+
+        with (
+            patch.object(editor.remove_loop, "run", side_effect=fake_remove),
+            patch.object(editor.boundary_reviewer, "run", side_effect=fake_boundary),
+        ):
+            chunk_states = editor._run_pi_agent_remove_states(segments)
+
+        self.assertEqual([state.window.chunk_id for state in chunk_states], [1, 2])
+        self.assertEqual(len(thread_ids), 2)
+
+    def test_rewrite_batches_can_run_in_parallel(self) -> None:
+        args = DummyArgs()
+        args.auto_edit_llm_concurrency = 2
+        editor = AutoEdit(args)
+        groups = [
+            MergedGroup(
+                source_line_ids=[index],
+                text=f"第 {index} 段需要保留的文本",
+                start=float(index),
+                end=float(index) + 0.8,
+            )
+            for index in range(1, 32)
+        ]
+        barrier = threading.Barrier(2)
+        thread_ids: set[int] = set()
+        lock = threading.Lock()
+
+        def fake_rewrite(batch: list[MergedGroup]) -> ChunkPolishLoopResult:
+            with lock:
+                thread_ids.add(threading.get_ident())
+            barrier.wait(timeout=1.0)
+            return ChunkPolishLoopResult(
+                groups=batch,
+                debug={"batch_head": batch[0].source_line_ids[0]},
+            )
+
+        with patch.object(editor.chunk_polish_loop, "run", side_effect=fake_rewrite):
+            rewritten_groups, debug_payloads = editor._rewrite_merged_groups(groups)
+
+        self.assertEqual([group.source_line_ids[0] for group in rewritten_groups], list(range(1, 32)))
+        self.assertEqual([item["batch_head"] for item in debug_payloads], [1, 31])
+        self.assertEqual(len(thread_ids), 2)
 
 
 if __name__ == "__main__":

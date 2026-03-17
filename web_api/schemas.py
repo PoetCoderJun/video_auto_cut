@@ -18,7 +18,7 @@ class Step2ConfirmChapter(BaseModel):
     title: str = Field(default="")
     start: float = Field(..., ge=0)
     end: float = Field(..., ge=0)
-    line_ids: list[int] = Field(default_factory=list)
+    block_range: str = Field(default="", min_length=1)
 
 
 class Step2ConfirmRequest(BaseModel):

@@ -14,6 +14,7 @@ from . import llm_client as llm_utils
 DECISION_HEADER_PATTERN = re.compile(r"^\[(KEEP|REMOVE)\b[^\]]*\]\s*$", re.IGNORECASE)
 REMOVE_TOKEN = "<<REMOVE>>"
 SPACE_PATTERN = re.compile(r"\s+")
+ID_RANGE_PATTERN = re.compile(r"^\s*(\d+)\s*(?:[-~—–到至]\s*(\d+)\s*)?$")
 TOPIC_TITLE_MAX_CHARS_DEFAULT = 6
 TOPIC_MAX_TOPICS_HARD_CAP = 6
 TOPIC_SHORT_VIDEO_MAX_SECONDS = 150.0
@@ -26,6 +27,7 @@ TOPIC_BLOCK_MIN_CHARS = 28
 TOPIC_BLOCK_MAX_TARGET_CHARS = 110
 TOPIC_BLOCK_MAX_HARD_CHARS = 150
 TOPIC_BLOCK_MIN_TAIL_RATIO = 0.6
+TOPIC_MIN_SEGMENTS_PER_CHAPTER = 3
 PLACEHOLDER_TITLE_PATTERN = re.compile(
     r"^(章节\d+|要点\d+|第[一二三四五六七八九十0-9]+部分|内容概览|开场|结尾|收尾|总览)$"
 )
@@ -47,7 +49,7 @@ def _recommended_topic_budget(duration_s: float) -> int:
 def _topic_count_range(duration_s: float) -> tuple[int, int, int]:
     recommended = _recommended_topic_budget(duration_s)
     min_topics = min(4, recommended)
-    return min_topics, recommended, recommended
+    return min_topics, recommended, TOPIC_MAX_TOPICS_HARD_CAP
 
 
 def _recommended_title_chars(title_max_chars: int) -> int:
@@ -55,7 +57,7 @@ def _recommended_title_chars(title_max_chars: int) -> int:
 
 
 def _accepted_title_chars(title_max_chars: int) -> int:
-    return max(7, int(title_max_chars))
+    return max(6, int(title_max_chars))
 
 
 @dataclass
@@ -113,7 +115,6 @@ class PiAgentTopicLoop:
         self.max_topics = max(1, int(max_topics))
         self.recommended_topics = max(self.min_topics, min(int(recommended_topics), self.max_topics))
         self.title_max_chars = int(title_max_chars)
-        self.max_attempts = 1 if int(max_iterations) <= 1 else 2
         self.chat_completion_fn = chat_completion_fn
 
     def build_topic_draft_prompt(
@@ -122,6 +123,7 @@ class PiAgentTopicLoop:
         min_topics: int,
         max_topics: int,
         recommended_topics: int,
+        min_segments_per_topic: int,
     ) -> List[Dict[str, str]]:
         return _build_segmentation_prompt(
             blocks,
@@ -129,25 +131,7 @@ class PiAgentTopicLoop:
             max_topics,
             recommended_topics,
             self.title_max_chars,
-        )
-
-    def build_topic_retry_prompt(
-        self,
-        blocks: List["TopicBlock"],
-        draft_payload: dict[str, Any],
-        issues: List[dict[str, Any]],
-        min_topics: int,
-        max_topics: int,
-        recommended_topics: int,
-    ) -> List[Dict[str, str]]:
-        return _build_segmentation_retry_prompt(
-            blocks,
-            draft_payload,
-            issues,
-            min_topics,
-            max_topics,
-            recommended_topics,
-            self.title_max_chars,
+            min_segments_per_topic,
         )
 
     def run(self, segments: List["TopicSegment"]) -> TopicAgentLoopResult:
@@ -155,11 +139,15 @@ class PiAgentTopicLoop:
             raise RuntimeError("Topic segmentation requires non-empty segments.")
 
         blocks = _build_candidate_blocks(segments, self.recommended_topics)
-        resolved_max_topics = max(1, min(self.max_topics, len(blocks)))
+        max_topics_by_segments = max(1, len(segments) // TOPIC_MIN_SEGMENTS_PER_CHAPTER)
+        resolved_max_topics = max(1, min(self.max_topics, len(blocks), max_topics_by_segments))
         resolved_min_topics = max(1, min(self.min_topics, resolved_max_topics))
         resolved_recommended_topics = max(
             resolved_min_topics,
             min(self.recommended_topics, resolved_max_topics),
+        )
+        min_segments_per_topic = (
+            TOPIC_MIN_SEGMENTS_PER_CHAPTER if len(segments) >= TOPIC_MIN_SEGMENTS_PER_CHAPTER else 1
         )
 
         raw_draft = self._run_json_prompt(
@@ -168,6 +156,7 @@ class PiAgentTopicLoop:
                 resolved_min_topics,
                 resolved_max_topics,
                 resolved_recommended_topics,
+                min_segments_per_topic,
             )
         )
         strict_payload = self._coerce_payload(raw_draft, blocks, segments)
@@ -176,49 +165,22 @@ class PiAgentTopicLoop:
             segments,
             resolved_min_topics,
             resolved_max_topics,
+            min_segments_per_topic=min_segments_per_topic,
         )
-        final_source = "draft"
-        attempts = 1
-        raw_retry: dict[str, Any] | None = None
-
-        if issues and self.max_attempts > 1:
-            raw_retry = self._run_json_prompt(
-                self.build_topic_retry_prompt(
-                    blocks,
-                    raw_draft,
-                    issues,
-                    resolved_min_topics,
-                    resolved_max_topics,
-                    resolved_recommended_topics,
-                )
-            )
-            strict_payload = self._coerce_payload(raw_retry, blocks, segments)
-            issues = self._build_validation_issues(
-                strict_payload,
-                segments,
-                resolved_min_topics,
-                resolved_max_topics,
-            )
-            final_source = "retry"
-            attempts = 2
-
         if issues:
-            raise RuntimeError(
-                "Topic segmentation output failed validation: "
-                + json.dumps({"issues": issues}, ensure_ascii=False)
-            )
+            raise RuntimeError("; ".join(str(issue.get("message") or "").strip() for issue in issues))
 
         plan, titles = _parse_topic_plan_payload(strict_payload)
         topics = _compose_topics(plan, titles, segments)
         return TopicAgentLoopResult(
             payload={"topics": topics},
             debug={
-                "iterations": attempts,
+                "iterations": 1,
                 "blocks": [_topic_block_to_dict(block) for block in blocks],
                 "draft": raw_draft,
-                "retry": raw_retry,
                 "final": strict_payload,
-                "final_source": final_source,
+                "final_source": "draft",
+                "issues": issues,
             },
         )
 
@@ -258,6 +220,8 @@ class PiAgentTopicLoop:
         segments: List["TopicSegment"],
         min_topics: int,
         max_topics: int,
+        *,
+        min_segments_per_topic: int,
     ) -> List[dict[str, Any]]:
         return _find_topic_plan_issues(
             payload,
@@ -265,6 +229,7 @@ class PiAgentTopicLoop:
             min_topics,
             max_topics,
             self.title_max_chars,
+            min_segments_per_topic=min_segments_per_topic,
         )
 
 
@@ -525,6 +490,7 @@ def _build_segmentation_prompt(
     max_topics: int,
     recommended_topics: int,
     title_max_chars: int,
+    min_segments_per_topic: int,
 ) -> List[Dict[str, str]]:
     recommended_title_chars = _recommended_title_chars(title_max_chars)
     accepted_title_chars = _accepted_title_chars(title_max_chars)
@@ -545,64 +511,47 @@ def _build_segmentation_prompt(
         "你的任务不是给这段内容写摘要，而是给视频章节命名。"
         "请站在视频目录/章节导航的视角思考：这一章放在视频里应该叫什么。"
         "只输出严格 JSON，不要解释。"
-        '格式：{"topics":[{"block_ids":[1,2],"title":"..."}]}。'
+        '格式：{"topics":[{"block_range":"1-3","title":"..."}]}。'
+        'block_range 必须是连续范围，写成 "起始-结束"；如果只有一个 block，可以写 "4"。'
         f"要求：至少 {min_topics} 章，最多 {max_topics} 章，推荐 {recommended_topics} 章左右；"
         "必须覆盖全部 block；每章连续、按时间顺序、不能跳号、不能重叠；"
         "每章主题单一，优先在语义自然切换处断开。"
+        f"若素材总句数足够，每章至少包含 {min_segments_per_topic} 句连续字幕（segment）。"
         "title 必须是章节名，不是内容总结句。"
         "title 要像视频上屏章节标题，能让人一眼知道这一章在讲什么。"
         "优先用用户会记住的说法，可以带结论、动作、痛点或亮点。"
         "禁止：章节1、要点2、项目背景、核心功能、使用流程、产品介绍、总结回顾。"
-        f"title 建议 {recommended_title_chars} 字内，{accepted_title_chars} 字内可接受。"
+        f"title 尽量控制在 {recommended_title_chars} 字内，一定不要超过 {accepted_title_chars} 字。"
         "title 不要半句话，不要残句，不要以“的/了/和/及/与”结尾。"
     )
     user = f"候选块输入：\n{payload}\n\n请仅输出 topics JSON："
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def _build_segmentation_retry_prompt(
-    blocks: List[TopicBlock],
-    draft_payload: dict[str, Any],
-    issues: List[dict[str, Any]],
-    min_topics: int,
-    max_topics: int,
-    recommended_topics: int,
-    title_max_chars: int,
-) -> List[Dict[str, str]]:
-    lines = [
-        (
-            f"[B{block.block_id:02d}]"
-            f"[{block.start:.2f}-{block.end:.2f}]"
-            f"[S{block.segment_ids[0]:04d}-S{block.segment_ids[-1]:04d}] "
-            f"{block.text}"
-        )
-        for block in blocks
-    ]
-    payload = "\n".join(lines)
-    system = (
-        "你是短视频口播分章器。"
-        "上一版 topics 没通过校验。"
-        "请根据错误列表重写完整结果。"
-        "你的任务不是给每章写摘要，而是给视频章节命名。"
-        "请用适合视频章节导航的标题重写，不要写成内容概括句。"
-        "只输出严格 JSON，不要解释。"
-        '格式：{"topics":[{"block_ids":[1,2],"title":"..."}]}。'
-    )
-    user = (
-        f"min_topics={min_topics}, max_topics={max_topics}, recommended_topics={recommended_topics}, "
-        f"title_max_chars={title_max_chars}\n"
-        "候选块输入：\n"
-        f"{payload}\n\n"
-        "上一版输出：\n"
-        f"{json.dumps(draft_payload, ensure_ascii=False)}\n\n"
-        "校验问题：\n"
-        f"{json.dumps(issues, ensure_ascii=False)}\n\n"
-        "请重写完整的 topics JSON："
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+def _parse_range_ids(value: Any) -> List[int]:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        normalized = int(value)
+        return [normalized] if normalized >= 1 else []
+    if not isinstance(value, str):
+        return []
+    match = ID_RANGE_PATTERN.match(value.strip())
+    if not match:
+        return []
+    start_id = int(match.group(1))
+    end_raw = match.group(2)
+    end_id = int(end_raw) if end_raw is not None else start_id
+    if end_id < start_id:
+        return []
+    return list(range(start_id, end_id + 1))
 
 
-def _parse_ids(item: Dict[str, Any], list_key: str, start_key: str, end_key: str) -> List[int]:
+def _parse_ids(
+    item: Dict[str, Any],
+    list_key: str,
+    start_key: str,
+    end_key: str,
+    range_keys: Tuple[str, ...] = (),
+) -> List[int]:
     ids_raw = item.get(list_key)
     if isinstance(ids_raw, list):
         ids: List[int] = []
@@ -611,6 +560,11 @@ def _parse_ids(item: Dict[str, Any], list_key: str, start_key: str, end_key: str
                 ids.append(int(value))
             except Exception:
                 continue
+        if ids:
+            return ids
+
+    for range_key in range_keys:
+        ids = _parse_range_ids(item.get(range_key))
         if ids:
             return ids
 
@@ -640,7 +594,13 @@ def _parse_topic_plan_payload(data: dict[str, Any]) -> Tuple[List[List[int]], Li
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        ids = _parse_ids(item, "segment_ids", "start_segment_id", "end_segment_id")
+        ids = _parse_ids(
+            item,
+            "segment_ids",
+            "start_segment_id",
+            "end_segment_id",
+            ("block_range", "segment_range", "range"),
+        )
         if ids:
             plan.append(ids)
             titles.append(_clean_text(str(item.get("title") or "")) or f"章节{idx}")
@@ -659,7 +619,13 @@ def _parse_block_plan_payload(data: dict[str, Any]) -> Tuple[List[List[int]], Li
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
-        ids = _parse_ids(item, "block_ids", "start_block_id", "end_block_id")
+        ids = _parse_ids(
+            item,
+            "block_ids",
+            "start_block_id",
+            "end_block_id",
+            ("block_range", "range"),
+        )
         if ids:
             plan.append(ids)
             titles.append(_clean_text(str(item.get("title") or "")) or f"章节{idx}")
@@ -670,7 +636,13 @@ def _parse_block_plan_payload(data: dict[str, Any]) -> Tuple[List[List[int]], Li
 
 def _build_topic_plan_payload(plan: List[List[int]], titles: List[str]) -> dict[str, Any]:
     return {
-        "topics": [{"segment_ids": ids, "title": title} for ids, title in zip(plan, titles)],
+        "topics": [
+            {
+                "block_range": str(ids[0]) if ids[0] == ids[-1] else f"{ids[0]}-{ids[-1]}",
+                "title": title,
+            }
+            for ids, title in zip(plan, titles)
+        ],
     }
 
 
@@ -743,6 +715,7 @@ def _find_topic_plan_issues(
     title_max_chars: int,
     *,
     ignore_title_length: bool = False,
+    min_segments_per_topic: int = TOPIC_MIN_SEGMENTS_PER_CHAPTER,
 ) -> List[dict[str, Any]]:
     try:
         plan, titles = _parse_topic_plan_payload(payload)
@@ -766,13 +739,6 @@ def _find_topic_plan_issues(
         issues.append({"topic_index": 0, "message": f"这些字幕编号被重复分配: {duplicate_ids}"})
     if extra_ids:
         issues.append({"topic_index": 0, "message": f"这些字幕编号不在输入里: {extra_ids}"})
-    if len(plan) > max_topics:
-        issues.append(
-            {
-                "topic_index": 0,
-                "message": f"分章数量过多：当前 {len(plan)} 章，上限 {max_topics} 章。",
-            }
-        )
     if len(plan) < max(1, int(min_topics)):
         issues.append(
             {
@@ -780,23 +746,20 @@ def _find_topic_plan_issues(
                 "message": f"分章数量过少：当前 {len(plan)} 章，至少需要 {min_topics} 章。",
             }
         )
+    if len(segments) >= min_segments_per_topic:
+        for index, ids in enumerate(plan, start=1):
+            if len(ids) < min_segments_per_topic:
+                issues.append(
+                    {
+                        "topic_index": index,
+                        "message": f"第 {index} 章只有 {len(ids)} 句，至少需要 {min_segments_per_topic} 句字幕。",
+                    }
+                )
     for index, title in enumerate(titles, start=1):
-        recommended_limit = _recommended_title_chars(title_max_chars)
-        accepted_limit = _accepted_title_chars(title_max_chars)
         value = _clean_text(title)
         if not value:
             issues.append({"topic_index": index, "message": "标题为空。"})
             continue
-        if not ignore_title_length and len(value) > accepted_limit:
-            issues.append(
-                {
-                    "topic_index": index,
-                    "message": (
-                        f"标题过长：当前 {len(value)} 字，建议 {recommended_limit} 字内，"
-                        f"接受上限 {accepted_limit} 字。"
-                    ),
-                }
-            )
         if PLACEHOLDER_TITLE_PATTERN.match(value) or GENERIC_SECTION_TITLE_PATTERN.match(value):
             issues.append({"topic_index": index, "message": "标题仍是空泛占位词。"})
         if BAD_TITLE_ENDING_PATTERN.search(value):
@@ -812,6 +775,7 @@ def _is_topic_plan_valid(
     title_max_chars: int,
     *,
     ignore_title_length: bool = False,
+    min_segments_per_topic: int = TOPIC_MIN_SEGMENTS_PER_CHAPTER,
 ) -> bool:
     return not _find_topic_plan_issues(
         payload,
@@ -820,6 +784,7 @@ def _is_topic_plan_valid(
         max_topics,
         title_max_chars,
         ignore_title_length=ignore_title_length,
+        min_segments_per_topic=min_segments_per_topic,
     )
 
 
@@ -838,11 +803,9 @@ def _compose_topics(
         topics.append(
             {
                 "title": title,
-                "segment_ids": ids,
+                "block_range": str(ids[0]) if ids[0] == ids[-1] else f"{ids[0]}-{ids[-1]}",
                 "start": round(chosen[0].start, 2),
                 "end": round(chosen[-1].end, 2),
-                "start_segment_id": ids[0],
-                "end_segment_id": ids[-1],
             }
         )
     return topics

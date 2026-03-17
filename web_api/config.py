@@ -54,6 +54,7 @@ class Settings:
     llm_timeout: int
     llm_temperature: float
     llm_max_tokens: int | None
+    auto_edit_llm_concurrency: int
     topic_max_topics: int
     topic_title_max_chars: int
     cut_merge_gap: float
@@ -197,6 +198,7 @@ def get_settings() -> Settings:
         llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
         llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
         llm_max_tokens=int(llm_max_tokens_raw) if llm_max_tokens_raw else None,
+        auto_edit_llm_concurrency=max(1, int(os.getenv("AUTO_EDIT_LLM_CONCURRENCY", "4"))),
         topic_max_topics=min(6, int(os.getenv("TOPIC_MAX_TOPICS", "5"))),
         topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
         cut_merge_gap=float(os.getenv("CUT_MERGE_GAP", "0.0")),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -69,6 +70,13 @@ class DashScopeFiletransClient:
             context=context,
             use_file_urls=False,
         )
+        logging.info(
+            "[asr] dashscope submit start model=%s file_url_prefix=%s lang_hints=%s use_oss_resolve=%s",
+            self._config.model,
+            str(file_url)[:80],
+            language_hints,
+            use_oss_resource_resolve,
+        )
         extra_headers = {}
         if use_oss_resource_resolve:
             extra_headers["X-DashScope-OssResourceResolve"] = "enable"
@@ -134,6 +142,7 @@ class DashScopeFiletransClient:
         return payload
 
     def poll(self, task_id: str) -> FiletransTask:
+        logging.info("[asr] dashscope poll task_id=%s", task_id)
         data = self._get_json(f"/api/v1/tasks/{task_id}")
         output = data.get("output")
         if not isinstance(output, dict):
@@ -153,8 +162,10 @@ class DashScopeFiletransClient:
         )
 
     def load_result(self, transcription_url: str) -> FiletransResult:
+        logging.info("[asr] dashscope fetch result url=%s", transcription_url)
         payload = self._open_json_url(transcription_url, headers={})
         segments = self._parse_segments(payload)
+        logging.info("[asr] dashscope result parsed segments=%s", len(segments))
         return FiletransResult(task_id="", segments=segments)
 
     def _parse_segments(self, payload: dict[str, Any]) -> list[FiletransSegment]:
@@ -403,6 +414,7 @@ class DashScopeFiletransClient:
         extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
+        logging.info("[asr] dashscope http POST %s bytes=%s", self._resolve(path), len(body))
         req = urllib.request.Request(
             url=self._resolve(path),
             data=body,
@@ -419,6 +431,7 @@ class DashScopeFiletransClient:
             raise RuntimeError(f"DashScope submit failed: {exc}") from exc
 
     def _get_json(self, path: str) -> dict[str, Any]:
+        logging.info("[asr] dashscope http GET %s", self._resolve(path))
         req = urllib.request.Request(
             url=self._resolve(path),
             headers=self._headers(),
@@ -434,6 +447,7 @@ class DashScopeFiletransClient:
             raise RuntimeError(f"DashScope poll failed: {exc}") from exc
 
     def _open_json_url(self, url: str, *, headers: dict[str, str]) -> dict[str, Any]:
+        logging.info("[asr] dashscope open result url=%s", url)
         req = urllib.request.Request(url=url, headers=headers, method="GET")
         try:
             with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:

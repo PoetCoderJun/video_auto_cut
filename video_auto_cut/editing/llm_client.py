@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import re
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -84,7 +83,6 @@ def build_llm_config(
         "timeout": int(timeout),
         "temperature": float(temperature),
         "max_tokens": int(max_tokens) if max_tokens is not None else None,
-        "request_retries": max(1, int(os.environ.get("LLM_REQUEST_RETRIES", "3"))),
         "enable_thinking": (
             bool(enable_thinking)
             if enable_thinking is not None
@@ -92,28 +90,6 @@ def build_llm_config(
         ),
     }
     return cfg
-
-
-def _is_retryable_llm_error(exc: BaseException) -> bool:
-    status_code = int(getattr(exc, "status_code", 0) or 0)
-    if status_code == 429 or 500 <= status_code < 600:
-        return True
-    text = str(exc).lower()
-    for token in (
-        "timed out",
-        "temporary failure",
-        "connection reset",
-        "connection aborted",
-        "unexpected eof",
-        "eof occurred",
-        "tls",
-        "ssl",
-        "remote end closed connection",
-        "server disconnected",
-    ):
-        if token in text:
-            return True
-    return False
 
 
 def _client_cache_key(cfg: Dict[str, Any]) -> Tuple[str, str]:
@@ -164,30 +140,20 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
     if max_tokens is not None:
         request_kwargs["max_tokens"] = int(max_tokens)
 
-    retries = max(1, int(cfg.get("request_retries", 3)))
-    response: Any = None
-    for attempt in range(1, retries + 1):
-        try:
-            response = client.chat.completions.create(
-                timeout=cfg.get("timeout", 60),
-                **request_kwargs,
-            )
-            break
-        except Exception as exc:
-            retryable = _is_retryable_llm_error(exc)
-            if retryable and attempt < retries:
-                delay = min(8.0, 0.8 * (2 ** (attempt - 1)))
-                logging.warning(
-                    "LLM request transient failure (attempt %d/%d), retrying in %.1fs: %s",
-                    attempt,
-                    retries,
-                    delay,
-                    exc,
-                )
-                time.sleep(delay)
-                continue
-            logging.error(f"LLM request failed: {exc}")
-            raise
+    logging.info(
+        "LLM request start model=%s attempt=1/1 message_count=%d",
+        model,
+        len(messages),
+    )
+    try:
+        response = client.chat.completions.create(
+            timeout=cfg.get("timeout", 60),
+            **request_kwargs,
+        )
+        logging.info("LLM request success model=%s attempt=1/1", model)
+    except Exception as exc:
+        logging.error(f"LLM request failed: {exc}")
+        raise
 
     try:
         if response is None:

@@ -56,6 +56,10 @@ export type FittedTextBox = {
   truncated: boolean;
 };
 
+export type AdaptiveFittedTextBox = FittedTextBox & {
+  maxLines: number;
+};
+
 export type FitSingleLineTextInput = {
   text: string;
   maxWidth: number;
@@ -96,6 +100,35 @@ export type FitUniformSingleLineTextInput = {
 export type FittedUniformSingleLineText = {
   fontSize: number;
   labels: Array<{visible: boolean}>;
+};
+
+export type FitUniformTextBoxItem = {
+  text: string;
+  maxWidth: number;
+};
+
+export type FitUniformTextBoxInput = {
+  items: FitUniformTextBoxItem[];
+  baseFontSize: number;
+  minFontSize: number;
+  maxLines: number;
+  horizontalPadding?: number;
+  maxFontSize?: number;
+  maxHeight?: number;
+  lineHeight?: number;
+  targetWidthRatio?: number;
+  fontWeight?: number;
+  fontFamily?: string;
+};
+
+export type FittedUniformTextBox = {
+  fontSize: number;
+  labels: Array<{
+    visible: boolean;
+    text: string;
+    lines: string[];
+    truncated: boolean;
+  }>;
 };
 
 const REFERENCE_WIDTH = 1920;
@@ -559,6 +592,48 @@ export const fitTextToBox = ({
   };
 };
 
+export const fitAdaptiveTextToBox = ({
+  preferredMaxLines = 2,
+  fallbackMaxLines = 3,
+  finalMaxLines = 4,
+  ...rest
+}: Omit<FitTextToBoxInput, "maxLines"> & {
+  preferredMaxLines?: number;
+  fallbackMaxLines?: number;
+  finalMaxLines?: number;
+}): AdaptiveFittedTextBox => {
+  const preferred = fitTextToBox({
+    ...rest,
+    maxLines: preferredMaxLines,
+  });
+  if (!preferred.truncated || fallbackMaxLines <= preferredMaxLines) {
+    return {
+      ...preferred,
+      maxLines: preferredMaxLines,
+    };
+  }
+
+  const fallback = fitTextToBox({
+    ...rest,
+    maxLines: fallbackMaxLines,
+  });
+  if (!fallback.truncated || finalMaxLines <= fallbackMaxLines) {
+    return {
+      ...fallback,
+      maxLines: fallbackMaxLines,
+    };
+  }
+
+  const final = fitTextToBox({
+    ...rest,
+    maxLines: finalMaxLines,
+  });
+  return {
+    ...final,
+    maxLines: finalMaxLines,
+  };
+};
+
 export const fitSingleLineText = ({
   text,
   maxWidth,
@@ -746,6 +821,121 @@ export const fitUniformSingleLineText = ({
   return {
     fontSize: best > 0 ? best : resolvedMinFontSize,
     labels: resolvedLabels.map(() => ({visible: true})),
+  };
+};
+
+export const fitUniformTextToBox = ({
+  items,
+  baseFontSize,
+  minFontSize,
+  maxLines,
+  horizontalPadding = 0,
+  maxFontSize,
+  maxHeight,
+  lineHeight = 1.2,
+  targetWidthRatio = 0.82,
+  fontWeight = 400,
+  fontFamily = DEFAULT_FONT_FAMILY,
+}: FitUniformTextBoxInput): FittedUniformTextBox => {
+  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
+  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedMaxLines = Math.max(1, Math.floor(maxLines));
+  const resolvedTargetWidthRatio = clamp(targetWidthRatio, 0.55, 1);
+  const resolvedHeightDrivenMaxFontSize =
+    maxHeight && Number.isFinite(maxHeight)
+      ? atLeast(
+          Math.floor(Math.max(0, maxHeight) / Math.max(1, lineHeight * resolvedMaxLines)),
+          resolvedMinFontSize
+        )
+      : Number.POSITIVE_INFINITY;
+  const explicitMaxFontSize =
+    maxFontSize !== undefined
+      ? atLeast(round(maxFontSize), resolvedMinFontSize)
+      : Number.POSITIVE_INFINITY;
+
+  const resolvedItems = items.map((item) => {
+    const normalized = (item.text || "").trim();
+    const resolvedMaxWidth = Math.max(0, item.maxWidth - Math.max(0, horizontalPadding) * 2);
+    const targetWidth = Math.max(1, resolvedMaxWidth * resolvedTargetWidthRatio);
+    const layoutAtMin = normalized
+      ? layoutTextLines({
+          text: normalized,
+          maxWidth: targetWidth,
+          fontSize: resolvedMinFontSize,
+          fontWeight,
+          fontFamily,
+        })
+      : [""];
+
+    return {
+      text: normalized,
+      visible: Boolean(normalized) && resolvedMaxWidth > 0,
+      targetWidth,
+      fitsAtMin: Boolean(normalized) && layoutAtMin.length <= resolvedMaxLines,
+    };
+  });
+
+  if (resolvedItems.length === 0) {
+    return {fontSize: resolvedBaseFontSize, labels: []};
+  }
+
+  let low = resolvedMinFontSize;
+  const resolvedUpperBound = Math.min(resolvedHeightDrivenMaxFontSize, explicitMaxFontSize);
+  let high = Math.max(
+    resolvedMinFontSize,
+    Number.isFinite(resolvedUpperBound)
+      ? atLeast(round(resolvedUpperBound), resolvedBaseFontSize)
+      : resolvedBaseFontSize
+  );
+  let best = resolvedItems.every((item) => !item.visible || item.fitsAtMin)
+    ? resolvedMinFontSize
+    : 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const fitsAll = resolvedItems.every((item) => {
+      if (!item.visible) return true;
+      return (
+        layoutTextLines({
+          text: item.text,
+          maxWidth: item.targetWidth,
+          fontSize: mid,
+          fontWeight,
+          fontFamily,
+        }).length <= resolvedMaxLines
+      );
+    });
+    if (fitsAll) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  const resolvedFontSize = best > 0 ? best : resolvedMinFontSize;
+  return {
+    fontSize: resolvedFontSize,
+    labels: resolvedItems.map((item) => {
+      if (!item.visible) {
+        return {visible: false, text: "", lines: [], truncated: false};
+      }
+      const layout = fitTextToBox({
+        text: item.text,
+        maxWidth: item.targetWidth,
+        baseFontSize: resolvedFontSize,
+        minFontSize: resolvedFontSize,
+        maxLines: resolvedMaxLines,
+        fontWeight,
+        fontFamily,
+      });
+      return {
+        visible: true,
+        text: layout.text,
+        lines: layout.lines,
+        truncated: layout.truncated,
+      };
+    }),
   };
 };
 

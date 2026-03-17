@@ -3,8 +3,13 @@ import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 
 import {
-  fitSingleLineText,
+  applyOverlayScaleToTypography,
+  type ProgressLabelMode,
+} from "./overlay-controls";
+import {
   fitUniformSingleLineText,
+  fitUniformTextToBox,
+  fitAdaptiveTextToBox,
   fitTextToBox,
   getResponsiveOverlayTypography,
   OVERLAY_FONT_FAMILY,
@@ -44,6 +49,10 @@ export type StitchVideoWebProps = {
   width: number;
   height: number;
   subtitleTheme?: SubtitleTheme;
+  subtitleScale?: number;
+  progressScale?: number;
+  chapterScale?: number;
+  progressLabelMode?: ProgressLabelMode;
 };
 
 type TimelineSegment = {
@@ -71,22 +80,44 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   width,
   height,
   subtitleTheme = "box-white-on-black",
+  subtitleScale = 1,
+  progressScale = 1,
+  chapterScale = 1,
+  progressLabelMode = "auto",
 }) => {
   const frame = useCurrentFrame();
-  const typography = useMemo(() => getResponsiveOverlayTypography({width, height}), [width, height]);
+  const normalizedChapterScale = Math.max(0.7, Math.min(chapterScale, 1.45));
+  const baseTypography = useMemo(() => getResponsiveOverlayTypography({width, height}), [width, height]);
+  const typography = useMemo(
+    () => applyOverlayScaleToTypography(baseTypography, {subtitleScale, progressScale, chapterScale}),
+    [baseTypography, chapterScale, progressScale, subtitleScale]
+  );
+  const isPortrait = height > width;
   const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
   const chapterCardMaxWidth = Math.min(
     chapterWrapWidth,
     Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
   );
   const chapterCardMinWidth = Math.min(typography.chapterCardMinWidth, chapterCardMaxWidth);
-  const chapterTitleMaxWidth = Math.max(1, chapterCardMaxWidth - typography.chapterCardPaddingX * 2);
+  const chapterCardBaseWidth = Math.round(chapterWrapWidth * (isPortrait ? 0.58 : 0.5));
+  const chapterCardWidth = Math.max(
+    chapterCardMinWidth,
+    Math.min(chapterCardMaxWidth, Math.round(chapterCardBaseWidth * normalizedChapterScale))
+  );
+  const chapterTitleMaxWidth = Math.max(1, chapterCardWidth - typography.chapterCardPaddingX * 2);
+  const chapterCardMinHeight =
+    typography.chapterCardPaddingY * 2 +
+    Math.round(typography.chapterMetaFontSize * 1.2) +
+    typography.chapterGap +
+    Math.round(typography.chapterTitleFontSize * 2.4);
   const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
   const subtitleTextMaxWidth = Math.max(
     1,
     width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio - typography.subtitlePaddingX * 2
   );
-  const isPortrait = height > width;
+  const allowWrappedProgressLabels =
+    progressLabelMode === "double" || (progressLabelMode === "auto" && isPortrait);
+  const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
   const subtitleRef = useRef<HTMLDivElement | null>(null);
 
   const scaledStyles = useMemo(() => {
@@ -108,16 +139,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         fontSize: typography.subtitleFontSize,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
-        lineHeight: 1.35,
-        lineBreak: "strict" as const,
+        lineHeight: 1.5,
+        lineBreak: "auto" as const,
         fontKerning: "none" as const,
         fontVariantLigatures: "none" as const,
         textAlign: "center" as const,
         textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
         whiteSpace: "normal" as const,
-        textWrap: "balance" as const,
-        wordBreak: "keep-all" as const,
-        overflowWrap: "normal" as const,
+        wordBreak: "normal" as const,
+        overflowWrap: "anywhere" as const,
+        overflow: "hidden" as const,
         maxWidth: subtitleTextMaxWidth,
       },
       chapterWrap: {
@@ -131,8 +162,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         display: "inline-flex" as const,
         flexDirection: "column" as const,
         gap: typography.chapterGap,
-        minWidth: chapterCardMinWidth,
-        maxWidth: chapterCardMaxWidth,
+        width: chapterCardWidth,
+        minHeight: chapterCardMinHeight,
         padding: `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`,
         borderRadius: typography.chapterCardRadius,
         backgroundColor: "rgba(8, 12, 20, 0.74)",
@@ -195,14 +226,21 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         fontSize: typography.progressLabelFontSize,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
-        lineHeight: 1.2,
-        whiteSpace: "nowrap" as const,
+        lineHeight: progressLabelLineHeight,
+        whiteSpace: allowWrappedProgressLabels ? "pre-line" as const : "nowrap" as const,
         overflow: "hidden" as const,
         textOverflow: "ellipsis" as const,
+        textAlign: "center" as const,
         color: "rgba(238, 244, 255, 0.9)",
       },
     };
-  }, [chapterCardMaxWidth, chapterCardMinWidth, typography]);
+  }, [
+    allowWrappedProgressLabels,
+    chapterCardMinHeight,
+    chapterCardWidth,
+    progressLabelLineHeight,
+    typography,
+  ]);
 
   const wrappedCaptions = useMemo(
     () =>
@@ -261,16 +299,21 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const t = mappedTimelineTime;
   const activeCaption = wrappedCaptions.find((caption) => t >= caption.start && t < caption.end);
   const activeCaptionLayout = activeCaption
-    ? fitTextToBox({
+    ? fitAdaptiveTextToBox({
         text: activeCaption.displayText,
         maxWidth: subtitleTextMaxWidth,
         baseFontSize: typography.subtitleFontSize,
         minFontSize: Math.max(isPortrait ? 23 : 26, Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))),
-        maxLines: 2,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
       })
     : null;
+  const subtitleMaxLines = activeCaptionLayout?.maxLines ?? 2;
+  const subtitleRenderText = activeCaption
+    ? activeCaptionLayout?.truncated
+      ? activeCaptionLayout.text
+      : activeCaption.displayText
+    : "";
   const subtitleInitialFontSize = activeCaptionLayout?.fontSize ?? typography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
     isPortrait ? 23 : 26,
@@ -284,19 +327,18 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
 
   useLayoutEffect(() => {
     const el = subtitleRef.current;
-    const text = activeCaption?.displayText ?? "";
+    const text = subtitleRenderText;
     if (!el || !text) {
       return;
     }
 
     let nextFontSize = subtitleInitialFontSize;
-    const maxLines = 2;
     el.style.fontSize = `${nextFontSize}px`;
 
     while (nextFontSize > subtitleMinFontSize) {
       const computed = window.getComputedStyle(el);
       const lineHeight = Number.parseFloat(computed.lineHeight) || nextFontSize * 1.35;
-      const allowedHeight = lineHeight * maxLines + 1;
+      const allowedHeight = lineHeight * subtitleMaxLines + 1;
       const fitsHeight = el.scrollHeight <= allowedHeight;
       const fitsWidth = el.scrollWidth <= el.clientWidth + 1;
       if (fitsHeight && fitsWidth) {
@@ -310,10 +352,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       setResolvedSubtitleFontSize(nextFontSize);
     }
   }, [
-    activeCaption?.displayText,
+    subtitleRenderText,
     resolvedSubtitleFontSize,
     subtitleInitialFontSize,
     subtitleMinFontSize,
+    subtitleMaxLines,
     subtitleTextMaxWidth,
   ]);
 
@@ -356,7 +399,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     timelineSegments.length > 0 ? timelineSegments[timelineSegments.length - 1].cutEnd : 0;
   const totalDuration = Math.max(1, topicDurationEnd, captionDurationEnd, segmentDurationEnd);
   const progress = clamp(t / totalDuration);
-
   const topicSegments = useMemo(() => {
     const segmentsForLayout = normalizedTopics
       .map((topic, index) => {
@@ -386,37 +428,64 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         } => item !== null
       );
 
-    const uniformLabelFit = fitUniformSingleLineText({
-      items: segmentsForLayout.map((segment) => ({
-        text: segment.title,
-        maxWidth: segment.segmentWidth,
-      })),
-      baseFontSize: typography.progressLabelFontSize,
-      minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
-      maxFontSize: Math.max(
-        typography.progressLabelFontSize,
-        Math.floor(typography.progressHeight * 0.58)
-      ),
-      maxHeight: typography.progressHeight,
-      lineHeight: 1.2,
-      targetWidthRatio: 0.84,
-      horizontalPadding: typography.progressLabelPaddingX,
-      fontWeight: 700,
-      fontFamily: OVERLAY_FONT_FAMILY,
-    });
+    const uniformLabelFit = allowWrappedProgressLabels
+      ? fitUniformTextToBox({
+          items: segmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxLines: 2,
+          maxFontSize: Math.max(
+            typography.progressLabelFontSize,
+            Math.floor(typography.progressHeight / (progressLabelLineHeight * 2))
+          ),
+          maxHeight: typography.progressHeight,
+          lineHeight: progressLabelLineHeight,
+          targetWidthRatio: 0.9,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        })
+      : fitUniformSingleLineText({
+          items: segmentsForLayout.map((segment) => ({
+            text: segment.title,
+            maxWidth: segment.segmentWidth,
+          })),
+          baseFontSize: typography.progressLabelFontSize,
+          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+          maxFontSize: Math.max(
+            typography.progressLabelFontSize,
+            Math.floor(typography.progressHeight * 0.58)
+          ),
+          maxHeight: typography.progressHeight,
+          lineHeight: 1.2,
+          targetWidthRatio: 0.84,
+          horizontalPadding: typography.progressLabelPaddingX,
+          fontWeight: 700,
+          fontFamily: OVERLAY_FONT_FAMILY,
+        });
 
     return segmentsForLayout.map((segment, index) => ({
       ...segment,
       labelFit: {
         fontSize: uniformLabelFit.fontSize,
         visible: uniformLabelFit.labels[index]?.visible ?? false,
+        text:
+          allowWrappedProgressLabels
+            ? (uniformLabelFit.labels[index] as {text?: string} | undefined)?.text ?? segment.title
+            : segment.title,
       },
     }));
   }, [
+    allowWrappedProgressLabels,
     normalizedTopics,
+    progressLabelLineHeight,
     progressInnerWidth,
     totalDuration,
     typography.progressLabelFontSize,
+    typography.progressHeight,
     typography.progressLabelPaddingX,
   ]);
 
@@ -498,7 +567,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
             fontSize: resolvedSubtitleFontSize,
           }}
         >
-          {activeCaption ? activeCaption.displayText : ""}
+          {subtitleRenderText}
         </div>
       </div>
 
@@ -523,7 +592,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
                   color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
                 }}
               >
-                {segment.labelFit.visible ? segment.title : ""}
+                {segment.labelFit.visible ? segment.labelFit.text : ""}
               </div>
             </div>
           ))}

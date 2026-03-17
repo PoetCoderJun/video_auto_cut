@@ -29,6 +29,7 @@ class DummyArgs:
         self.llm_timeout = 60
         self.llm_temperature = 0.0
         self.llm_max_tokens = None
+        self.auto_edit_llm_concurrency = 1
 
 
 def _sample_segments() -> list[dict[str, object]]:

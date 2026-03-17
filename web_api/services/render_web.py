@@ -26,6 +26,17 @@ EM_DASH_RE = re.compile(r"[—―－]")
 SPACE_RE = re.compile(r"\s+")
 
 
+def _is_soft_break_char(char: str) -> bool:
+    return char.isspace() or bool(BREAK_PUNCT_RE.search(char)) or char in {"/", "-", "·"}
+
+
+def _find_last_soft_break_pos(text: str) -> int:
+    for index in range(len(text) - 1, -1, -1):
+        if _is_soft_break_char(text[index]):
+            return index + 1 if not text[index].isspace() else index
+    return -1
+
+
 def _clamp(value: float, min_value: float, max_value: float) -> float:
     if value < min_value:
         return min_value
@@ -74,6 +85,52 @@ def _measure_text_width(text: str, font_size: int) -> float:
     return units * max(1, int(font_size)) * 1.02
 
 
+def _layout_text_lines(text: str, *, font_size: int, max_width: float) -> list[str]:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return [""]
+
+    if max_width <= 1:
+        return [normalized]
+
+    max_units = max(1.0, float(max_width) / max(1, int(font_size)) / 1.02)
+    lines: list[str] = []
+    line = ""
+    units = 0.0
+    last_break_pos = -1
+
+    for char in normalized:
+        if not line and char.isspace():
+            continue
+        char_units = _char_units(char)
+
+        while line and units + char_units > max_units:
+            break_pos = _find_last_soft_break_pos(line)
+            if 0 < break_pos < len(line):
+                head = line[:break_pos].rstrip()
+                tail = line[break_pos:].lstrip()
+                lines.append(head or line.rstrip() or line)
+                line = tail
+                units = sum(_char_units(item) for item in line)
+                last_break_pos = _find_last_soft_break_pos(line)
+            else:
+                lines.append(line.rstrip() or line)
+                line = ""
+                units = 0.0
+                last_break_pos = -1
+
+        if not line and char.isspace():
+            continue
+        line += char
+        units += char_units
+        if _is_soft_break_char(char):
+            last_break_pos = len(line)
+
+    if line:
+        lines.append(line.rstrip())
+    return lines if lines else [normalized]
+
+
 def _build_progress_typography(width: int, height: int) -> dict[str, int]:
     resolved_width = max(1, int(width))
     resolved_height = max(1, int(height))
@@ -119,11 +176,20 @@ def _fit_uniform_progress_font(
     progress_inner_width = max(1.0, float(width) - typography["progressInsetX"] * 2.0)
     total_duration = _resolve_total_duration(topics, captions, segments)
     base_font_size = int(typography["progressLabelFontSize"])
+    allow_wrapped_labels = int(height) > int(width)
+    max_lines = 2 if allow_wrapped_labels else 1
+    line_height = 1.08 if allow_wrapped_labels else 1.2
     readable_min_font = max(12, math.floor(base_font_size * 0.45))
     resolved_min_font = max(readable_min_font, int(min_font_size or readable_min_font))
-    max_font_size = max(base_font_size, math.floor(typography["progressHeight"] * 0.58))
+    max_font_size = max(
+        base_font_size,
+        max(
+            resolved_min_font,
+            math.floor(float(typography["progressHeight"]) / max(1.0, line_height * max_lines)),
+        ),
+    )
     horizontal_padding = max(0, int(typography["progressLabelPaddingX"]))
-    target_width_ratio = 0.84
+    target_width_ratio = 0.9 if allow_wrapped_labels else 0.84
     segment_metrics: list[dict[str, Any]] = []
 
     for topic in topics:
@@ -134,17 +200,28 @@ def _fit_uniform_progress_font(
         segment_width = progress_inner_width * (end_ratio - start_ratio)
         usable_width = max(0.0, segment_width - horizontal_padding * 2.0)
         normalized_title = str(topic.get("title") or "").strip()
-        min_width = _measure_text_width(normalized_title, resolved_min_font)
-        natural_width_at_one = max(0.0001, _measure_text_width(normalized_title, 1))
-        width_driven_max_font = _at_least(math.floor(usable_width / natural_width_at_one), resolved_min_font)
+        layout_at_min = _layout_text_lines(
+            normalized_title,
+            font_size=resolved_min_font,
+            max_width=max(1.0, usable_width * target_width_ratio),
+        )
+        natural_width_at_one = max(
+            0.0001,
+            max((_measure_text_width(line, 1) for line in layout_at_min if line), default=0.0001),
+        )
+        width_driven_max_font = _at_least(
+            math.floor(max(1.0, usable_width * target_width_ratio) / natural_width_at_one),
+            resolved_min_font,
+        )
         segment_metrics.append(
             {
                 "title": normalized_title,
                 "segment_width": segment_width,
                 "usable_width": usable_width,
                 "target_width": max(1.0, usable_width * target_width_ratio),
-                "visible": bool(normalized_title) and min_width <= usable_width,
+                "visible": bool(normalized_title) and len(layout_at_min) <= max_lines,
                 "resolved_max_font": min(width_driven_max_font, max_font_size),
+                "max_lines": max_lines,
             }
         )
 
@@ -171,7 +248,14 @@ def _fit_uniform_progress_font(
     best = (
         resolved_min_font
         if all(
-            _measure_text_width(str(item["title"]), resolved_min_font) <= float(item["target_width"])
+            len(
+                _layout_text_lines(
+                    str(item["title"]),
+                    font_size=resolved_min_font,
+                    max_width=float(item["target_width"]),
+                )
+            )
+            <= max_lines
             for item in segment_metrics
         )
         else 0
@@ -180,7 +264,14 @@ def _fit_uniform_progress_font(
     while low <= high:
         mid = math.floor((low + high) / 2)
         if all(
-            _measure_text_width(str(item["title"]), mid) <= float(item["target_width"])
+            len(
+                _layout_text_lines(
+                    str(item["title"]),
+                    font_size=mid,
+                    max_width=float(item["target_width"]),
+                )
+            )
+            <= max_lines
             for item in segment_metrics
         ):
             best = mid
@@ -206,7 +297,11 @@ def _build_render_title_budgets(
     resolved_cap = max(2, int(max_chars_cap))
     for item in fit_result.get("segment_metrics", []):
         target_width = max(1.0, float(item.get("target_width", 0.0)))
-        max_units = max(2, math.floor(target_width / max(1.0, target_font_size) / 1.02))
+        max_lines = max(1, int(item.get("max_lines", 1)))
+        max_units = max(
+            2,
+            math.floor(target_width / max(1.0, target_font_size) / 1.02) * max_lines,
+        )
         budgets.append(max(2, min(resolved_cap, max_units)))
     return budgets
 
@@ -331,35 +426,18 @@ def _rewrite_render_titles(
     ]
 
     chat_fn = chat_completion_fn or llm_utils.chat_completion
-    issues: list[str] = []
-    previous_raw = ""
-
-    for attempt in range(2):
-        attempt_messages = list(messages)
-        if attempt > 0:
-            retry_prompt = (
-                "上一版输出没有通过校验，请重写完整 titles JSON。\n"
-                f"上一版输出：{previous_raw}\n"
-                "问题：\n"
-                + "\n".join(f"- {issue}" for issue in issues)
-            )
-            attempt_messages.append({"role": "user", "content": retry_prompt})
-        try:
-            raw = chat_fn(llm_config, attempt_messages)
-            previous_raw = raw
-            data = llm_utils.extract_json(raw)
-            titles = data.get("titles")
-            if not isinstance(titles, list):
-                issues = ["输出缺少 titles 数组。"]
-                continue
-            normalized_titles = [str(item) for item in titles]
-            validated = _validate_render_titles(normalized_titles, budgets)
-            if validated:
-                return validated
-            issues = _find_render_title_issues(normalized_titles, budgets)
-        except Exception as exc:
-            logging.warning("Render title rewrite attempt %d failed: %s", attempt + 1, exc)
-            issues = [str(exc)]
+    try:
+        raw = chat_fn(llm_config, messages)
+        data = llm_utils.extract_json(raw)
+        titles = data.get("titles")
+        if not isinstance(titles, list):
+            return None
+        normalized_titles = [str(item) for item in titles]
+        validated = _validate_render_titles(normalized_titles, budgets)
+        if validated:
+            return validated
+    except Exception as exc:
+        logging.warning("Render title rewrite failed: %s", exc)
     return None
 
 
@@ -461,15 +539,6 @@ def build_web_render_config(
 
     resolved_fps = _resolve_fps(fps)
     resolved_width, resolved_height = _resolve_dimensions(width, height)
-    topics = _prepare_render_topics(
-        topics,
-        captions=captions,
-        segments=segments,
-        width=resolved_width,
-        height=resolved_height,
-        settings=settings,
-        chat_completion_fn=chat_completion_fn,
-    )
     segment_duration_in_frames = _duration_frames_from_segments(segments, resolved_fps)
     if segment_duration_in_frames > 0:
         duration_in_frames = segment_duration_in_frames

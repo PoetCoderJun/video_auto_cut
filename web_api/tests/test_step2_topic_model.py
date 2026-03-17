@@ -15,6 +15,7 @@ from video_auto_cut.editing.topic_segment import (
     _is_topic_plan_valid,
     _parse_segment_plan,
     _recommended_topic_budget,
+    _topic_count_range,
 )
 from video_auto_cut.orchestration.pipeline_service import PipelineOptions, build_topic_args
 from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
@@ -141,12 +142,45 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         self.assertEqual(plan, [[1, 2], [3, 4]])
 
+    def test_parse_segment_plan_reads_block_ranges(self) -> None:
+        plan = _parse_segment_plan(
+            """
+            {
+              "topics": [
+                {"block_range": "1-2", "title": "开场"},
+                {"block_range": "3-4", "title": "打法"}
+              ]
+            }
+            """
+        )
+
+        self.assertEqual(plan, [[1, 2], [3, 4]])
+
+    def test_parse_segment_plan_reads_segment_ranges(self) -> None:
+        plan = _parse_segment_plan(
+            """
+            {
+              "topics": [
+                {"segment_range": "1-2", "title": "开场"},
+                {"segment_range": "3-4", "title": "打法"}
+              ]
+            }
+            """
+        )
+
+        self.assertEqual(plan, [[1, 2], [3, 4]])
+
     def test_topic_segmentation_uses_simple_duration_bands(self) -> None:
         self.assertEqual(_recommended_topic_budget(90.0), 4)
         self.assertEqual(_recommended_topic_budget(240.0), 5)
         self.assertEqual(_recommended_topic_budget(420.0), 6)
 
-    def test_topic_plan_issues_flag_too_long_and_placeholder_titles(self) -> None:
+    def test_topic_segmentation_allows_up_to_six_topics_across_duration_bands(self) -> None:
+        self.assertEqual(_topic_count_range(90.0), (4, 4, 6))
+        self.assertEqual(_topic_count_range(240.0), (4, 5, 6))
+        self.assertEqual(_topic_count_range(420.0), (4, 6, 6))
+
+    def test_topic_plan_issues_flag_placeholder_titles(self) -> None:
         issues = _find_topic_plan_issues(
             {
                 "topics": [
@@ -165,11 +199,31 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             title_max_chars=6,
         )
 
-        self.assertEqual(len(issues), 2)
-        self.assertIn("过长", issues[0]["message"])
-        self.assertIn("占位词", issues[1]["message"])
+        self.assertTrue(any("占位词" in issue["message"] for issue in issues))
 
-    def test_topic_plan_can_ignore_length_in_main_loop_but_fail_strict_check(self) -> None:
+    def test_topic_plan_issues_flag_short_chapters(self) -> None:
+        issues = _find_topic_plan_issues(
+            {
+                "topics": [
+                    {"segment_ids": [1, 2], "title": "开场说明"},
+                    {"segment_ids": [3, 4, 5], "title": "解决方法"},
+                ]
+            },
+            segments=[
+                TopicSegment(segment_id=1, start=0.0, end=1.0, text="a"),
+                TopicSegment(segment_id=2, start=1.0, end=2.0, text="b"),
+                TopicSegment(segment_id=3, start=2.0, end=3.0, text="c"),
+                TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
+                TopicSegment(segment_id=5, start=4.0, end=5.0, text="e"),
+            ],
+            min_topics=1,
+            max_topics=5,
+            title_max_chars=6,
+        )
+
+        self.assertTrue(any("至少需要 3 句字幕" in issue["message"] for issue in issues))
+
+    def test_topic_plan_does_not_hard_fail_for_long_titles(self) -> None:
         payload = {
             "topics": [
                 {"segment_ids": [1, 2], "title": "这是一个很长的标题"},
@@ -187,20 +241,10 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 min_topics=1,
                 max_topics=5,
                 title_max_chars=6,
-                ignore_title_length=True,
-            )
-        )
-        self.assertFalse(
-            _is_topic_plan_valid(
-                payload,
-                segments,
-                min_topics=1,
-                max_topics=5,
-                title_max_chars=6,
             )
         )
 
-    def test_pi_agent_topic_loop_retries_once_after_validation_failure(self) -> None:
+    def test_pi_agent_topic_loop_fails_after_validation_failure(self) -> None:
         segments = [
             TopicSegment(segment_id=1, start=0.0, end=5.0, text="先讲开场"),
             TopicSegment(segment_id=2, start=5.0, end=10.0, text="继续开场"),
@@ -209,25 +253,13 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             TopicSegment(segment_id=5, start=20.0, end=25.0, text="展开方法"),
             TopicSegment(segment_id=6, start=25.0, end=30.0, text="方法收束"),
         ]
-        responses = iter(
-            [
-                """
-                {
-                  "topics": [
-                    {"segment_ids": [1, 2, 3, 4, 5, 6], "title": "整体方案"}
-                  ]
-                }
-                """,
-                """
-                {
-                  "topics": [
-                    {"segment_ids": [1, 2, 3], "title": "切入话题"},
-                    {"segment_ids": [4, 5, 6], "title": "解决方法"}
-                  ]
-                }
-                """,
-            ]
-        )
+        response = """
+        {
+          "topics": [
+            {"segment_ids": [1, 2, 3, 4, 5, 6], "title": "整体方案"}
+          ]
+        }
+        """
 
         loop = PiAgentTopicLoop(
             llm_config={"base_url": "https://example.com", "model": "test-model"},
@@ -235,34 +267,11 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             max_topics=6,
             recommended_topics=2,
             title_max_chars=6,
-            chat_completion_fn=lambda _config, _messages: next(responses),
+            chat_completion_fn=lambda _config, _messages: response,
         )
 
-        result = loop.run(segments)
-
-        self.assertEqual(result.debug["iterations"], 2)
-        self.assertEqual(result.debug["final_source"], "retry")
-        self.assertEqual(
-            result.payload["topics"],
-            [
-                {
-                    "title": "切入话题",
-                    "segment_ids": [1, 2, 3],
-                    "start": 0.0,
-                    "end": 15.0,
-                    "start_segment_id": 1,
-                    "end_segment_id": 3,
-                },
-                {
-                    "title": "解决方法",
-                    "segment_ids": [4, 5, 6],
-                    "start": 15.0,
-                    "end": 30.0,
-                    "start_segment_id": 4,
-                    "end_segment_id": 6,
-                },
-            ],
-        )
+        with self.assertRaisesRegex(RuntimeError, "分章数量过少"):
+            loop.run(segments)
 
     def test_topic_plan_issues_flag_too_few_topics_for_long_video(self) -> None:
         issues = _find_topic_plan_issues(
@@ -285,6 +294,115 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         )
 
         self.assertTrue(any("过少" in issue["message"] for issue in issues))
+
+    def test_topic_plan_can_exceed_max_topics_without_hard_failure(self) -> None:
+        issues = _find_topic_plan_issues(
+            {
+                "topics": [
+                    {"segment_ids": [1], "title": "开场说明"},
+                    {"segment_ids": [2], "title": "第一重点"},
+                    {"segment_ids": [3], "title": "第二重点"},
+                    {"segment_ids": [4], "title": "第三重点"},
+                    {"segment_ids": [5], "title": "第四重点"},
+                    {"segment_ids": [6], "title": "收尾总结"},
+                ]
+            },
+            segments=[
+                TopicSegment(segment_id=1, start=0.0, end=10.0, text="a"),
+                TopicSegment(segment_id=2, start=10.0, end=20.0, text="b"),
+                TopicSegment(segment_id=3, start=20.0, end=30.0, text="c"),
+                TopicSegment(segment_id=4, start=30.0, end=40.0, text="d"),
+                TopicSegment(segment_id=5, start=40.0, end=50.0, text="e"),
+                TopicSegment(segment_id=6, start=50.0, end=60.0, text="f"),
+            ],
+            min_topics=4,
+            max_topics=5,
+            title_max_chars=6,
+        )
+
+        self.assertFalse(any("过多" in issue["message"] for issue in issues))
+
+    def test_topic_loop_fails_when_draft_payload_cannot_be_coerced(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 7)
+        ]
+        response = """
+        {
+          "topics": [
+            {"block_ids": [1, 4], "title": "坏计划"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=2,
+            title_max_chars=6,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "block plan invalid"):
+            loop.run(segments)
+
+    def test_topic_loop_accepts_valid_draft_without_retry(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 7)
+        ]
+        response = """
+        {
+          "topics": [
+            {"segment_ids": [1, 2, 3], "title": "切入话题"},
+            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=2,
+            title_max_chars=6,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        result = loop.run(segments)
+
+        self.assertEqual(result.debug["iterations"], 1)
+        self.assertEqual(result.debug["final_source"], "draft")
+        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
+        self.assertEqual(result.debug["issues"], [])
+
+    def test_topic_loop_accepts_block_ranges_in_draft(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 7)
+        ]
+        response = """
+        {
+          "topics": [
+            {"block_range": "1-3", "title": "切入话题"},
+            {"block_range": "4-6", "title": "解决方法"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=2,
+            title_max_chars=6,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        result = loop.run(segments)
+
+        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
 
     def test_build_cut_srt_can_reindex_sequentially_for_topic_segmentation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

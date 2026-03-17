@@ -15,6 +15,10 @@
 ```bash
 python -m pip install -r requirements.txt
 cd web_frontend && npm install && cd ..
+pkill -f "uvicorn web_api.app:app" || true
+pkill -f "python -m web_api" || true
+pkill -f "next dev --hostname 127.0.0.1 --port 3000" || true
+WEB_DB_LOCAL_ONLY=1 ./scripts/start_web_mvp.sh debug
 ./scripts/start_web_mvp.sh
 ```
 

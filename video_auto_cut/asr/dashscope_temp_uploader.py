@@ -37,6 +37,7 @@ def upload_to_dashscope_temp(
     path = Path(file_path).expanduser().resolve()
     if not path.exists() or not path.is_file():
         raise RuntimeError(f"audio file not found: {path}")
+    logger.info("[asr] dashscope temp upload prepare path=%s size=%s", path, path.stat().st_size)
 
     policy_data = _get_upload_policy(
         api_key=api_key,
@@ -55,6 +56,7 @@ def _get_upload_policy(
     model_name: str,
 ) -> dict[str, Any]:
     url = f"{base_url}/api/v1/uploads?action=getPolicy&model={model_name}"
+    logger.info("[asr] dashscope getPolicy start model=%s url=%s", model_name, url)
     req = urllib.request.Request(
         url=url,
         headers={
@@ -138,6 +140,12 @@ def _upload_file_to_temp_oss(policy_data: dict[str, Any], file_path: Path) -> st
             "Content-Length": str(len(body)),
         },
         method="POST",
+    )
+    logger.info(
+        "[asr] dashscope temp oss upload start host=%s key=%s bytes=%s",
+        upload_host,
+        key,
+        len(body),
     )
     try:
         with urllib.request.urlopen(req, timeout=600) as resp:

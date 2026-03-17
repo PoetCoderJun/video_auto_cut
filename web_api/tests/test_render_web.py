@@ -69,6 +69,27 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         self.assertLess(fit["font_size"], fit["base_font_size"])
         self.assertLess(fit["font_size"], math.floor(fit["base_font_size"] * 0.8))
 
+    def test_uniform_progress_font_allows_two_lines_in_portrait(self) -> None:
+        topics = [
+            {"title": "为什么开头会拖沓", "start": 0.0, "end": 6.0},
+            {"title": "怎样保留真实感受", "start": 6.0, "end": 14.0},
+            {"title": "最后怎么落地执行", "start": 14.0, "end": 30.0},
+        ]
+        captions = [{"start": 0.0, "end": 30.0, "text": "测试字幕"}]
+        segments = [{"start": 0.0, "end": 30.0}]
+
+        fit = _fit_uniform_progress_font(
+            topics,
+            width=1080,
+            height=1920,
+            captions=captions,
+            segments=segments,
+        )
+
+        self.assertTrue(fit["fits_all"])
+        self.assertGreaterEqual(fit["font_size"], 12)
+        self.assertEqual(fit["segment_metrics"][0]["max_lines"], 2)
+
     def test_prepare_render_topics_rewrites_titles_when_uniform_font_would_be_too_small(self) -> None:
         topics = [
             {"title": "创作与尝试", "start": 0.0, "end": 19.0},
@@ -117,7 +138,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         self.assertGreater(rewritten_fit["font_size"], original_fit["font_size"])
         self._assert_progress_principles(rewritten_topics, captions)
 
-    def test_prepare_render_topics_retries_after_rejected_titles(self) -> None:
+    def test_prepare_render_topics_keeps_original_titles_after_rejected_rewrite(self) -> None:
         topics = [
             {"title": "开场", "start": 0.0, "end": 7.0},
             {"title": "非常非常长的节奏控制方法论", "start": 7.0, "end": 16.0},
@@ -132,13 +153,6 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         ]
         segments = [{"start": 0.0, "end": 81.0}]
         settings = _DummySettings()
-        responses = iter(
-            [
-                '{"titles":["开场","控节奏","AI协效","感行并进"]}',
-                '{"titles":["破题","节奏","提效","前行"]}',
-            ]
-        )
-
         rewritten_topics = _prepare_render_topics(
             topics,
             captions=captions,
@@ -146,20 +160,11 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
             width=1080,
             height=1920,
             settings=settings,
-            chat_completion_fn=lambda _cfg, _messages: next(responses),
+            chat_completion_fn=lambda _cfg, _messages: (
+                '{"titles":["开场","控节奏","AI协效","感行并进"]}'
+            ),
         )
-
-        rewritten_fit = _fit_uniform_progress_font(
-            rewritten_topics,
-            width=1080,
-            height=1920,
-            captions=captions,
-            segments=segments,
-        )
-
-        self.assertEqual([item["title"] for item in rewritten_topics], ["破题", "节奏", "提效", "前行"])
-        self.assertGreater(rewritten_fit["font_size"], 14)
-        self._assert_progress_principles(rewritten_topics, captions, min_font_size=18)
+        self.assertEqual([item["title"] for item in rewritten_topics], [item["title"] for item in topics])
 
     def test_prepare_render_topics_handles_dense_long_title_case(self) -> None:
         topics = [
@@ -391,7 +396,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
     @patch("web_api.services.render_web.ensure_job_dirs")
     @patch("web_api.services.render_web.get_settings")
     @patch("web_api.services.render_web.get_job_files")
-    def test_build_web_render_config_end_to_end_keeps_titles_uniform_and_fittable(
+    def test_build_web_render_config_end_to_end_keeps_user_confirmed_titles(
         self,
         mock_get_job_files,
         mock_get_settings,
@@ -439,12 +444,12 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
 
         self.assertEqual(
             [item["title"] for item in config["input_props"]["topics"]],
-            ["失衡", "减负", "真实", "落地执行"],
-        )
-        self._assert_progress_principles(
-            config["input_props"]["topics"],
-            config["input_props"]["captions"],
-            min_font_size=20,
+            [
+                "第一部分：为什么短视频创作者总在节奏与效率之间反复失衡",
+                "第二部分：如何用AI把繁琐重复的协作工作真正缩短到可接受范围",
+                "第三部分：怎样在持续输出时保留真实感受而不是机械生产内容",
+                "第四部分：最后把这套方法落回每天都能执行的创作流程",
+            ],
         )
 
 

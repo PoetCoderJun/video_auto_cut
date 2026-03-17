@@ -22,6 +22,7 @@ from ..repository import (
     upsert_job_files,
 )
 from ..utils.srt_utils import (
+    build_step1_lines_from_srt,
     build_step1_lines_from_json,
     write_final_step1_srt,
     write_step1_json,
@@ -73,15 +74,54 @@ def run_step1(job_id: str) -> None:
     )
     srt_path = run_transcribe(media_path, options, oss_object_key=asr_oss_key)
 
+    raw_lines = build_step1_lines_from_srt(srt_path, DEFAULT_ENCODING)
+    if raw_lines:
+        replace_step1_lines(job_id, raw_lines)
+        logging.info(
+            "[web_api] step1 transcribe done job=%s raw_line_count=%s",
+            job_id,
+            len(raw_lines),
+        )
+
     logging.info("[web_api] step1 auto-edit start: %s", srt_path)
-    update_job(
-        job_id,
-        status=JOB_STATUS_STEP1_RUNNING,
-        progress=33,
-        stage_code="OPTIMIZING_TEXT",
-        stage_message="正在优化字幕文本...",
+    current_stage_code = "REMOVING_REDUNDANT_LINES"
+
+    def push_auto_edit_stage(stage_code: str, stage_message: str) -> None:
+        nonlocal current_stage_code
+        current_stage_code = stage_code
+        progress_by_stage = {
+            "REMOVING_REDUNDANT_LINES": 32,
+            "MERGING_SHORT_LINES": 33,
+            "POLISHING_EXPRESSION": 34,
+        }
+        update_job(
+            job_id,
+            status=JOB_STATUS_STEP1_RUNNING,
+            progress=progress_by_stage.get(stage_code, 34),
+            stage_code=stage_code,
+            stage_message=stage_message,
+        )
+
+    def push_auto_edit_preview(lines: list[dict[str, object]]) -> None:
+        if not lines:
+            return
+        replace_step1_lines(job_id, lines)
+        first_text = str(lines[0].get("optimized_text") or lines[0].get("original_text") or "").strip()
+        logging.info(
+            "[web_api] step1 preview sync job=%s stage=%s line_count=%s first_line=%s",
+            job_id,
+            current_stage_code,
+            len(lines),
+            first_text[:60],
+        )
+
+    push_auto_edit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
+    optimized_srt_path = run_auto_edit(
+        srt_path,
+        options,
+        stage_callback=push_auto_edit_stage,
+        preview_callback=push_auto_edit_preview,
     )
-    optimized_srt_path = run_auto_edit(srt_path, options)
     optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
     step1_lines_path = optimized_srt_path.with_suffix(".step1.json")
     if not step1_lines_path.exists():

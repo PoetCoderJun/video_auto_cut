@@ -33,7 +33,7 @@ export type Chapter = {
   title: string;
   start: number;
   end: number;
-  line_ids: number[];
+  block_range: string;
 };
 
 export type RenderCaption = {
@@ -60,6 +60,8 @@ export type SubtitleTheme =
   | "box-white-on-black"
   | "box-black-on-white";
 
+export type ProgressLabelMode = "auto" | "single" | "double";
+
 export type RenderComposition = {
   id: string;
   fps: number;
@@ -77,6 +79,10 @@ export type RenderInputProps = {
   width: number;
   height: number;
   subtitleTheme?: SubtitleTheme;
+  subtitleScale?: number;
+  progressScale?: number;
+  chapterScale?: number;
+  progressLabelMode?: ProgressLabelMode;
 };
 
 export type WebRenderConfig = {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 import uuid
 
 from fastapi import FastAPI, Request
@@ -20,7 +22,51 @@ def _request_id() -> str:
     return f"req_{uuid.uuid4().hex[:10]}"
 
 
+_POLLING_PATH_PATTERNS = (
+    re.compile(r"^/api/v1/jobs/[^/]+$"),
+    re.compile(r"^/api/v1/jobs/[^/]+/step1$"),
+)
+
+
+def _is_polling_path(path: str) -> bool:
+    normalized_path = path.rstrip("/") or "/"
+    return any(pattern.fullmatch(normalized_path) for pattern in _POLLING_PATH_PATTERNS)
+
+
+def _should_suppress_request_log(method: str, path: str) -> bool:
+    normalized_method = method.upper()
+    if normalized_method == "OPTIONS":
+        return True
+    return normalized_method == "GET" and _is_polling_path(path)
+
+
+class _SuppressPollingAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = getattr(record, "args", ())
+        if not isinstance(args, tuple) or len(args) < 3:
+            return True
+        method = str(args[1])
+        path = str(args[2]).split("?", 1)[0]
+        return not _should_suppress_request_log(method, path)
+
+
+def _configure_logging() -> None:
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+    root_logger.setLevel(logging.INFO)
+    logging.getLogger("web_api").setLevel(logging.INFO)
+    logging.getLogger("video_auto_cut").setLevel(logging.INFO)
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(log_filter, _SuppressPollingAccessFilter) for log_filter in access_logger.filters):
+        access_logger.addFilter(_SuppressPollingAccessFilter())
+
+
 def create_app() -> FastAPI:
+    _configure_logging()
     settings = get_settings()
     app = FastAPI(title="video_auto_cut web api", version="0.1.0")
     allow_origins = list(settings.web_cors_allowed_origins)
@@ -38,6 +84,42 @@ def create_app() -> FastAPI:
         expose_headers=list(settings.web_cors_expose_headers),
         allow_credentials=allow_credentials,
     )
+
+    @app.middleware("http")
+    async def log_http_requests(request: Request, call_next):
+        started_at = time.perf_counter()
+        suppress_request_log = _should_suppress_request_log(request.method, request.url.path)
+        client_host = getattr(request.client, "host", "") if request.client else ""
+        if not suppress_request_log:
+            logging.info(
+                "[web_api] request start method=%s path=%s query=%s client=%s",
+                request.method,
+                request.url.path,
+                request.url.query,
+                client_host,
+            )
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+            logging.exception(
+                "[web_api] request failed method=%s path=%s duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                elapsed_ms,
+            )
+            raise
+
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        if not suppress_request_log:
+            logging.info(
+                "[web_api] request done method=%s path=%s status=%s duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                response.status_code,
+                elapsed_ms,
+            )
+        return response
 
     @app.exception_handler(ApiError)
     async def api_error_handler(_: Request, exc: ApiError) -> JSONResponse:

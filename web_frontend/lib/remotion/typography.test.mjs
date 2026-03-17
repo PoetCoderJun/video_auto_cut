@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   fitSingleLineText,
   fitUniformSingleLineText,
+  fitUniformTextToBox,
   fitTextToBox,
   getResponsiveOverlayTypography,
   normalizeCaptionDisplayText,
@@ -225,6 +226,29 @@ test("fits progress labels to one shared font size instead of mixing sizes", () 
   assert.equal(fitted.labels.length, 4, "expected one visibility result per label");
   assert.ok(fitted.labels.every((label) => label.visible), "expected all labels to remain visible");
   assert.equal(fitted.fontSize, 18, `expected shared font size to be driven by the narrowest label, got ${fitted.fontSize}`);
+});
+
+test("allows portrait progress labels to wrap to two lines with one shared font size", () => {
+  const fitted = fitUniformTextToBox({
+    items: [
+      {text: "为什么开头会拖沓", maxWidth: 82},
+      {text: "怎样保留真实感受", maxWidth: 110},
+      {text: "最后怎么落地执行", maxWidth: 150},
+    ],
+    baseFontSize: 28,
+    minFontSize: 12,
+    maxLines: 2,
+    maxHeight: 64,
+    lineHeight: 1.08,
+    targetWidthRatio: 0.9,
+    horizontalPadding: 4,
+    fontWeight: 700,
+  });
+
+  assert.equal(fitted.labels.length, 3, "expected one wrapped result per label");
+  assert.ok(fitted.labels.every((label) => label.visible), "expected all portrait labels to remain visible");
+  assert.ok(fitted.labels.some((label) => label.text.includes("\n")), "expected at least one label to wrap to two lines");
+  assert.ok(fitted.fontSize >= 12, `expected wrapped shared font to stay readable, got ${fitted.fontSize}`);
 });
 
 test("prepares subtitles for browser-side balanced wrapping without inserting new lines", () => {
