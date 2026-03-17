@@ -44,6 +44,22 @@ const clamp = (value: number, min: number, max: number): number => {
   return value;
 };
 
+const findActiveTopicIndexByStart = (
+  topics: Array<{start: number}>,
+  timeSec: number
+): number => {
+  if (!Number.isFinite(timeSec) || topics.length === 0) return -1;
+  let activeIndex = -1;
+  for (let index = 0; index < topics.length; index += 1) {
+    if (timeSec >= topics[index].start) {
+      activeIndex = index;
+    } else {
+      break;
+    }
+  }
+  return activeIndex;
+};
+
 const getTotalDuration = (config: WebRenderConfig | null): number => {
   if (!config) return 1;
   const input = config.input_props;
@@ -84,6 +100,51 @@ const mapPreviewTimeToSourceTime = (segments: TimelineSegment[], previewTimeSec:
   return last.end;
 };
 
+const getCenteredVideoStyle = (
+  sourceDimensions: {width: number; height: number} | null,
+  compositionWidth: number,
+  compositionHeight: number
+): React.CSSProperties => {
+  const fallback: React.CSSProperties = {
+    width: "100%",
+    height: "100%",
+    objectFit: "contain",
+    objectPosition: "center center",
+    display: "block",
+    backgroundColor: "#eef4ff",
+  };
+
+  if (!sourceDimensions) return fallback;
+
+  const sourceAspect = sourceDimensions.width / sourceDimensions.height;
+  const compositionAspect = compositionWidth / compositionHeight;
+  if (!Number.isFinite(sourceAspect) || sourceAspect <= 0) return fallback;
+
+  if (sourceAspect >= compositionAspect) {
+    return {
+      position: "absolute",
+      left: 0,
+      top: "50%",
+      width: "100%",
+      height: Math.round(compositionWidth / sourceAspect),
+      transform: "translateY(-50%)",
+      display: "block",
+      backgroundColor: "#eef4ff",
+    };
+  }
+
+  return {
+    position: "absolute",
+    left: "50%",
+    top: 0,
+    width: Math.round(compositionHeight * sourceAspect),
+    height: "100%",
+    transform: "translateX(-50%)",
+    display: "block",
+    backgroundColor: "#eef4ff",
+  };
+};
+
 export default function ExportFramePreview({
   config,
   sourceFile,
@@ -93,6 +154,7 @@ export default function ExportFramePreview({
   overlayControls,
 }: ExportFramePreviewProps) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+  const [sourceDimensions, setSourceDimensions] = useState<{width: number; height: number} | null>(null);
   const [frameSize, setFrameSize] = useState({width: 0, height: 0});
   const frameRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -103,6 +165,7 @@ export default function ExportFramePreview({
       return;
     }
     if (!sourceFile) {
+      setSourceDimensions(null);
       setSourceUrl((previous) => {
         if (previous && previous.startsWith("blob:")) URL.revokeObjectURL(previous);
         return null;
@@ -151,7 +214,7 @@ export default function ExportFramePreview({
     return () => {
       observer.disconnect();
     };
-  }, [config?.composition.width]);
+  }, [config?.composition.height, config?.composition.width]);
 
   const totalDuration = useMemo(() => getTotalDuration(config), [config]);
   const clampedPreviewTime = clamp(previewTimeSec, 0, totalDuration);
@@ -184,6 +247,26 @@ export default function ExportFramePreview({
       video.removeEventListener("loadedmetadata", applyTime);
     };
   }, [sourceTime, sourceUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const updateDimensions = () => {
+      const width = Math.round(video.videoWidth || 0);
+      const height = Math.round(video.videoHeight || 0);
+      if (width <= 0 || height <= 0) return;
+      setSourceDimensions((previous) =>
+        previous?.width === width && previous?.height === height ? previous : {width, height}
+      );
+    };
+
+    updateDimensions();
+    video.addEventListener("loadedmetadata", updateDimensions);
+    return () => {
+      video.removeEventListener("loadedmetadata", updateDimensions);
+    };
+  }, [sourceUrl]);
 
   const previewModel = useMemo(() => {
     if (!config) return null;
@@ -227,7 +310,15 @@ export default function ExportFramePreview({
       chapterCardMinWidth,
       Math.min(chapterCardMaxWidth, Math.round(chapterCardBaseWidth * normalizedChapterScale))
     );
-    const chapterTitleMaxWidth = Math.max(1, chapterCardWidth - typography.chapterCardPaddingX * 2);
+    const chapterCardStyleMinWidth = isPortrait
+      ? chapterCardWidth
+      : Math.min(chapterCardMaxWidth, Math.round(typography.chapterTitleFontSize * 6.8));
+    const chapterCardStyleWidth = isPortrait ? chapterCardWidth : "fit-content";
+    const chapterCardStyleMaxWidth = isPortrait ? chapterCardWidth : chapterCardMaxWidth;
+    const chapterTitleMaxWidth = Math.max(
+      1,
+      chapterCardStyleMaxWidth - typography.chapterCardPaddingX * 2
+    );
     const chapterCardMinHeight =
       typography.chapterCardPaddingY * 2 +
       Math.round(typography.chapterMetaFontSize * 1.2) +
@@ -247,13 +338,7 @@ export default function ExportFramePreview({
       .filter((topic) => Number.isFinite(topic.start) && Number.isFinite(topic.end) && topic.end > topic.start)
       .slice()
       .sort((a, b) => a.start - b.start);
-    const activeTopicIndex = normalizedTopics.findIndex((topic, index) => {
-      const isLast = index === normalizedTopics.length - 1;
-      if (isLast) {
-        return clampedPreviewTime >= topic.start && clampedPreviewTime <= topic.end;
-      }
-      return clampedPreviewTime >= topic.start && clampedPreviewTime < topic.end;
-    });
+    const activeTopicIndex = findActiveTopicIndexByStart(normalizedTopics, clampedPreviewTime);
     const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
     const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
     const activeTopicLayout =
@@ -366,6 +451,9 @@ export default function ExportFramePreview({
       progressLabelLineHeight,
       chapterCardMinHeight,
       chapterCardWidth,
+      chapterCardStyleMinWidth,
+      chapterCardStyleWidth,
+      chapterCardStyleMaxWidth,
       chapterTitleMaxWidth,
     };
   }, [clampedPreviewTime, config, overlayControls, subtitleTheme, totalDuration]);
@@ -466,12 +554,13 @@ export default function ExportFramePreview({
   const widthScale = frameSize.width > 0 ? frameSize.width / compositionWidth : 1;
   const heightScale = frameSize.height > 0 ? frameSize.height / compositionHeight : 1;
   const previewScale = Math.min(widthScale, heightScale);
+  const centeredVideoStyle = getCenteredVideoStyle(sourceDimensions, compositionWidth, compositionHeight);
 
   return (
-    <div className="flex h-full min-h-0 w-full items-center justify-center">
+    <div className="flex min-h-0 w-full flex-1 items-center justify-center">
       <div
         ref={frameRef}
-        className="relative h-full min-h-0 w-full overflow-hidden rounded-[20px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)]"
+        className="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)]"
       >
         <div
           className="absolute left-1/2 top-1/2 overflow-hidden rounded-[18px] border border-white/80 shadow-[0_22px_50px_-30px_rgba(15,23,42,0.35)]"
@@ -490,7 +579,7 @@ export default function ExportFramePreview({
               muted
               playsInline
               preload="metadata"
-              className="h-full w-full bg-[#eef4ff] object-contain object-center"
+              style={centeredVideoStyle}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] text-sm text-slate-500">
@@ -513,8 +602,10 @@ export default function ExportFramePreview({
                   display: "inline-flex",
                   flexDirection: "column",
                   gap: previewModel.typography.chapterGap,
-                  width: previewModel.chapterCardWidth,
-                  maxWidth: "100%",
+                  minWidth: previewModel.chapterCardStyleMinWidth,
+                  width: previewModel.chapterCardStyleWidth,
+                  maxWidth: previewModel.chapterCardStyleMaxWidth,
+                  minHeight: previewModel.chapterCardMinHeight,
                   padding: `${previewModel.typography.chapterCardPaddingY}px ${previewModel.typography.chapterCardPaddingX}px`,
                   borderRadius: previewModel.typography.chapterCardRadius,
                   backgroundColor: "rgba(8, 12, 20, 0.74)",

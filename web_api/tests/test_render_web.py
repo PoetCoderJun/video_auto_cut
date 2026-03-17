@@ -452,6 +452,58 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
             ],
         )
 
+    @patch("web_api.services.render_web.list_step2_chapters")
+    @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
+    @patch("web_api.services.render_web.ensure_job_dirs")
+    @patch("web_api.services.render_web.get_settings")
+    @patch("web_api.services.render_web.get_job_files")
+    def test_build_web_render_config_remaps_topics_to_cut_timeline(
+        self,
+        mock_get_job_files,
+        mock_get_settings,
+        mock_ensure_job_dirs,
+        mock_build_cut_srt,
+        mock_list_step2_chapters,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            render_dir = Path(temp_dir)
+            mock_get_job_files.return_value = {"final_step1_srt_path": render_dir / "final_step1.srt"}
+            mock_get_settings.return_value = _DummySettings()
+            mock_get_settings.return_value.cut_merge_gap = 0.0
+            mock_ensure_job_dirs.return_value = {"render": render_dir}
+            mock_build_cut_srt.return_value = {
+                "captions": [
+                    {"index": 1, "start": 0.0, "end": 4.0, "text": "第一章"},
+                    {"index": 2, "start": 4.0, "end": 7.0, "text": "第二章前半"},
+                    {"index": 3, "start": 7.0, "end": 10.0, "text": "第二章后半"},
+                ],
+                "segments": [
+                    {"start": 10.0, "end": 14.0},
+                    {"start": 20.0, "end": 23.0},
+                    {"start": 30.0, "end": 33.0},
+                ],
+            }
+            mock_list_step2_chapters.return_value = [
+                {"title": "开场", "start": 10.0, "end": 14.0},
+                {"title": "展开", "start": 20.0, "end": 33.0},
+            ]
+
+            config = build_web_render_config(
+                "job-render-remap-test",
+                width=1080,
+                height=1920,
+                fps=30.0,
+                duration_sec=33.0,
+            )
+
+        self.assertEqual(
+            config["input_props"]["topics"],
+            [
+                {"title": "开场", "start": 0.0, "end": 4.0},
+                {"title": "展开", "start": 4.0, "end": 10.0},
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

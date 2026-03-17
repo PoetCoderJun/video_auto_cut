@@ -179,6 +179,29 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
 function formatDuration(seconds: number): string {
   if (!seconds || Number.isNaN(seconds)) return "00:00";
   const m = Math.floor(seconds / 60);
@@ -926,6 +949,7 @@ export default function JobWorkspace({
     const exportReady =
       job?.status === STATUS.STEP2_CONFIRMED || job?.status === STATUS.SUCCEEDED;
     if (!exportReady) return;
+    if (renderConfig) return;
 
     let cancelled = false;
 
@@ -944,9 +968,17 @@ export default function JobWorkspace({
           throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
         }
 
-        const meta = await resolveRenderMetaFromFile(sourceFile);
+        const meta = await withTimeout(
+          resolveRenderMetaFromFile(sourceFile),
+          10000,
+          "读取本地视频元数据超时，请刷新页面后重试。"
+        );
         if (cancelled) return;
-        const config = await getWebRenderConfigWithMeta(jobId, meta);
+        const config = await withTimeout(
+          getWebRenderConfigWithMeta(jobId, meta),
+          15000,
+          "生成预览配置超时，请重试。"
+        );
         if (cancelled) return;
         const sourceMismatchMessage = getSourceVideoMismatchMessage(
           sourceFile.name,
@@ -1936,7 +1968,7 @@ export default function JobWorkspace({
         <div className="space-y-4">
           <div className="mx-auto grid max-w-[980px] gap-3 xl:grid-cols-[minmax(0,560px)_320px] xl:items-stretch">
             <Card className="border-slate-200/80 xl:h-[min(70vh,760px)]">
-              <CardContent className="flex h-full flex-col justify-center gap-3 p-3">
+              <CardContent className="flex h-full min-h-0 flex-col justify-center gap-3 p-3">
                 <ExportFramePreview
                   config={renderConfig}
                   sourceFile={selectedFile}

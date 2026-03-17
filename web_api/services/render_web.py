@@ -163,6 +163,83 @@ def _resolve_total_duration(
     return max(1.0, topic_end, caption_end, segment_end)
 
 
+def _build_cut_timeline(
+    segments: list[dict[str, Any]],
+) -> list[dict[str, float]]:
+    cursor = 0.0
+    timeline: list[dict[str, float]] = []
+    for item in sorted(segments, key=lambda seg: float(seg["start"])):
+        start = float(item["start"])
+        end = float(item["end"])
+        if not math.isfinite(start) or not math.isfinite(end) or end <= start:
+            continue
+        duration = end - start
+        timeline.append(
+            {
+                "start": start,
+                "end": end,
+                "out_start": cursor,
+                "out_end": cursor + duration,
+            }
+        )
+        cursor += duration
+    return timeline
+
+
+def _map_original_time_to_cut_time(
+    time_sec: float,
+    timeline: list[dict[str, float]],
+    *,
+    prefer_end: bool,
+) -> float:
+    if not timeline:
+        return max(0.0, float(time_sec))
+
+    eps = 1e-4
+    for index, segment in enumerate(timeline):
+        start = float(segment["start"])
+        end = float(segment["end"])
+        out_start = float(segment["out_start"])
+        out_end = float(segment["out_end"])
+
+        if time_sec < start - eps:
+            if prefer_end and index > 0:
+                return float(timeline[index - 1]["out_end"])
+            return out_start
+
+        if time_sec <= end + eps:
+            clamped = min(max(time_sec, start), end)
+            return out_start + (clamped - start)
+
+    return float(timeline[-1]["out_end"])
+
+
+def _remap_topics_to_cut_timeline(
+    topics: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    timeline = _build_cut_timeline(segments)
+    if not timeline:
+        return topics
+
+    remapped: list[dict[str, Any]] = []
+    for topic in topics:
+        start = float(topic["start"])
+        end = float(topic["end"])
+        cut_start = _map_original_time_to_cut_time(start, timeline, prefer_end=False)
+        cut_end = _map_original_time_to_cut_time(end, timeline, prefer_end=True)
+        if cut_end <= cut_start:
+            continue
+        remapped.append(
+            {
+                **topic,
+                "start": round(cut_start, 3),
+                "end": round(cut_end, 3),
+            }
+        )
+    return remapped
+
+
 def _fit_uniform_progress_font(
     topics: list[dict[str, Any]],
     *,
@@ -535,6 +612,7 @@ def build_web_render_config(
 
     topics = [_normalize_topic(item) for item in list_step2_chapters(job_id)]
     topics = [item for item in topics if item is not None]
+    topics = _remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))
 
     resolved_fps = _resolve_fps(fps)

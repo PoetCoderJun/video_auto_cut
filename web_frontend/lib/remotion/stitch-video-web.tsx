@@ -73,6 +73,22 @@ const clamp = (value: number, min = 0, max = 1): number => {
 
 const round = (n: number) => Math.round(n);
 
+const findActiveTopicIndexByStart = (
+  topics: Array<{start: number}>,
+  timeSec: number
+): number => {
+  if (!Number.isFinite(timeSec) || topics.length === 0) return -1;
+  let activeIndex = -1;
+  for (let index = 0; index < topics.length; index += 1) {
+    if (timeSec >= topics[index].start) {
+      activeIndex = index;
+    } else {
+      break;
+    }
+  }
+  return activeIndex;
+};
+
 export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   src,
   captions,
@@ -121,7 +137,15 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     chapterCardMinWidth,
     Math.min(chapterCardMaxWidth, Math.round(chapterCardBaseWidth * normalizedChapterScale))
   );
-  const chapterTitleMaxWidth = Math.max(1, chapterCardWidth - typography.chapterCardPaddingX * 2);
+  const chapterCardStyleMinWidth = isPortrait
+    ? chapterCardWidth
+    : Math.min(chapterCardMaxWidth, Math.round(typography.chapterTitleFontSize * 6.8));
+  const chapterCardStyleWidth = isPortrait ? chapterCardWidth : "fit-content";
+  const chapterCardStyleMaxWidth = isPortrait ? chapterCardWidth : chapterCardMaxWidth;
+  const chapterTitleMaxWidth = Math.max(
+    1,
+    chapterCardStyleMaxWidth - typography.chapterCardPaddingX * 2
+  );
   const chapterCardMinHeight =
     typography.chapterCardPaddingY * 2 +
     Math.round(typography.chapterMetaFontSize * 1.2) +
@@ -184,7 +208,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         display: "inline-flex" as const,
         flexDirection: "column" as const,
         gap: typography.chapterGap,
-        width: chapterCardWidth,
+        minWidth: chapterCardStyleMinWidth,
+        width: chapterCardStyleWidth,
+        maxWidth: chapterCardStyleMaxWidth,
         minHeight: chapterCardMinHeight,
         padding: `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`,
         borderRadius: typography.chapterCardRadius,
@@ -259,7 +285,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   }, [
     allowWrappedProgressLabels,
     chapterCardMinHeight,
-    chapterCardWidth,
+    chapterCardStyleMinWidth,
+    chapterCardStyleMaxWidth,
+    chapterCardStyleWidth,
     progressLabelLineHeight,
     subtitleLineHeight,
     typography,
@@ -354,13 +382,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       .sort((a, b) => a.start - b.start);
   }, [topics]);
 
-  const activeTopicIndex = normalizedTopics.findIndex((topic, index) => {
-    const isLast = index === normalizedTopics.length - 1;
-    if (isLast) {
-      return t >= topic.start && t <= topic.end;
-    }
-    return t >= topic.start && t < topic.end;
-  });
+  const activeTopicIndex = findActiveTopicIndexByStart(normalizedTopics, t);
   const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
   const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
   const topicTitleLayouts = useMemo(

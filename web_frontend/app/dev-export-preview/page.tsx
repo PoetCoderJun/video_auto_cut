@@ -321,7 +321,7 @@ function DevExportPreviewPageInner() {
     <main className="mx-auto max-w-7xl px-6 py-8" data-mock-export-status={mockExport.status}>
       <div className="mx-auto grid max-w-[980px] gap-3 xl:grid-cols-[minmax(0,560px)_320px] xl:items-stretch">
         <Card className="border-slate-200/80 xl:h-[min(70vh,760px)]">
-          <CardContent className="flex h-full flex-col justify-center gap-3 p-3">
+          <CardContent className="flex h-full min-h-0 flex-col justify-center gap-3 p-3">
             <ExportFramePreview
               config={MOCK_RENDER_CONFIG}
               sourceFile={null}
