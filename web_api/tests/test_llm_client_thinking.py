@@ -48,6 +48,37 @@ class LlmClientThinkingTest(unittest.TestCase):
     def setUp(self) -> None:
         llm_client._OPENAI_CLIENTS_BY_CFG.clear()
 
+    def test_extract_json_tolerates_code_fence_and_trailing_commas(self) -> None:
+        payload = llm_client.extract_json(
+            """
+            ```json
+            {
+              "titles": [
+                "创作",
+                "控节奏",
+              ],
+            }
+            ```
+            """
+        )
+
+        self.assertEqual(payload["titles"], ["创作", "控节奏"])
+
+    def test_extract_json_tolerates_surrounding_text(self) -> None:
+        payload = llm_client.extract_json(
+            """
+            下面是结果：
+            {
+              "segments": [
+                {"id": 1, "text": "第一句"}
+              ]
+            }
+            请查收。
+            """
+        )
+
+        self.assertEqual(payload["segments"][0]["id"], 1)
+
     def test_build_llm_config_reads_enable_thinking_env(self) -> None:
         with patch.dict(os.environ, {"LLM_ENABLE_THINKING": "1"}, clear=False):
             cfg = llm_client.build_llm_config(

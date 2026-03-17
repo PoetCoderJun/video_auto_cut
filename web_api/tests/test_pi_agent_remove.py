@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from video_auto_cut.editing.pi_agent_remove import PiAgentRemoveLoop
+from video_auto_cut.editing.pi_agent_remove import PiAgentRemoveLoop, _json_loads
 
 
 class PiAgentRemoveLoopTest(unittest.TestCase):
@@ -28,6 +28,23 @@ class PiAgentRemoveLoopTest(unittest.TestCase):
         self.assertIn("只处理前文被后文覆盖的重复部分", messages[0]["content"])
         self.assertIn("[L0008]", messages[1]["content"])
         self.assertIn("[L0011]", messages[1]["content"])
+
+    def test_json_loads_tolerates_trailing_commas_in_code_fence(self) -> None:
+        payload = _json_loads(
+            """
+            ```json
+            {
+              "decisions": [
+                {"line_id": 8, "action": "KEEP", "edited_text": "不用反复重复", "reason": "保留", "confidence": 0.91},
+                {"line_id": 11, "action": "KEEP", "edited_text": "不用反复重头录制", "reason": "最终版本", "confidence": 0.95},
+              ],
+            }
+            ```
+            """
+        )
+
+        self.assertEqual(len(payload["decisions"]), 2)
+        self.assertEqual(payload["decisions"][1]["line_id"], 11)
 
     @patch("video_auto_cut.editing.pi_agent_remove.llm_utils.chat_completion")
     def test_run_uses_single_pass_structured_decisions(self, mock_chat_completion) -> None:
@@ -112,6 +129,25 @@ class PiAgentRemoveLoopTest(unittest.TestCase):
         self.assertEqual(result.decisions[0].remove_action, "KEEP")
         self.assertEqual(result.decisions[0].current_text, "录口播时候你可以随便讲错")
         self.assertEqual(result.decisions[1].current_text, "不用反复重头录制")
+
+    @patch("video_auto_cut.editing.pi_agent_remove.llm_utils.chat_completion")
+    def test_run_falls_back_to_keep_when_json_is_invalid(self, mock_chat_completion) -> None:
+        mock_chat_completion.return_value = """
+        {
+          "decisions": [
+            {"line_id": 8, "action": "REMOVE", "edited_text": "", "reason": "被后一句覆盖", "confidence": 0.94}
+            {"line_id": 11, "action": "KEEP", "edited_text": "不用反复重头录制", "reason": "最终版本", "confidence": 0.95}
+          ]
+        }
+        """
+
+        result = self.loop.run(self.segments)
+
+        self.assertEqual([decision.remove_action for decision in result.decisions], ["KEEP", "KEEP"])
+        self.assertEqual(result.decisions[0].current_text, "不用反复重复")
+        self.assertEqual(result.decisions[1].current_text, "不用反复重头录制")
+        self.assertEqual(result.debug["final_source"], "parse_fallback")
+        self.assertIn("Failed to parse LLM JSON payload", result.debug["error"])
 
 
 if __name__ == "__main__":

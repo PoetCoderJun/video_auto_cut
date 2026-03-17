@@ -108,6 +108,7 @@ class PiAgentTopicLoop:
         recommended_topics: int,
         title_max_chars: int,
         max_iterations: int = 5,
+        strict: bool = False,
         chat_completion_fn: Optional[Any] = None,
     ) -> None:
         self.llm_config = llm_config
@@ -115,6 +116,7 @@ class PiAgentTopicLoop:
         self.max_topics = max(1, int(max_topics))
         self.recommended_topics = max(self.min_topics, min(int(recommended_topics), self.max_topics))
         self.title_max_chars = int(title_max_chars)
+        self.strict = bool(strict)
         self.chat_completion_fn = chat_completion_fn
 
     def build_topic_draft_prompt(
@@ -150,15 +152,44 @@ class PiAgentTopicLoop:
             TOPIC_MIN_SEGMENTS_PER_CHAPTER if len(segments) >= TOPIC_MIN_SEGMENTS_PER_CHAPTER else 1
         )
 
-        raw_draft = self._run_json_prompt(
-            self.build_topic_draft_prompt(
-                blocks,
-                resolved_min_topics,
-                resolved_max_topics,
-                resolved_recommended_topics,
-                min_segments_per_topic,
+        try:
+            raw_draft = self._run_json_prompt(
+                self.build_topic_draft_prompt(
+                    blocks,
+                    resolved_min_topics,
+                    resolved_max_topics,
+                    resolved_recommended_topics,
+                    min_segments_per_topic,
+                )
             )
-        )
+        except Exception as exc:
+            if self.strict:
+                raise
+            logging.warning(
+                "Topic segmentation JSON parse failed; falling back to deterministic plan for %d segments: %s",
+                len(segments),
+                exc,
+            )
+            fallback_payload = _build_fallback_topic_payload(
+                segments,
+                topic_count=resolved_recommended_topics,
+                title_max_chars=self.title_max_chars,
+                min_segments_per_topic=min_segments_per_topic,
+            )
+            plan, titles = _parse_topic_plan_payload(fallback_payload)
+            topics = _compose_topics(plan, titles, segments)
+            return TopicAgentLoopResult(
+                payload={"topics": topics},
+                debug={
+                    "iterations": 1,
+                    "blocks": [_topic_block_to_dict(block) for block in blocks],
+                    "draft": None,
+                    "final": fallback_payload,
+                    "final_source": "parse_fallback",
+                    "issues": [],
+                    "error": str(exc),
+                },
+            )
         strict_payload = self._coerce_payload(raw_draft, blocks, segments)
         issues = self._build_validation_issues(
             strict_payload,
@@ -646,6 +677,60 @@ def _build_topic_plan_payload(plan: List[List[int]], titles: List[str]) -> dict[
     }
 
 
+def _build_fallback_topic_payload(
+    segments: List[TopicSegment],
+    *,
+    topic_count: int,
+    title_max_chars: int,
+    min_segments_per_topic: int,
+) -> dict[str, Any]:
+    if not segments:
+        raise RuntimeError("Cannot build fallback topic payload from empty segments.")
+
+    total_segments = len(segments)
+    if total_segments < min_segments_per_topic:
+        topic_count = 1
+    else:
+        topic_count = max(1, min(int(topic_count), total_segments // min_segments_per_topic))
+
+    sizes = _build_balanced_chunk_sizes(total_segments, topic_count)
+    plan: List[List[int]] = []
+    titles: List[str] = []
+    cursor = 0
+    for index, size in enumerate(sizes, start=1):
+        chunk = segments[cursor : cursor + size]
+        cursor += size
+        ids = [segment.segment_id for segment in chunk]
+        if not ids:
+            continue
+        plan.append(ids)
+        titles.append(_build_fallback_topic_title(chunk, index=index, title_max_chars=title_max_chars))
+    return _build_topic_plan_payload(plan, titles)
+
+
+def _build_balanced_chunk_sizes(total: int, parts: int) -> List[int]:
+    if total <= 0 or parts <= 0:
+        return []
+    base, extra = divmod(total, parts)
+    return [base + (1 if index < extra else 0) for index in range(parts)]
+
+
+def _build_fallback_topic_title(
+    segments: List[TopicSegment],
+    *,
+    index: int,
+    title_max_chars: int,
+) -> str:
+    source = "".join(_clean_text(segment.text).replace(" ", "") for segment in segments[:2])
+    source = re.sub(r"[，。、“”‘’：:；;！？!?（）()\[\]{}<>《》\-—_]+", "", source)
+    source = source.strip()
+    max_chars = max(2, int(title_max_chars))
+    title = source[:max_chars]
+    while title and BAD_TITLE_ENDING_PATTERN.search(title):
+        title = title[:-1].rstrip()
+    return title or f"片段{index}"
+
+
 def _parse_segment_plan(text: str) -> List[List[int]]:
     plan, _ = _parse_topic_plan_payload(_json_loads(text))
     return plan
@@ -881,6 +966,7 @@ class TopicSegmenter:
             max_topics=max_topics,
             recommended_topics=recommended_topics,
             title_max_chars=self.title_max_chars,
+            strict=self.strict,
         )
         result = topic_loop.run(segments)
         output = output_path or _default_output_path(srt_path)

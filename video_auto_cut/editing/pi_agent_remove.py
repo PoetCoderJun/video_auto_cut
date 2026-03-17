@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +14,9 @@ from .pi_agent_models import LineDecision
 class RemoveLoopResult:
     decisions: list[LineDecision]
     debug: dict[str, Any]
+
+
+TRAILING_COMMA_RE = re.compile(r",(?=\s*[}\]])")
 
 
 def _strip_code_fence(text: str) -> str:
@@ -28,10 +33,46 @@ def _json_loads(text: str) -> dict[str, Any]:
     cleaned = _strip_code_fence(text)
     if cleaned.startswith("json"):
         cleaned = cleaned[4:].strip()
-    payload = json.loads(cleaned)
-    if not isinstance(payload, dict):
-        raise ValueError("LLM output must be a JSON object")
-    return payload
+
+    candidates: list[str] = []
+    for candidate in (cleaned, _extract_json_object(cleaned), _sanitize_json_like(cleaned)):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    extracted = _extract_json_object(cleaned)
+    if extracted:
+        sanitized_extracted = _sanitize_json_like(extracted)
+        if sanitized_extracted and sanitized_extracted not in candidates:
+            candidates.append(sanitized_extracted)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("LLM output must be a JSON object")
+        return payload
+
+    preview = cleaned[:400].replace("\n", "\\n")
+    raise ValueError(f"Failed to parse LLM JSON payload: {preview}") from last_error
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        return ""
+    return text[start : end + 1].strip()
+
+
+def _sanitize_json_like(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return value
+    return TRAILING_COMMA_RE.sub("", value)
 
 
 def _segments_to_tagged_text(segments: list[dict[str, Any]]) -> str:
@@ -79,8 +120,21 @@ class PiAgentRemoveLoop:
         if not segments:
             return RemoveLoopResult(decisions=[], debug={"iterations": 0, "final_source": "empty"})
 
-        draft_payload = self._run_json_prompt(self.build_remove_inspect_prompt(segments))
-        decisions = self._build_line_decisions(segments, draft_payload, draft_payload, "draft")
+        try:
+            draft_payload = self._run_json_prompt(self.build_remove_inspect_prompt(segments))
+            final_source = "draft"
+            error = None
+        except Exception as exc:
+            logging.warning(
+                "Remove agent JSON parse failed; falling back to KEEP for %d lines: %s",
+                len(segments),
+                exc,
+            )
+            draft_payload = self._build_keep_payload(segments, reason="解析失败回退")
+            final_source = "parse_fallback"
+            error = str(exc)
+
+        decisions = self._build_line_decisions(segments, draft_payload, draft_payload, final_source)
         return RemoveLoopResult(
             decisions=decisions,
             debug={
@@ -88,7 +142,8 @@ class PiAgentRemoveLoop:
                 "draft": draft_payload,
                 "critique": None,
                 "final": draft_payload,
-                "final_source": "draft",
+                "final_source": final_source,
+                "error": error,
             },
         )
 
@@ -150,3 +205,21 @@ class PiAgentRemoveLoop:
                 continue
             result[line_id] = item
         return result
+
+    def _build_keep_payload(
+        self,
+        segments: list[dict[str, Any]],
+        reason: str,
+    ) -> dict[str, Any]:
+        return {
+            "decisions": [
+                {
+                    "line_id": int(segment.get("id") or 0),
+                    "action": "KEEP",
+                    "edited_text": str(segment.get("text") or "").strip(),
+                    "reason": reason,
+                    "confidence": 0.0,
+                }
+                for segment in segments
+            ]
+        }

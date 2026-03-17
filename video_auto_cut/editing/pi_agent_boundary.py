@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from typing import Any
 
 from . import llm_client as llm_utils
 from .pi_agent_models import BoundaryReviewState, ChunkExecutionState
+
+
+TRAILING_COMMA_RE = re.compile(r",(?=\s*[}\]])")
 
 
 def _strip_code_fence(text: str) -> str:
@@ -21,10 +26,46 @@ def _json_loads(text: str) -> dict[str, Any]:
     cleaned = _strip_code_fence(text)
     if cleaned.startswith("json"):
         cleaned = cleaned[4:].strip()
-    payload = json.loads(cleaned)
-    if not isinstance(payload, dict):
-        raise ValueError("LLM output must be a JSON object")
-    return payload
+
+    candidates: list[str] = []
+    for candidate in (cleaned, _extract_json_object(cleaned), _sanitize_json_like(cleaned)):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    extracted = _extract_json_object(cleaned)
+    if extracted:
+        sanitized_extracted = _sanitize_json_like(extracted)
+        if sanitized_extracted and sanitized_extracted not in candidates:
+            candidates.append(sanitized_extracted)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if not isinstance(payload, dict):
+            raise ValueError("LLM output must be a JSON object")
+        return payload
+
+    preview = cleaned[:400].replace("\n", "\\n")
+    raise ValueError(f"Failed to parse LLM JSON payload: {preview}") from last_error
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end < start:
+        return ""
+    return text[start : end + 1].strip()
+
+
+def _sanitize_json_like(text: str) -> str:
+    value = (text or "").strip()
+    if not value:
+        return value
+    return TRAILING_COMMA_RE.sub("", value)
 
 
 class PiAgentBoundaryReview:
@@ -56,14 +97,24 @@ class PiAgentBoundaryReview:
         previous_state: ChunkExecutionState,
         current_state: ChunkExecutionState,
     ) -> BoundaryReviewState:
-        payload = self._run_json_prompt(
-            self.build_boundary_review_prompt(previous_state, current_state)
-        )
+        try:
+            payload = self._run_json_prompt(
+                self.build_boundary_review_prompt(previous_state, current_state)
+            )
+            dropped_line_ids = [int(line_id) for line_id in payload.get("dropped_line_ids") or []]
+            reason = str(payload.get("reason") or "").strip()
+        except Exception as exc:
+            logging.warning(
+                "Boundary review JSON parse failed; keeping overlap decisions unchanged: %s",
+                exc,
+            )
+            dropped_line_ids = []
+            reason = "解析失败回退"
         return BoundaryReviewState(
             previous_chunk_id=previous_state.window.chunk_id,
             current_chunk_id=current_state.window.chunk_id,
-            dropped_line_ids=[int(line_id) for line_id in payload.get("dropped_line_ids") or []],
-            reason=str(payload.get("reason") or "").strip(),
+            dropped_line_ids=dropped_line_ids,
+            reason=reason,
         )
 
     def _run_json_prompt(self, messages: list[dict[str, str]]) -> dict[str, Any]:

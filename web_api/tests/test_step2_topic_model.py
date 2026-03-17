@@ -404,6 +404,63 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
 
+    def test_topic_loop_falls_back_to_deterministic_plan_when_json_is_invalid(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 7)
+        ]
+        response = """
+        {
+          "topics": [
+            {"segment_ids": [1, 2, 3], "title": "切入话题"}
+            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=2,
+            title_max_chars=6,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        result = loop.run(segments)
+
+        self.assertEqual(result.debug["final_source"], "parse_fallback")
+        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
+        self.assertTrue(all(topic["title"] for topic in result.payload["topics"]))
+        self.assertIn("Failed to parse LLM JSON payload", result.debug["error"])
+
+    def test_topic_loop_keeps_strict_mode_for_invalid_json(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 7)
+        ]
+        response = """
+        {
+          "topics": [
+            {"segment_ids": [1, 2, 3], "title": "切入话题"}
+            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=2,
+            title_max_chars=6,
+            strict=True,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Failed to parse LLM JSON payload"):
+            loop.run(segments)
+
     def test_build_cut_srt_can_reindex_sequentially_for_topic_segmentation(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             src = Path(tmpdir) / "input.optimized.srt"
