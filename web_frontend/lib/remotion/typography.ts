@@ -136,6 +136,10 @@ export type FittedUniformTextBox = {
   }>;
 };
 
+export type FittedUniformAdaptiveTextBox = FittedUniformTextBox & {
+  maxLines: number;
+};
+
 const REFERENCE_WIDTH = 1920;
 const REFERENCE_HEIGHT = 1080;
 const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
@@ -639,6 +643,48 @@ export const fitAdaptiveTextToBox = ({
   };
 };
 
+export const fitUniformAdaptiveTextToBox = ({
+  preferredMaxLines = 2,
+  fallbackMaxLines = 3,
+  finalMaxLines = 4,
+  ...rest
+}: Omit<FitUniformTextBoxInput, "maxLines"> & {
+  preferredMaxLines?: number;
+  fallbackMaxLines?: number;
+  finalMaxLines?: number;
+}): FittedUniformAdaptiveTextBox => {
+  const preferred = fitUniformTextToBox({
+    ...rest,
+    maxLines: preferredMaxLines,
+  });
+  if (!preferred.labels.some((label) => label.truncated) || fallbackMaxLines <= preferredMaxLines) {
+    return {
+      ...preferred,
+      maxLines: preferredMaxLines,
+    };
+  }
+
+  const fallback = fitUniformTextToBox({
+    ...rest,
+    maxLines: fallbackMaxLines,
+  });
+  if (!fallback.labels.some((label) => label.truncated) || finalMaxLines <= fallbackMaxLines) {
+    return {
+      ...fallback,
+      maxLines: fallbackMaxLines,
+    };
+  }
+
+  const final = fitUniformTextToBox({
+    ...rest,
+    maxLines: finalMaxLines,
+  });
+  return {
+    ...final,
+    maxLines: finalMaxLines,
+  };
+};
+
 export const DEFAULT_SUBTITLE_MAX_LINES = [2, 3, 4] as const;
 
 export const getSubtitleLineHeight = ({
@@ -700,6 +746,21 @@ export const fitSubtitleLayoutWithDom = ({
     };
   }
 
+  const previousInlineStyles = {
+    display: element.style.display,
+    overflow: element.style.overflow,
+    maxHeight: element.style.maxHeight,
+    webkitLineClamp: element.style.webkitLineClamp,
+    webkitBoxOrient: element.style.webkitBoxOrient,
+    fontSize: element.style.fontSize,
+  };
+
+  element.style.display = "block";
+  element.style.overflow = "visible";
+  element.style.maxHeight = "none";
+  element.style.webkitLineClamp = "unset";
+  element.style.webkitBoxOrient = "initial";
+
   const fitsAt = (fontSize: number, maxLines: number): boolean => {
     element.style.fontSize = `${fontSize}px`;
     const computed = window.getComputedStyle(element);
@@ -713,18 +774,27 @@ export const fitSubtitleLayoutWithDom = ({
     maxLines: orderedCandidates[orderedCandidates.length - 1],
   };
 
-  for (const maxLines of orderedCandidates) {
-    let nextFontSize = resolvedBaseFontSize;
-    while (nextFontSize > resolvedMinFontSize) {
-      if (fitsAt(nextFontSize, maxLines)) {
-        return {fontSize: nextFontSize, maxLines};
+  try {
+    for (const maxLines of orderedCandidates) {
+      let nextFontSize = resolvedBaseFontSize;
+      while (nextFontSize > resolvedMinFontSize) {
+        if (fitsAt(nextFontSize, maxLines)) {
+          return {fontSize: nextFontSize, maxLines};
+        }
+        nextFontSize -= 1;
       }
-      nextFontSize -= 1;
+      if (fitsAt(resolvedMinFontSize, maxLines)) {
+        return {fontSize: resolvedMinFontSize, maxLines};
+      }
+      fallback = {fontSize: resolvedMinFontSize, maxLines};
     }
-    if (fitsAt(resolvedMinFontSize, maxLines)) {
-      return {fontSize: resolvedMinFontSize, maxLines};
-    }
-    fallback = {fontSize: resolvedMinFontSize, maxLines};
+  } finally {
+    element.style.display = previousInlineStyles.display;
+    element.style.overflow = previousInlineStyles.overflow;
+    element.style.maxHeight = previousInlineStyles.maxHeight;
+    element.style.webkitLineClamp = previousInlineStyles.webkitLineClamp;
+    element.style.webkitBoxOrient = previousInlineStyles.webkitBoxOrient;
+    element.style.fontSize = previousInlineStyles.fontSize;
   }
 
   return fallback;

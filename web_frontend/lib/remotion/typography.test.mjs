@@ -6,6 +6,7 @@ import {
   getSafeSubtitleScale,
   getSubtitleLineHeight,
   fitUniformSingleLineText,
+  fitUniformAdaptiveTextToBox,
   fitUniformTextToBox,
   fitTextToBox,
   getResponsiveOverlayTypography,
@@ -251,6 +252,45 @@ test("allows portrait progress labels to wrap to two lines with one shared font 
   assert.ok(fitted.labels.every((label) => label.visible), "expected all portrait labels to remain visible");
   assert.ok(fitted.labels.some((label) => label.text.includes("\n")), "expected at least one label to wrap to two lines");
   assert.ok(fitted.fontSize >= 12, `expected wrapped shared font to stay readable, got ${fitted.fontSize}`);
+});
+
+test("uses one shared subtitle font size driven by the longest caption", () => {
+  const fitted = fitUniformAdaptiveTextToBox({
+    items: [
+      {text: "短句", maxWidth: 320},
+      {text: "这是一个明显更长、需要决定全局字号的字幕句子", maxWidth: 320},
+      {text: "中等长度的句子", maxWidth: 320},
+    ],
+    baseFontSize: 42,
+    minFontSize: 20,
+    fontWeight: 700,
+  });
+
+  assert.ok(fitted.fontSize < 42, `expected longest caption to shrink the shared font size, got ${fitted.fontSize}`);
+  assert.ok(
+    fitted.labels[1].text.includes("\n"),
+    "expected the longest caption to wrap and drive the global layout"
+  );
+  assert.ok(
+    fitted.labels.every((label) => !label.truncated),
+    "expected all captions to use the same readable font without truncation"
+  );
+});
+
+test("falls back to a shared three-line subtitle layout when two lines are not enough", () => {
+  const fitted = fitUniformAdaptiveTextToBox({
+    items: [
+      {text: "短句", maxWidth: 260},
+      {text: "这是一个非常非常长的字幕句子，需要把全局字幕统一降到三行布局里才放得下", maxWidth: 260},
+    ],
+    baseFontSize: 38,
+    minFontSize: 18,
+    fontWeight: 700,
+  });
+
+  assert.ok(fitted.maxLines > 2, `expected long subtitle set to need more than two lines, got ${fitted.maxLines}`);
+  assert.ok(fitted.fontSize >= 18, `expected fallback shared font to remain readable, got ${fitted.fontSize}`);
+  assert.ok(fitted.labels.every((label) => !label.truncated), "expected shared three-line layout to avoid truncation");
 });
 
 test("prepares subtitles for browser-side balanced wrapping without inserting new lines", () => {

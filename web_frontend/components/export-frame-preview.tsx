@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 
 import type {WebRenderConfig} from "@/lib/api";
 import type {SubtitleTheme} from "@/lib/remotion/stitch-video-web";
@@ -10,12 +10,10 @@ import {
   type ProgressLabelMode,
 } from "@/lib/remotion/overlay-controls";
 import {
-  type DomSubtitleLayout,
-  fitSubtitleLayoutWithDom,
+  fitUniformAdaptiveTextToBox,
   fitTextToBox,
   fitUniformSingleLineText,
   fitUniformTextToBox,
-  DEFAULT_SUBTITLE_MAX_LINES,
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
@@ -95,10 +93,9 @@ export default function ExportFramePreview({
   overlayControls,
 }: ExportFramePreviewProps) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
-  const [frameWidth, setFrameWidth] = useState(0);
+  const [frameSize, setFrameSize] = useState({width: 0, height: 0});
   const frameRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const subtitleRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (sourceUrlOverride) {
@@ -129,8 +126,13 @@ export default function ExportFramePreview({
     if (!element) return;
 
     const update = () => {
-      const nextWidth = Math.round(element.clientWidth);
-      setFrameWidth((previous) => (previous === nextWidth ? previous : nextWidth));
+      const nextSize = {
+        width: Math.round(element.clientWidth),
+        height: Math.round(element.clientHeight),
+      };
+      setFrameSize((previous) =>
+        previous.width === nextSize.width && previous.height === nextSize.height ? previous : nextSize
+      );
     };
 
     update();
@@ -210,9 +212,10 @@ export default function ExportFramePreview({
       isPortrait,
     });
     const normalizedChapterScale = Math.max(0.7, Math.min(overlayControls.chapterScale ?? 1, 1.45));
-    const activeCaption = wrappedCaptions.find(
+    const activeCaptionIndex = wrappedCaptions.findIndex(
       (caption) => clampedPreviewTime >= caption.start && clampedPreviewTime < caption.end
     );
+    const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
     const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
     const chapterCardMaxWidth = Math.min(
       chapterWrapWidth,
@@ -341,6 +344,8 @@ export default function ExportFramePreview({
       subtitleLineHeight,
       subtitleBoxMaxWidth,
       subtitleTextMaxWidth,
+      wrappedCaptions,
+      activeCaptionIndex,
       activeCaption,
       activeTopic,
       activeTopicLabel,
@@ -376,45 +381,27 @@ export default function ExportFramePreview({
         )
       )
     : 0;
-  const [resolvedSubtitleLayout, setResolvedSubtitleLayout] = useState<DomSubtitleLayout>({
-    fontSize: subtitleInitialFontSize,
-    maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
-  } as DomSubtitleLayout);
-  const resolvedSubtitleFontSize = resolvedSubtitleLayout.fontSize;
-
-  useLayoutEffect(() => {
-    setResolvedSubtitleLayout({
-      fontSize: subtitleInitialFontSize,
-      maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
-    } as DomSubtitleLayout);
-  }, [previewModel?.activeCaption?.index, previewModel?.activeCaption?.text, subtitleInitialFontSize]);
-
-  useLayoutEffect(() => {
-    const element = subtitleRef.current;
-    const text = subtitleRenderText;
-    if (!element || !text) {
-      return;
-    }
-
-    const nextLayout = fitSubtitleLayoutWithDom({
-      element,
-      baseFontSize: subtitleInitialFontSize,
-      minFontSize: subtitleMinFontSize,
-    });
-
-    if (
-      nextLayout.fontSize !== resolvedSubtitleLayout.fontSize ||
-      nextLayout.maxLines !== resolvedSubtitleLayout.maxLines
-    ) {
-      setResolvedSubtitleLayout(nextLayout as DomSubtitleLayout);
-    }
-  }, [
-    subtitleRenderText,
-    resolvedSubtitleLayout,
-    subtitleInitialFontSize,
-    subtitleMinFontSize,
-    previewModel?.subtitleTextMaxWidth,
-  ]);
+  const resolvedSubtitleSet = useMemo(
+    () =>
+      fitUniformAdaptiveTextToBox({
+        items: (previewModel?.wrappedCaptions ?? []).map((caption) => ({
+          text: caption.displayText,
+          maxWidth: previewModel?.subtitleTextMaxWidth ?? 1,
+        })),
+        baseFontSize: subtitleInitialFontSize,
+        minFontSize: subtitleMinFontSize,
+        preferredMaxLines: 2,
+        fallbackMaxLines: 3,
+        finalMaxLines: 4,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+      }),
+    [previewModel?.subtitleTextMaxWidth, previewModel?.wrappedCaptions, subtitleInitialFontSize, subtitleMinFontSize]
+  );
+  const activeCaptionLayout =
+    previewModel && previewModel.activeCaptionIndex >= 0
+      ? resolvedSubtitleSet.labels[previewModel.activeCaptionIndex]
+      : null;
 
   const subtitleStyleOverrides = useMemo(() => {
     if (!previewModel) return {};
@@ -476,23 +463,24 @@ export default function ExportFramePreview({
 
   const compositionWidth = config.composition.width;
   const compositionHeight = config.composition.height;
-  const previewScale = frameWidth > 0 ? frameWidth / compositionWidth : 1;
+  const widthScale = frameSize.width > 0 ? frameSize.width / compositionWidth : 1;
+  const heightScale = frameSize.height > 0 ? frameSize.height / compositionHeight : 1;
+  const previewScale = Math.min(widthScale, heightScale);
 
   return (
-    <div className="flex h-full w-full items-center justify-center">
+    <div className="flex h-full min-h-0 w-full items-center justify-center">
       <div
         ref={frameRef}
-        className="relative w-full max-w-full overflow-hidden bg-slate-950 xl:h-full xl:w-auto"
-        style={{
-          aspectRatio: `${compositionWidth} / ${compositionHeight}`,
-        }}
+        className="relative h-full min-h-0 w-full overflow-hidden rounded-[20px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)]"
       >
         <div
-          className="absolute left-0 top-0 origin-top-left"
+          className="absolute left-1/2 top-1/2 overflow-hidden rounded-[18px] border border-white/80 shadow-[0_22px_50px_-30px_rgba(15,23,42,0.35)]"
           style={{
             width: compositionWidth,
             height: compositionHeight,
-            transform: `scale(${previewScale || 1})`,
+            transform: `translate(-50%, -50%) scale(${previewScale || 1})`,
+            transformOrigin: "center center",
+            background: "linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%)",
           }}
         >
           {sourceUrl ? (
@@ -502,10 +490,10 @@ export default function ExportFramePreview({
               muted
               playsInline
               preload="metadata"
-              className="h-full w-full bg-black object-contain"
+              className="h-full w-full bg-[#eef4ff] object-contain object-center"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-slate-900 text-sm text-slate-400">
+            <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] text-sm text-slate-500">
               当前会话缺少本地原视频，预览不可用
             </div>
           )}
@@ -576,23 +564,22 @@ export default function ExportFramePreview({
             }}
           >
             <div
-              ref={subtitleRef}
               style={{
                 boxSizing: "border-box",
                 color: "#ffffff",
-                fontSize: resolvedSubtitleFontSize,
+                fontSize: resolvedSubtitleSet.fontSize,
                 fontWeight: 700,
                 fontFamily: OVERLAY_FONT_FAMILY,
                 lineHeight: previewModel.subtitleLineHeight,
                 textAlign: "center",
-                whiteSpace: "normal",
+                whiteSpace: "pre-line",
                 wordBreak: "normal",
                 overflowWrap: "anywhere",
                 overflow: "hidden",
                 ...subtitleStyleOverrides,
               }}
             >
-              {subtitleRenderText}
+              {activeCaptionLayout?.text ?? subtitleRenderText}
             </div>
           </div>
 

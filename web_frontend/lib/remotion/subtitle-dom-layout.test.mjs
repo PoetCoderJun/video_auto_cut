@@ -162,6 +162,46 @@ test("returns the minimum font size and last fallback line count when nothing ca
   assert.deepEqual(layout, {fontSize: 12, maxLines: 4});
 });
 
+test("ignores previously applied line clamping when re-measuring subtitles", () => {
+  setMockWindow((element) => {
+    const fontSize = readFontSize(element.style, 32);
+    return {lineHeight: `${fontSize * 1.5}px`};
+  });
+  const style = {
+    display: "-webkit-box",
+    overflow: "hidden",
+    maxHeight: "72px",
+    webkitLineClamp: "2",
+    webkitBoxOrient: "vertical",
+  };
+  const element = {
+    clientWidth: 300,
+    style,
+    get scrollWidth() {
+      return 240;
+    },
+    get scrollHeight() {
+      const fontSize = readFontSize(style, 32);
+      const naturalHeight = fontSize * 1.5 * 3;
+      const clampedHeight =
+        style.overflow === "hidden" && style.maxHeight !== "none"
+          ? Math.min(naturalHeight, Number.parseFloat(style.maxHeight))
+          : naturalHeight;
+      return clampedHeight;
+    },
+  };
+  const layout = fitSubtitleLayoutWithDom({
+    element,
+    baseFontSize: 32,
+    minFontSize: 18,
+    maxLinesCandidates: [2, 3, 4],
+  });
+
+  assert.deepEqual(layout, {fontSize: 32, maxLines: 3});
+  assert.equal(style.maxHeight, "72px");
+  assert.equal(style.webkitLineClamp, "2");
+});
+
 test("stays within allowed lines across representative portrait resolutions", () => {
   const resolutions = [
     {width: 544, height: 960},

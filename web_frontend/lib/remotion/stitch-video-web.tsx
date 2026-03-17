@@ -1,4 +1,4 @@
-import React, {useLayoutEffect, useMemo, useRef, useState} from "react";
+import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 
@@ -7,12 +7,10 @@ import {
   type ProgressLabelMode,
 } from "./overlay-controls";
 import {
-  type DomSubtitleLayout,
   fitUniformSingleLineText,
   fitUniformTextToBox,
-  fitSubtitleLayoutWithDom,
+  fitUniformAdaptiveTextToBox,
   fitTextToBox,
-  DEFAULT_SUBTITLE_MAX_LINES,
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
@@ -144,7 +142,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     progressLabelMode === "double" || (progressLabelMode === "auto" && isPortrait);
   const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
   const subtitleLineHeight = getSubtitleLineHeight({subtitleScale: safeSubtitleScale, isPortrait});
-  const subtitleRef = useRef<HTMLDivElement | null>(null);
 
   const scaledStyles = useMemo(() => {
     return {
@@ -323,52 +320,32 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   }, [frame, fps, timelineSegments]);
 
   const t = mappedTimelineTime;
-  const activeCaption = wrappedCaptions.find((caption) => t >= caption.start && t < caption.end);
+  const activeCaptionIndex = wrappedCaptions.findIndex((caption) => t >= caption.start && t < caption.end);
+  const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
   const subtitleRenderText = activeCaption?.displayText ?? "";
   const subtitleInitialFontSize = typography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
     isPortrait ? 23 : 26,
     Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
   );
-  const [resolvedSubtitleLayout, setResolvedSubtitleLayout] = useState<DomSubtitleLayout>({
-    fontSize: subtitleInitialFontSize,
-    maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
-  } as DomSubtitleLayout);
-  const resolvedSubtitleFontSize = resolvedSubtitleLayout.fontSize;
-
-  useLayoutEffect(() => {
-    setResolvedSubtitleLayout({
-      fontSize: subtitleInitialFontSize,
-      maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
-    } as DomSubtitleLayout);
-  }, [activeCaption?.displayText, subtitleInitialFontSize]);
-
-  useLayoutEffect(() => {
-    const el = subtitleRef.current;
-    const text = subtitleRenderText;
-    if (!el || !text) {
-      return;
-    }
-
-    const nextLayout = fitSubtitleLayoutWithDom({
-      element: el,
-      baseFontSize: subtitleInitialFontSize,
-      minFontSize: subtitleMinFontSize,
-    });
-
-    if (
-      nextLayout.fontSize !== resolvedSubtitleLayout.fontSize ||
-      nextLayout.maxLines !== resolvedSubtitleLayout.maxLines
-    ) {
-      setResolvedSubtitleLayout(nextLayout as DomSubtitleLayout);
-    }
-  }, [
-    subtitleRenderText,
-    resolvedSubtitleLayout,
-    subtitleInitialFontSize,
-    subtitleMinFontSize,
-    subtitleTextMaxWidth,
-  ]);
+  const resolvedSubtitleSet = useMemo(
+    () =>
+      fitUniformAdaptiveTextToBox({
+        items: wrappedCaptions.map((caption) => ({
+          text: caption.displayText,
+          maxWidth: subtitleTextMaxWidth,
+        })),
+        baseFontSize: subtitleInitialFontSize,
+        minFontSize: subtitleMinFontSize,
+        preferredMaxLines: 2,
+        fallbackMaxLines: 3,
+        finalMaxLines: 4,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+      }),
+    [subtitleInitialFontSize, subtitleMinFontSize, subtitleTextMaxWidth, wrappedCaptions]
+  );
+  const activeCaptionLayout = activeCaptionIndex >= 0 ? resolvedSubtitleSet.labels[activeCaptionIndex] : null;
 
   const normalizedTopics = useMemo(() => {
     return (topics || [])
@@ -547,10 +524,24 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   }, [subtitleBoxMaxWidth, subtitleTextMaxWidth, subtitleTheme, typography]);
 
   return (
-    <AbsoluteFill style={{backgroundColor: "black"}}>
+    <AbsoluteFill
+      style={{
+        background: "linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%)",
+      }}
+    >
       {timelineSegments.map((segment) => (
         <Sequence key={`${segment.from}-${segment.trimBefore}`} from={segment.from} durationInFrames={segment.durationInFrames}>
-          <Video src={src} trimBefore={segment.trimBefore} style={{width: "100%", height: "100%", objectFit: "contain"}} />
+          <Video
+            src={src}
+            trimBefore={segment.trimBefore}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "contain",
+              objectPosition: "center center",
+              backgroundColor: "#eef4ff",
+            }}
+          />
         </Sequence>
       ))}
 
@@ -572,14 +563,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
 
       <div style={scaledStyles.subtitleWrap}>
         <div
-          ref={subtitleRef}
           style={{
             ...scaledStyles.subtitleBox,
             ...subtitleStyleOverrides,
-            fontSize: resolvedSubtitleFontSize,
+            fontSize: resolvedSubtitleSet.fontSize,
+            whiteSpace: "pre-line",
           }}
         >
-          {subtitleRenderText}
+          {activeCaptionLayout?.text ?? subtitleRenderText}
         </div>
       </div>
 
