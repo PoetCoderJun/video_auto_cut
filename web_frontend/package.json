@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "node .next/standalone/server.js",
-    "test:unit": "node --experimental-strip-types --test lib/job-status.test.mjs lib/device.test.mjs lib/remotion/typography.test.mjs"
+    "test:unit": "node --experimental-strip-types --test lib/job-status.test.mjs lib/device.test.mjs lib/remotion/typography.test.mjs lib/remotion/subtitle-dom-layout.test.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",

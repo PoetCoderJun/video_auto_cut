@@ -25,6 +25,10 @@ import {
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import { isUnsupportedMobileUploadDevice } from "../lib/device";
+import {
+  getLikelyAppExportFileMessage,
+  isLikelyAppExportFileName,
+} from "../lib/source-video-guard";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
 import {
@@ -236,6 +240,10 @@ export default function HomePageClient() {
 
     if (mobileUploadBlocked) {
       showMobileUploadError();
+      return;
+    }
+    if (isLikelyAppExportFileName(file.name)) {
+      setError(getLikelyAppExportFileMessage(file.name));
       return;
     }
 

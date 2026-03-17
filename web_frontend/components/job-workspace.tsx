@@ -28,6 +28,11 @@ import {
   saveCachedJobSourceVideo,
 } from "../lib/video-cache";
 import {
+  getLikelyAppExportFileMessage,
+  getSourceVideoMismatchMessage,
+  isLikelyAppExportFileName,
+} from "../lib/source-video-guard";
+import {
   mergeJobSnapshot,
   mergeJobStatus,
   shouldPollJobStatus,
@@ -943,6 +948,14 @@ export default function JobWorkspace({
         if (cancelled) return;
         const config = await getWebRenderConfigWithMeta(jobId, meta);
         if (cancelled) return;
+        const sourceMismatchMessage = getSourceVideoMismatchMessage(
+          sourceFile.name,
+          meta,
+          config
+        );
+        if (sourceMismatchMessage) {
+          throw new Error(sourceMismatchMessage);
+        }
         setRenderConfig(config);
         setPreviewTimeSec((previous) => {
           const totalDuration = Math.max(
@@ -993,6 +1006,10 @@ export default function JobWorkspace({
         setError(
           "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
         );
+        return;
+      }
+      if (isLikelyAppExportFileName(file.name)) {
+        setError(getLikelyAppExportFileMessage(file.name));
         return;
       }
       const durationSec = await new Promise<number>((resolve) => {
@@ -1253,12 +1270,21 @@ export default function JobWorkspace({
       if (!sourceFile) {
         throw new Error("当前会话缺少本地原始视频，请先重新上传后再导出。");
       }
+      const sourceMeta = await resolveRenderMetaFromFile(sourceFile);
       const config =
         renderConfig ??
         (await getWebRenderConfigWithMeta(
           jobId,
-          await resolveRenderMetaFromFile(sourceFile)
+          sourceMeta
         ));
+      const sourceMismatchMessage = getSourceVideoMismatchMessage(
+        sourceFile.name,
+        sourceMeta,
+        config
+      );
+      if (sourceMismatchMessage) {
+        throw new Error(sourceMismatchMessage);
+      }
       setRenderConfig((previous) => previous ?? config);
       sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
@@ -1280,6 +1306,14 @@ export default function JobWorkspace({
         throw new Error(
           "当前页面不在安全上下文中（需要 HTTPS 或 localhost），浏览器禁用了视频解码器 (VideoDecoder)，无法导出视频。请通过 HTTPS 访问本站，或联系管理员配置 SSL 证书。"
         );
+      }
+
+      if (typeof document !== "undefined" && "fonts" in document) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // Ignore font readiness failures and let the renderer proceed.
+        }
       }
 
       const { renderMediaOnWeb, getEncodableAudioCodecs } = await import("@remotion/web-renderer");

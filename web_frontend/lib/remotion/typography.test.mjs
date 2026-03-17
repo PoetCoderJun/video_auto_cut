@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   fitSingleLineText,
+  getSafeSubtitleScale,
+  getSubtitleLineHeight,
   fitUniformSingleLineText,
   fitUniformTextToBox,
   fitTextToBox,
@@ -274,4 +276,72 @@ test("keeps English words separated when flattening hard line breaks", () => {
   const prepared = prepareCaptionDisplayText("OpenAI\nCodex 帮你\n处理 v2\n版本");
 
   assert.equal(prepared, "OpenAI Codex 帮你处理 v2 版本");
+});
+
+test("ensures extreme portrait resolutions cap subtitle size and widen ratio", () => {
+  const typography = getResponsiveOverlayTypography({width: 720, height: 3200});
+  assert.ok(
+    typography.subtitleFontSize <= 110,
+    `expected ultra-tall subtitles to stay bounded, got ${typography.subtitleFontSize}`
+  );
+  assert.ok(
+    typography.subtitleMaxWidthRatio > typography.subtitleSafeWidthRatio,
+    "expected max-width ratio to remain more permissive than safe width ratio"
+  );
+  assert.ok(
+    typography.subtitleSafeWidthRatio >= 0.88,
+    `expected safe width ratio to remain reachable, got ${typography.subtitleSafeWidthRatio}`
+  );
+});
+
+test("handles ultra-wide landscapes without shrinking progress labels too far", () => {
+  const typography = getResponsiveOverlayTypography({width: 5120, height: 720});
+  assert.ok(
+    typography.subtitleFontSize >= 30,
+    `expected wide subtitles to stay legible, got ${typography.subtitleFontSize}`
+  );
+  assert.ok(
+    typography.progressLabelFontSize >= 17,
+    `expected high-res progress labels to stay readable, got ${typography.progressLabelFontSize}`
+  );
+  assert.ok(
+    typography.progressLabelFontSize <= typography.progressHeight,
+    "expected progress label font to be capped by progress height"
+  );
+});
+
+test("prepareCaptionDisplayText keeps multi-punctuation natural while trimming whitespace", () => {
+  const source =
+    "想想看……如果不着急，那我们为什么要立刻决策？\n下一行继续讲清楚。";
+  const prepared = prepareCaptionDisplayText(source);
+  assert.equal(
+    prepared,
+    "想想看……如果不着急，那我们为什么要立刻决策？下一行继续讲清楚。"
+  );
+  assert.equal(prepared.includes("  "), false, "expected double spaces to be collapsed");
+});
+
+test("raises subtitle line height as subtitle scale approaches the upper bound", () => {
+  const portraitBase = getSubtitleLineHeight({subtitleScale: 1, isPortrait: true});
+  const portraitMax = getSubtitleLineHeight({subtitleScale: 1.45, isPortrait: true});
+  const landscapeBase = getSubtitleLineHeight({subtitleScale: 1, isPortrait: false});
+  const landscapeMax = getSubtitleLineHeight({subtitleScale: 1.45, isPortrait: false});
+
+  assert.ok(portraitMax > portraitBase, `expected portrait line height to grow, got ${portraitBase} -> ${portraitMax}`);
+  assert.ok(landscapeMax > landscapeBase, `expected landscape line height to grow, got ${landscapeBase} -> ${landscapeMax}`);
+  assert.ok(portraitMax <= 1.74, `expected portrait line height clamp, got ${portraitMax}`);
+  assert.ok(landscapeMax <= 1.68, `expected landscape line height clamp, got ${landscapeMax}`);
+});
+
+test("caps aggressive subtitle scale on extra-narrow portrait exports", () => {
+  const base = getResponsiveOverlayTypography({width: 544, height: 960});
+  const safeScale = getSafeSubtitleScale({
+    requestedScale: 1.45,
+    width: 544,
+    height: 960,
+    baseSubtitleFontSize: base.subtitleFontSize,
+  });
+
+  assert.ok(safeScale < 1.45, `expected narrow portrait subtitle scale to be capped, got ${safeScale}`);
+  assert.ok(safeScale >= 1.25, `expected cap to stay usable, got ${safeScale}`);
 });

@@ -10,11 +10,15 @@ import {
   type ProgressLabelMode,
 } from "@/lib/remotion/overlay-controls";
 import {
-  fitAdaptiveTextToBox,
+  type DomSubtitleLayout,
+  fitSubtitleLayoutWithDom,
   fitTextToBox,
   fitUniformSingleLineText,
   fitUniformTextToBox,
+  DEFAULT_SUBTITLE_MAX_LINES,
   getResponsiveOverlayTypography,
+  getSafeSubtitleScale,
+  getSubtitleLineHeight,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "@/lib/remotion/typography";
@@ -184,16 +188,27 @@ export default function ExportFramePreview({
     const composition = config.composition;
     const width = composition.width;
     const height = composition.height;
-    const typography = applyOverlayScaleToTypography(
-      getResponsiveOverlayTypography({width, height}),
-      overlayControls
-    );
+    const baseTypography = getResponsiveOverlayTypography({width, height});
+    const safeSubtitleScale = getSafeSubtitleScale({
+      requestedScale: overlayControls.subtitleScale,
+      width,
+      height,
+      baseSubtitleFontSize: baseTypography.subtitleFontSize,
+    });
+    const typography = applyOverlayScaleToTypography(baseTypography, {
+      ...overlayControls,
+      subtitleScale: safeSubtitleScale,
+    });
     const input = config.input_props;
     const wrappedCaptions = input.captions.map((caption) => ({
       ...caption,
       displayText: prepareCaptionDisplayText(caption.text),
     }));
     const isPortrait = height > width;
+    const subtitleLineHeight = getSubtitleLineHeight({
+      subtitleScale: safeSubtitleScale,
+      isPortrait,
+    });
     const normalizedChapterScale = Math.max(0.7, Math.min(overlayControls.chapterScale ?? 1, 1.45));
     const activeCaption = wrappedCaptions.find(
       (caption) => clampedPreviewTime >= caption.start && clampedPreviewTime < caption.end
@@ -215,23 +230,16 @@ export default function ExportFramePreview({
       Math.round(typography.chapterMetaFontSize * 1.2) +
       typography.chapterGap +
       Math.round(typography.chapterTitleFontSize * 2.4);
+    const subtitleBoxedTheme =
+      subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
+    const subtitleBoxMaxWidth = Math.max(
+      1,
+      width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio
+    );
     const subtitleTextMaxWidth = Math.max(
       1,
-      width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio - typography.subtitlePaddingX * 2
+      subtitleBoxMaxWidth - (subtitleBoxedTheme ? typography.subtitlePaddingX * 2 : 0)
     );
-    const activeCaptionLayout = activeCaption
-      ? fitAdaptiveTextToBox({
-          text: activeCaption.displayText,
-          maxWidth: subtitleTextMaxWidth,
-          baseFontSize: typography.subtitleFontSize,
-          minFontSize: Math.max(
-            isPortrait ? 23 : 26,
-            Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
-          ),
-          fontWeight: 700,
-          fontFamily: OVERLAY_FONT_FAMILY,
-        })
-      : null;
     const normalizedTopics = input.topics
       .filter((topic) => Number.isFinite(topic.start) && Number.isFinite(topic.end) && topic.end > topic.start)
       .slice()
@@ -330,9 +338,10 @@ export default function ExportFramePreview({
     return {
       composition,
       typography,
+      subtitleLineHeight,
+      subtitleBoxMaxWidth,
       subtitleTextMaxWidth,
       activeCaption,
-      activeCaptionLayout,
       activeTopic,
       activeTopicLabel,
       activeTopicLayout,
@@ -354,16 +363,10 @@ export default function ExportFramePreview({
       chapterCardWidth,
       chapterTitleMaxWidth,
     };
-  }, [clampedPreviewTime, config, overlayControls, totalDuration]);
+  }, [clampedPreviewTime, config, overlayControls, subtitleTheme, totalDuration]);
 
-  const subtitleInitialFontSize =
-    previewModel?.activeCaptionLayout?.fontSize ?? previewModel?.typography.subtitleFontSize ?? 0;
-  const subtitleMaxLines = previewModel?.activeCaptionLayout?.maxLines ?? 2;
-  const subtitleRenderText = previewModel?.activeCaption
-    ? previewModel.activeCaptionLayout?.truncated
-      ? previewModel.activeCaptionLayout.text
-      : previewModel.activeCaption.displayText
-    : "";
+  const subtitleInitialFontSize = previewModel?.typography.subtitleFontSize ?? 0;
+  const subtitleRenderText = previewModel?.activeCaption?.displayText ?? "";
   const subtitleMinFontSize = previewModel
     ? Math.max(
         previewModel.composition.height > previewModel.composition.width ? 23 : 26,
@@ -373,10 +376,17 @@ export default function ExportFramePreview({
         )
       )
     : 0;
-  const [resolvedSubtitleFontSize, setResolvedSubtitleFontSize] = useState(subtitleInitialFontSize);
+  const [resolvedSubtitleLayout, setResolvedSubtitleLayout] = useState<DomSubtitleLayout>({
+    fontSize: subtitleInitialFontSize,
+    maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
+  } as DomSubtitleLayout);
+  const resolvedSubtitleFontSize = resolvedSubtitleLayout.fontSize;
 
   useLayoutEffect(() => {
-    setResolvedSubtitleFontSize(subtitleInitialFontSize);
+    setResolvedSubtitleLayout({
+      fontSize: subtitleInitialFontSize,
+      maxLines: DEFAULT_SUBTITLE_MAX_LINES[0],
+    } as DomSubtitleLayout);
   }, [previewModel?.activeCaption?.index, previewModel?.activeCaption?.text, subtitleInitialFontSize]);
 
   useLayoutEffect(() => {
@@ -386,31 +396,24 @@ export default function ExportFramePreview({
       return;
     }
 
-    let nextFontSize = subtitleInitialFontSize;
-    element.style.fontSize = `${nextFontSize}px`;
+    const nextLayout = fitSubtitleLayoutWithDom({
+      element,
+      baseFontSize: subtitleInitialFontSize,
+      minFontSize: subtitleMinFontSize,
+    });
 
-    while (nextFontSize > subtitleMinFontSize) {
-      const computed = window.getComputedStyle(element);
-      const lineHeight = Number.parseFloat(computed.lineHeight) || nextFontSize * 1.35;
-      const allowedHeight = lineHeight * subtitleMaxLines + 1;
-      const fitsHeight = element.scrollHeight <= allowedHeight;
-      const fitsWidth = element.scrollWidth <= element.clientWidth + 1;
-      if (fitsHeight && fitsWidth) {
-        break;
-      }
-      nextFontSize -= 1;
-      element.style.fontSize = `${nextFontSize}px`;
-    }
-
-    if (nextFontSize !== resolvedSubtitleFontSize) {
-      setResolvedSubtitleFontSize(nextFontSize);
+    if (
+      nextLayout.fontSize !== resolvedSubtitleLayout.fontSize ||
+      nextLayout.maxLines !== resolvedSubtitleLayout.maxLines
+    ) {
+      setResolvedSubtitleLayout(nextLayout as DomSubtitleLayout);
     }
   }, [
     subtitleRenderText,
-    resolvedSubtitleFontSize,
+    resolvedSubtitleLayout,
     subtitleInitialFontSize,
     subtitleMinFontSize,
-    subtitleMaxLines,
+    previewModel?.subtitleTextMaxWidth,
   ]);
 
   const subtitleStyleOverrides = useMemo(() => {
@@ -427,6 +430,7 @@ export default function ExportFramePreview({
           backgroundColor: "transparent",
           padding: "0",
           borderRadius: 0,
+          maxWidth: previewModel.subtitleTextMaxWidth,
           textShadow: "0 1px 1px rgba(255, 255, 255, 0.45)",
         } as React.CSSProperties;
       case "text-white":
@@ -435,6 +439,7 @@ export default function ExportFramePreview({
           backgroundColor: "transparent",
           padding: "0",
           borderRadius: 0,
+          maxWidth: previewModel.subtitleTextMaxWidth,
           textShadow: "0 1px 2px rgba(0, 0, 0, 0.75)",
         } as React.CSSProperties;
       case "box-black-on-white":
@@ -444,7 +449,7 @@ export default function ExportFramePreview({
           backgroundColor: "rgba(255, 255, 255, 0.92)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: previewModel.subtitleTextMaxWidth,
+          maxWidth: previewModel.subtitleBoxMaxWidth,
           textShadow: "none",
         } as React.CSSProperties;
       case "box-white-on-black":
@@ -455,7 +460,7 @@ export default function ExportFramePreview({
           backgroundColor: "rgba(0, 0, 0, 0.82)",
           padding: `${p}px ${px}px`,
           borderRadius: br,
-          maxWidth: previewModel.subtitleTextMaxWidth,
+          maxWidth: previewModel.subtitleBoxMaxWidth,
           textShadow: "none",
         } as React.CSSProperties;
     }
@@ -578,13 +583,12 @@ export default function ExportFramePreview({
                 fontSize: resolvedSubtitleFontSize,
                 fontWeight: 700,
                 fontFamily: OVERLAY_FONT_FAMILY,
-                lineHeight: 1.5,
+                lineHeight: previewModel.subtitleLineHeight,
                 textAlign: "center",
                 whiteSpace: "normal",
                 wordBreak: "normal",
                 overflowWrap: "anywhere",
                 overflow: "hidden",
-                maxWidth: previewModel?.subtitleTextMaxWidth,
                 ...subtitleStyleOverrides,
               }}
             >

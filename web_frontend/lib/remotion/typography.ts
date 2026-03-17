@@ -60,6 +60,11 @@ export type AdaptiveFittedTextBox = FittedTextBox & {
   maxLines: number;
 };
 
+export type DomSubtitleLayout = {
+  fontSize: number;
+  maxLines: number;
+};
+
 export type FitSingleLineTextInput = {
   text: string;
   maxWidth: number;
@@ -632,6 +637,97 @@ export const fitAdaptiveTextToBox = ({
     ...final,
     maxLines: finalMaxLines,
   };
+};
+
+export const DEFAULT_SUBTITLE_MAX_LINES = [2, 3, 4] as const;
+
+export const getSubtitleLineHeight = ({
+  subtitleScale = 1,
+  isPortrait,
+}: {
+  subtitleScale?: number;
+  isPortrait: boolean;
+}): number => {
+  const normalizedScale = clamp(subtitleScale, 0.7, 1.45);
+  const base = isPortrait ? 1.54 : 1.5;
+  const scaleBoost = Math.max(0, normalizedScale - 1) * 0.38;
+  return clamp(base + scaleBoost, base, isPortrait ? 1.74 : 1.68);
+};
+
+export const getSafeSubtitleScale = ({
+  requestedScale = 1,
+  width,
+  height,
+  baseSubtitleFontSize,
+}: {
+  requestedScale?: number;
+  width: number;
+  height: number;
+  baseSubtitleFontSize: number;
+}): number => {
+  const normalizedScale = clamp(requestedScale, 0.7, 1.45);
+  if (height <= width) {
+    return normalizedScale;
+  }
+
+  const widthDrivenMaxFontSize = Math.max(30, round(width * 0.1065));
+  const widthDrivenMaxScale = widthDrivenMaxFontSize / Math.max(1, baseSubtitleFontSize);
+  return clamp(Math.min(normalizedScale, widthDrivenMaxScale), 0.7, 1.45);
+};
+
+export const fitSubtitleLayoutWithDom = ({
+  element,
+  baseFontSize,
+  minFontSize,
+  maxLinesCandidates = DEFAULT_SUBTITLE_MAX_LINES,
+}: {
+  element: HTMLElement;
+  baseFontSize: number;
+  minFontSize: number;
+  maxLinesCandidates?: readonly number[];
+}): DomSubtitleLayout => {
+  const resolvedBaseFontSize = atLeast(round(baseFontSize), 1);
+  const resolvedMinFontSize = Math.min(resolvedBaseFontSize, atLeast(round(minFontSize), 1));
+  const resolvedCandidates = Array.from(
+    new Set(maxLinesCandidates.map((value) => Math.max(1, Math.floor(value))))
+  );
+  const orderedCandidates = resolvedCandidates.length > 0 ? resolvedCandidates : [2];
+
+  if (typeof window === "undefined" || element.clientWidth <= 0) {
+    return {
+      fontSize: resolvedBaseFontSize,
+      maxLines: orderedCandidates[0],
+    };
+  }
+
+  const fitsAt = (fontSize: number, maxLines: number): boolean => {
+    element.style.fontSize = `${fontSize}px`;
+    const computed = window.getComputedStyle(element);
+    const lineHeight = Number.parseFloat(computed.lineHeight) || fontSize * 1.35;
+    const allowedHeight = lineHeight * maxLines + 1;
+    return element.scrollHeight <= allowedHeight && element.scrollWidth <= element.clientWidth + 1;
+  };
+
+  let fallback = {
+    fontSize: resolvedMinFontSize,
+    maxLines: orderedCandidates[orderedCandidates.length - 1],
+  };
+
+  for (const maxLines of orderedCandidates) {
+    let nextFontSize = resolvedBaseFontSize;
+    while (nextFontSize > resolvedMinFontSize) {
+      if (fitsAt(nextFontSize, maxLines)) {
+        return {fontSize: nextFontSize, maxLines};
+      }
+      nextFontSize -= 1;
+    }
+    if (fitsAt(resolvedMinFontSize, maxLines)) {
+      return {fontSize: resolvedMinFontSize, maxLines};
+    }
+    fallback = {fontSize: resolvedMinFontSize, maxLines};
+  }
+
+  return fallback;
 };
 
 export const fitSingleLineText = ({
