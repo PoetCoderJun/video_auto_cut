@@ -2387,23 +2387,7 @@ export default function JobWorkspace({
                       重新选择源文件
                     </Button>
                   </div>
-                ) : (
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                    <p className="truncate">
-                      当前导出源文件：{selectedFile?.name}
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={triggerRenderSourceFileInput}
-                      disabled={renderBusy || busy}
-                    >
-                      更换源文件
-                    </Button>
-                  </div>
-                )}
+                ) : null}
 
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-sm font-medium">标题行数</label>
