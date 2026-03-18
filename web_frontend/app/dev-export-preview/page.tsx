@@ -6,6 +6,7 @@ import {useSearchParams} from "next/navigation";
 import ExportFramePreview from "@/components/export-frame-preview";
 import {Button} from "@/components/ui/button";
 import {Card, CardContent} from "@/components/ui/card";
+import {Checkbox} from "@/components/ui/checkbox";
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
 import type {ProgressLabelMode, SubtitleTheme} from "@/lib/api";
 import {
@@ -20,6 +21,8 @@ import {
   type MockScenarioPreset,
 } from "@/lib/remotion/dev-export-preview-presets";
 import {
+  DEFAULT_OVERLAY_CONTROLS,
+  OVERLAY_POSITION_LIMITS,
   OVERLAY_SCALE_LIMITS,
   type OverlayScaleControls,
 } from "@/lib/remotion/overlay-controls";
@@ -106,6 +109,7 @@ const buildInitialOverlayControls = (scenarioId: string): OverlayScaleControls =
   const scenario = getMockScenarioPreset(scenarioId);
   return (
     scenario.defaultOverlayControls ?? {
+      ...DEFAULT_OVERLAY_CONTROLS,
       subtitleScale: 1.12,
       progressScale: 1.18,
       chapterScale: 1,
@@ -250,7 +254,13 @@ function DevExportPreviewPageInner() {
   const previewTimeSec = runtimeScenario.previewTimeSec;
   const inspectTimesSec = runtimeScenario.inspectTimesSec;
   const subtitlePercent = Math.round((overlayControls.subtitleScale ?? 1) * 100);
+  const subtitleYPercent = Math.round(
+    overlayControls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent
+  );
   const progressPercent = Math.round((overlayControls.progressScale ?? 1) * 100);
+  const progressYPercent = Math.round(
+    overlayControls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent
+  );
   const chapterPercent = Math.round((overlayControls.chapterScale ?? 1) * 100);
 
   useEffect(() => {
@@ -267,6 +277,7 @@ function DevExportPreviewPageInner() {
     setSubtitleTheme(scenario.defaultSubtitleTheme ?? "box-white-on-black");
     setOverlayControls(
       scenario.defaultOverlayControls ?? {
+        ...DEFAULT_OVERLAY_CONTROLS,
         subtitleScale: 1.12,
         progressScale: 1.18,
         chapterScale: 1,
@@ -546,6 +557,46 @@ function DevExportPreviewPageInner() {
                 </Select>
               </div>
 
+              <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3">
+                <div className="text-sm font-medium text-slate-900">显示内容</div>
+                <label className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                  <span>显示字幕</span>
+                  <Checkbox
+                    checked={overlayControls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles}
+                    onCheckedChange={(checked) =>
+                      setOverlayControls((previous) => ({
+                        ...previous,
+                        showSubtitles: checked !== false,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                  <span>显示进度条</span>
+                  <Checkbox
+                    checked={overlayControls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress}
+                    onCheckedChange={(checked) =>
+                      setOverlayControls((previous) => ({
+                        ...previous,
+                        showProgress: checked !== false,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                  <span>显示章节</span>
+                  <Checkbox
+                    checked={overlayControls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter}
+                    onCheckedChange={(checked) =>
+                      setOverlayControls((previous) => ({
+                        ...previous,
+                        showChapter: checked !== false,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+
               <div className="space-y-2 border-t border-slate-200 pt-3">
                 <div className="text-sm font-medium text-slate-900">章节标题</div>
                 <textarea
@@ -680,6 +731,35 @@ function DevExportPreviewPageInner() {
 
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
+                  <label className="font-medium">字幕位置</label>
+                  <span className="font-mono text-slate-500">{subtitleYPercent}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={OVERLAY_POSITION_LIMITS.subtitleY.min}
+                  max={OVERLAY_POSITION_LIMITS.subtitleY.max}
+                  step={OVERLAY_POSITION_LIMITS.subtitleY.step}
+                  value={
+                    overlayControls.subtitleYPercent ??
+                    OVERLAY_POSITION_LIMITS.subtitleY.defaultValue
+                  }
+                  onChange={(event) => {
+                    const nextSubtitleYPercent = clamp(
+                      Number(event.currentTarget.value),
+                      OVERLAY_POSITION_LIMITS.subtitleY.min,
+                      OVERLAY_POSITION_LIMITS.subtitleY.max
+                    );
+                    setOverlayControls((previous) => ({
+                      ...previous,
+                      subtitleYPercent: nextSubtitleYPercent,
+                    }));
+                  }}
+                  className="h-2 w-full cursor-ew-resize accent-slate-900"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
                   <label className="font-medium">进度条大小</label>
                   <span className="font-mono text-slate-500">{progressPercent}%</span>
                 </div>
@@ -698,6 +778,35 @@ function DevExportPreviewPageInner() {
                     setOverlayControls((previous) => ({
                       ...previous,
                       progressScale: nextProgressScale,
+                    }));
+                  }}
+                  className="h-2 w-full cursor-ew-resize accent-slate-900"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <label className="font-medium">进度条位置</label>
+                  <span className="font-mono text-slate-500">{progressYPercent}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={OVERLAY_POSITION_LIMITS.progressY.min}
+                  max={OVERLAY_POSITION_LIMITS.progressY.max}
+                  step={OVERLAY_POSITION_LIMITS.progressY.step}
+                  value={
+                    overlayControls.progressYPercent ??
+                    OVERLAY_POSITION_LIMITS.progressY.defaultValue
+                  }
+                  onChange={(event) => {
+                    const nextProgressYPercent = clamp(
+                      Number(event.currentTarget.value),
+                      OVERLAY_POSITION_LIMITS.progressY.min,
+                      OVERLAY_POSITION_LIMITS.progressY.max
+                    );
+                    setOverlayControls((previous) => ({
+                      ...previous,
+                      progressYPercent: nextProgressYPercent,
                     }));
                   }}
                   className="h-2 w-full cursor-ew-resize accent-slate-900"

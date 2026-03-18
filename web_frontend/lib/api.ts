@@ -80,8 +80,13 @@ export type RenderInputProps = {
   height: number;
   subtitleTheme?: SubtitleTheme;
   subtitleScale?: number;
+  subtitleYPercent?: number;
   progressScale?: number;
+  progressYPercent?: number;
   chapterScale?: number;
+  showSubtitles?: boolean;
+  showProgress?: boolean;
+  showChapter?: boolean;
   progressLabelMode?: ProgressLabelMode;
 };
 

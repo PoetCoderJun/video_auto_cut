@@ -4,8 +4,13 @@ export type ProgressLabelMode = "auto" | "single" | "double";
 
 export type OverlayScaleControls = {
   subtitleScale?: number;
+  subtitleYPercent?: number;
   progressScale?: number;
+  progressYPercent?: number;
   chapterScale?: number;
+  showSubtitles?: boolean;
+  showProgress?: boolean;
+  showChapter?: boolean;
   progressLabelMode?: ProgressLabelMode;
 };
 
@@ -14,6 +19,23 @@ export const OVERLAY_SCALE_LIMITS = {
   progress: {min: 0.7, max: 1.6, step: 0.01, defaultValue: 1},
   chapter: {min: 0.7, max: 1.45, step: 0.01, defaultValue: 1},
 } as const;
+
+export const OVERLAY_POSITION_LIMITS = {
+  subtitleY: {min: 0, max: 100, step: 1, defaultValue: 90},
+  progressY: {min: 0, max: 100, step: 1, defaultValue: 97},
+} as const;
+
+export const DEFAULT_OVERLAY_CONTROLS: Required<OverlayScaleControls> = {
+  subtitleScale: OVERLAY_SCALE_LIMITS.subtitle.defaultValue,
+  subtitleYPercent: OVERLAY_POSITION_LIMITS.subtitleY.defaultValue,
+  progressScale: OVERLAY_SCALE_LIMITS.progress.defaultValue,
+  progressYPercent: OVERLAY_POSITION_LIMITS.progressY.defaultValue,
+  chapterScale: OVERLAY_SCALE_LIMITS.chapter.defaultValue,
+  showSubtitles: true,
+  showProgress: true,
+  showChapter: true,
+  progressLabelMode: "auto",
+};
 
 const clamp = (value: number, min: number, max: number): number => {
   if (!Number.isFinite(value)) return min;
@@ -39,22 +61,44 @@ const scaleDimension = (
 
 export const normalizeOverlayScaleControls = (
   controls: OverlayScaleControls
-): {subtitleScale: number; progressScale: number; chapterScale: number} => ({
+): {
+  subtitleScale: number;
+  subtitleYPercent: number;
+  progressScale: number;
+  progressYPercent: number;
+  chapterScale: number;
+  showSubtitles: boolean;
+  showProgress: boolean;
+  showChapter: boolean;
+} => ({
   subtitleScale: clamp(
-    controls.subtitleScale ?? OVERLAY_SCALE_LIMITS.subtitle.defaultValue,
+    controls.subtitleScale ?? DEFAULT_OVERLAY_CONTROLS.subtitleScale,
     OVERLAY_SCALE_LIMITS.subtitle.min,
     OVERLAY_SCALE_LIMITS.subtitle.max
   ),
+  subtitleYPercent: clamp(
+    controls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
+    OVERLAY_POSITION_LIMITS.subtitleY.min,
+    OVERLAY_POSITION_LIMITS.subtitleY.max
+  ),
   progressScale: clamp(
-    controls.progressScale ?? OVERLAY_SCALE_LIMITS.progress.defaultValue,
+    controls.progressScale ?? DEFAULT_OVERLAY_CONTROLS.progressScale,
     OVERLAY_SCALE_LIMITS.progress.min,
     OVERLAY_SCALE_LIMITS.progress.max
   ),
+  progressYPercent: clamp(
+    controls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent,
+    OVERLAY_POSITION_LIMITS.progressY.min,
+    OVERLAY_POSITION_LIMITS.progressY.max
+  ),
   chapterScale: clamp(
-    controls.chapterScale ?? OVERLAY_SCALE_LIMITS.chapter.defaultValue,
+    controls.chapterScale ?? DEFAULT_OVERLAY_CONTROLS.chapterScale,
     OVERLAY_SCALE_LIMITS.chapter.min,
     OVERLAY_SCALE_LIMITS.chapter.max
   ),
+  showSubtitles: controls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles,
+  showProgress: controls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress,
+  showChapter: controls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter,
 });
 
 export const applyOverlayScaleToTypography = (
@@ -65,11 +109,7 @@ export const applyOverlayScaleToTypography = (
   const progressVisualScale = emphasizeScale(normalized.progressScale, 1.35, 0.55, 2.05);
   const progressTypeScale = emphasizeScale(normalized.progressScale, 1.65, 0.5, 2.15);
   const progressInsetScale = clamp(1 - (progressVisualScale - 1) * 0.28, 0.72, 1.18);
-  const subtitleFontSize = scaleDimension(
-    typography.subtitleFontSize,
-    normalized.subtitleScale,
-    16
-  );
+  const subtitleFontSize = scaleDimension(typography.subtitleFontSize, normalized.subtitleScale, 16);
   const progressLabelFontSize = scaleDimension(
     typography.progressLabelFontSize,
     progressTypeScale,
@@ -112,7 +152,12 @@ export const applyOverlayScaleToTypography = (
       7.5,
       0.25
     ),
-    chapterCardRadius: scaleDimension(typography.chapterCardRadius, normalized.chapterScale, 8.5, 0.25),
+    chapterCardRadius: scaleDimension(
+      typography.chapterCardRadius,
+      normalized.chapterScale,
+      8.5,
+      0.25
+    ),
     chapterMetaFontSize: scaleDimension(
       typography.chapterMetaFontSize,
       normalized.chapterScale,

@@ -6,6 +6,7 @@ import type {WebRenderConfig} from "@/lib/api";
 import type {SubtitleTheme} from "@/lib/remotion/stitch-video-web";
 import {
   applyOverlayScaleToTypography,
+  normalizeOverlayScaleControls,
   type OverlayScaleControls,
   type ProgressLabelMode,
 } from "@/lib/remotion/overlay-controls";
@@ -278,15 +279,16 @@ export default function ExportFramePreview({
     const composition = config.composition;
     const width = composition.width;
     const height = composition.height;
+    const normalizedControls = normalizeOverlayScaleControls(overlayControls);
     const baseTypography = getResponsiveOverlayTypography({width, height});
     const safeSubtitleScale = getSafeSubtitleScale({
-      requestedScale: overlayControls.subtitleScale,
+      requestedScale: normalizedControls.subtitleScale,
       width,
       height,
       baseSubtitleFontSize: baseTypography.subtitleFontSize,
     });
     const typography = applyOverlayScaleToTypography(baseTypography, {
-      ...overlayControls,
+      ...normalizedControls,
       subtitleScale: safeSubtitleScale,
     });
     const input = config.input_props;
@@ -306,7 +308,7 @@ export default function ExportFramePreview({
     const chapterCardMetrics = getChapterCardLayoutMetrics({
       width,
       height,
-      chapterScale: overlayControls.chapterScale,
+      chapterScale: normalizedControls.chapterScale,
       typography,
     });
     const chapterCardMinHeight = getChapterCardMinHeight({
@@ -442,6 +444,11 @@ export default function ExportFramePreview({
       chapterCardStyleWidth: chapterCardMetrics.cardStyleWidth,
       chapterCardStyleMaxWidth: chapterCardMetrics.cardStyleMaxWidth,
       chapterTitleMaxWidth: chapterCardMetrics.titleMaxWidth,
+      subtitleYPercent: normalizedControls.subtitleYPercent,
+      progressYPercent: normalizedControls.progressYPercent,
+      showSubtitles: normalizedControls.showSubtitles,
+      showProgress: normalizedControls.showProgress,
+      showChapter: normalizedControls.showChapter,
     };
   }, [clampedPreviewTime, config, overlayControls, subtitleTheme, totalDuration]);
 
@@ -576,7 +583,7 @@ export default function ExportFramePreview({
             </div>
           )}
 
-          {previewModel?.activeTopic ? (
+          {previewModel.showChapter && previewModel?.activeTopic ? (
             <div
               style={{
                 position: "absolute",
@@ -631,117 +638,125 @@ export default function ExportFramePreview({
             </div>
           ) : null}
 
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: previewModel?.typography.subtitleBottom,
-              display: "flex",
-              justifyContent: "center",
-              pointerEvents: "none",
-              paddingLeft: previewModel?.typography.subtitleSidePadding,
-              paddingRight: previewModel?.typography.subtitleSidePadding,
-            }}
-          >
+          {previewModel.showSubtitles ? (
             <div
               style={{
-                boxSizing: "border-box",
-                color: "#ffffff",
-                fontSize: resolvedSubtitleSet.fontSize,
-                fontWeight: 700,
-                fontFamily: OVERLAY_FONT_FAMILY,
-                lineHeight: previewModel.subtitleLineHeight,
-                textAlign: "center",
-                whiteSpace: "pre-line",
-                wordBreak: "normal",
-                overflowWrap: "anywhere",
-                overflow: "hidden",
-                ...subtitleStyleOverrides,
-              }}
-            >
-              {activeCaptionLayout?.text ?? subtitleRenderText}
-            </div>
-          </div>
-
-          <div
-            style={{
-              position: "absolute",
-              left: previewModel?.typography.progressInsetX,
-              right: previewModel?.typography.progressInsetX,
-              bottom: previewModel?.typography.progressBottom,
-              height: previewModel?.typography.progressHeight,
-              pointerEvents: "none",
-            }}
-          >
-            <div
-              style={{
-                position: "relative",
-                width: "100%",
-                height: "100%",
-                borderRadius: previewModel?.typography.progressRadius,
-                overflow: "hidden",
-                backgroundColor: "rgba(16, 22, 30, 0.42)",
-                border: "1px solid rgba(255, 255, 255, 0.22)",
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: `${previewModel.subtitleYPercent}%`,
+                transform: "translateY(-50%)",
+                display: "flex",
+                justifyContent: "center",
+                pointerEvents: "none",
+                paddingLeft: previewModel?.typography.subtitleSidePadding,
+                paddingRight: previewModel?.typography.subtitleSidePadding,
               }}
             >
               <div
                 style={{
-                  position: "absolute",
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: `${(previewModel?.progressRatio ?? 0) * 100}%`,
-                  background:
-                    "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+                  boxSizing: "border-box",
+                  color: "#ffffff",
+                  fontSize: resolvedSubtitleSet.fontSize,
+                  fontWeight: 700,
+                  fontFamily: OVERLAY_FONT_FAMILY,
+                  lineHeight: previewModel.subtitleLineHeight,
+                  textAlign: "center",
+                  whiteSpace: "pre-line",
+                  wordBreak: "normal",
+                  overflowWrap: "anywhere",
+                  overflow: "hidden",
+                  ...subtitleStyleOverrides,
                 }}
-              />
-              {(previewModel?.topicSegments ?? []).map((segment) => (
+              >
+                {activeCaptionLayout?.text ?? subtitleRenderText}
+              </div>
+            </div>
+          ) : null}
+
+          {previewModel.showProgress ? (
+            <div
+              style={{
+                position: "absolute",
+                left: previewModel?.typography.progressInsetX,
+                right: previewModel?.typography.progressInsetX,
+                top: `${previewModel.progressYPercent}%`,
+                transform: "translateY(-50%)",
+                height: previewModel?.typography.progressHeight,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  height: "100%",
+                  borderRadius: previewModel?.typography.progressRadius,
+                  overflow: "hidden",
+                  backgroundColor: "rgba(16, 22, 30, 0.42)",
+                  border: "1px solid rgba(255, 255, 255, 0.22)",
+                }}
+              >
                 <div
-                  key={`preview-segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
                   style={{
                     position: "absolute",
+                    left: 0,
                     top: 0,
                     bottom: 0,
-                    left: `${segment.startRatio * 100}%`,
-                    width: `${(segment.endRatio - segment.startRatio) * 100}%`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
-                    borderRight: "1px solid rgba(255, 255, 255, 0.2)",
-                    backgroundColor:
-                      segment.index ===
-                      (previewModel?.activeTopicLabel ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1 : -1)
-                        ? "rgba(255, 255, 255, 0.08)"
-                        : "rgba(255, 255, 255, 0.02)",
+                    width: `${(previewModel?.progressRatio ?? 0) * 100}%`,
+                    background:
+                      "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
                   }}
-                >
+                />
+                {(previewModel?.topicSegments ?? []).map((segment) => (
                   <div
+                    key={`preview-segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
                     style={{
-                      maxWidth: "100%",
-                      padding: `0 ${previewModel?.typography.progressLabelPaddingX ?? 0}px`,
-                      fontSize: segment.labelFit.fontSize,
-                      fontWeight: 700,
-                      fontFamily: OVERLAY_FONT_FAMILY,
-                      lineHeight: previewModel?.progressLabelLineHeight ?? 1.2,
-                      whiteSpace: previewModel?.allowWrappedProgressLabels ? "pre-line" : "nowrap",
+                      position: "absolute",
+                      top: 0,
+                      bottom: 0,
+                      left: `${segment.startRatio * 100}%`,
+                      width: `${(segment.endRatio - segment.startRatio) * 100}%`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      textAlign: "center",
-                      color:
+                      borderRight: "1px solid rgba(255, 255, 255, 0.2)",
+                      backgroundColor:
                         segment.index ===
                         (previewModel?.activeTopicLabel ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1 : -1)
-                          ? "#ffffff"
-                          : "rgba(238, 244, 255, 0.84)",
+                          ? "rgba(255, 255, 255, 0.08)"
+                          : "rgba(255, 255, 255, 0.02)",
                     }}
                   >
-                    {segment.labelFit.visible ? segment.labelFit.text : ""}
+                    <div
+                      style={{
+                        maxWidth: "100%",
+                        padding: `0 ${previewModel?.typography.progressLabelPaddingX ?? 0}px`,
+                        fontSize: segment.labelFit.fontSize,
+                        fontWeight: 700,
+                        fontFamily: OVERLAY_FONT_FAMILY,
+                        lineHeight: previewModel?.progressLabelLineHeight ?? 1.2,
+                        whiteSpace: previewModel?.allowWrappedProgressLabels ? "pre-line" : "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        textAlign: "center",
+                        color:
+                          segment.index ===
+                          (previewModel?.activeTopicLabel
+                            ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1
+                            : -1)
+                            ? "#ffffff"
+                            : "rgba(238, 244, 255, 0.84)",
+                      }}
+                    >
+                      {segment.labelFit.visible ? segment.labelFit.text : ""}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </div>
     </div>

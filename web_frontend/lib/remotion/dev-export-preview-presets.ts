@@ -193,8 +193,13 @@ export const buildMockRenderConfig = ({
       segments: scenario.segments,
       subtitleTheme,
       subtitleScale: overlayControls.subtitleScale,
+      subtitleYPercent: overlayControls.subtitleYPercent,
       progressScale: overlayControls.progressScale,
+      progressYPercent: overlayControls.progressYPercent,
       chapterScale: overlayControls.chapterScale,
+      showSubtitles: overlayControls.showSubtitles,
+      showProgress: overlayControls.showProgress,
+      showChapter: overlayControls.showChapter,
       progressLabelMode: overlayControls.progressLabelMode,
     },
   };

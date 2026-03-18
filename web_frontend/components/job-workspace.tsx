@@ -54,12 +54,15 @@ import {
   type SubtitleTheme,
 } from "../lib/remotion/stitch-video-web";
 import {
+  DEFAULT_OVERLAY_CONTROLS,
+  OVERLAY_POSITION_LIMITS,
   OVERLAY_SCALE_LIMITS,
   type OverlayScaleControls,
   type ProgressLabelMode,
 } from "../lib/remotion/overlay-controls";
 import ExportFramePreview from "./export-frame-preview";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -151,6 +154,82 @@ const PROGRESS_LABEL_MODE_OPTIONS: Array<{ value: ProgressLabelMode; label: stri
   { value: "double", label: "双行" },
   { value: "single", label: "单行" },
 ];
+
+function OverlayToggleTile({
+  label,
+  checked,
+  disabled = false,
+  onCheckedChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-center justify-between rounded-md px-2 py-1.5 transition-colors",
+        checked
+          ? "bg-slate-900 text-white"
+          : "bg-slate-100 text-slate-700 hover:bg-slate-200/70",
+        disabled && "cursor-not-allowed opacity-60"
+      )}
+    >
+      <span className="text-[12px] font-medium">{label}</span>
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(value) => onCheckedChange(value !== false)}
+        disabled={disabled}
+        className={cn(
+          checked
+            ? "h-4 w-4 border-white/70 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-900"
+            : "h-4 w-4 border-slate-300 bg-white"
+        )}
+      />
+    </label>
+  );
+}
+
+function OverlaySliderField({
+  label,
+  valueText,
+  min,
+  max,
+  step,
+  value,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  valueText: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-[12px] font-medium text-slate-800">{label}</label>
+        <span className="font-mono text-[12px] text-slate-500">{valueText}</span>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.currentTarget.value))}
+        disabled={disabled}
+        className="h-2 w-full cursor-ew-resize accent-slate-900 disabled:cursor-not-allowed"
+      />
+    </div>
+  );
+}
+
 const MAX_VIDEO_DURATION_SEC = 10 * 60;
 const JOB_LOAD_RETRY_DELAY_MS = 4000;
 const STEP_DRAFT_RETRY_DELAY_MS = 3000;
@@ -509,10 +588,6 @@ function formatBlockRange(start: number, end: number): string {
   return start === end ? String(start) : `${start}-${end}`;
 }
 
-function countBlockRangeLines(range: { start: number; end: number }): number {
-  return range.end - range.start + 1;
-}
-
 function getChapterLinesFromRange(chapter: Chapter, keptLines: Step1Line[]): Step1Line[] {
   const parsed = parseBlockRange(chapter.block_range);
   if (!parsed) return [];
@@ -548,7 +623,6 @@ function moveAdjacentChapterRange(
   if (!sourceRange || !targetRange) {
     return { chapters, error: "章节范围无效，请刷新后重试。" };
   }
-
   const next = chapters.map((chapter) => ({ ...chapter }));
   if (sourceIndex < targetIndex) {
     if (draggedPosition < sourceRange.start || draggedPosition > sourceRange.end) {
@@ -810,10 +884,7 @@ export default function JobWorkspace({
     "box-white-on-black"
   );
   const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>({
-    subtitleScale: OVERLAY_SCALE_LIMITS.subtitle.defaultValue,
-    progressScale: OVERLAY_SCALE_LIMITS.progress.defaultValue,
-    chapterScale: OVERLAY_SCALE_LIMITS.chapter.defaultValue,
-    progressLabelMode: "auto",
+    ...DEFAULT_OVERLAY_CONTROLS,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
@@ -1255,10 +1326,7 @@ export default function JobWorkspace({
     setRenderFileName("output.mp4");
     setSubtitleTheme("box-white-on-black");
     setOverlayControls({
-      subtitleScale: OVERLAY_SCALE_LIMITS.subtitle.defaultValue,
-      progressScale: OVERLAY_SCALE_LIMITS.progress.defaultValue,
-      chapterScale: OVERLAY_SCALE_LIMITS.chapter.defaultValue,
-      progressLabelMode: "auto",
+      ...DEFAULT_OVERLAY_CONTROLS,
     });
     setUploadStageMessage("");
   }, [jobId]);
@@ -1563,7 +1631,6 @@ export default function JobWorkspace({
         if (chapterLines.length === 0) {
           throw new Error(`第 ${index + 1} 章为空，请先拖入至少一句字幕。`);
         }
-
         return {
           chapter_id: index + 1,
           title: String(chapter.title || "").trim() || `章节${index + 1}`,
@@ -1651,8 +1718,13 @@ export default function JobWorkspace({
         src: sourceObjectUrl,
         subtitleTheme,
         subtitleScale: overlayControls.subtitleScale,
+        subtitleYPercent: overlayControls.subtitleYPercent,
         progressScale: overlayControls.progressScale,
+        progressYPercent: overlayControls.progressYPercent,
         chapterScale: overlayControls.chapterScale,
+        showSubtitles: overlayControls.showSubtitles,
+        showProgress: overlayControls.showProgress,
+        showChapter: overlayControls.showChapter,
         progressLabelMode: overlayControls.progressLabelMode,
       };
       const composition = {
@@ -1787,8 +1859,13 @@ export default function JobWorkspace({
     loadRenderConfigWithMeta,
     overlayControls.progressLabelMode,
     overlayControls.progressScale,
+    overlayControls.progressYPercent,
     overlayControls.chapterScale,
     overlayControls.subtitleScale,
+    overlayControls.subtitleYPercent,
+    overlayControls.showSubtitles,
+    overlayControls.showProgress,
+    overlayControls.showChapter,
     loadRenderSourceFile,
     renderConfig,
     subtitleTheme,
@@ -1800,8 +1877,13 @@ export default function JobWorkspace({
   }, [
     overlayControls.progressLabelMode,
     overlayControls.progressScale,
+    overlayControls.progressYPercent,
     overlayControls.chapterScale,
     overlayControls.subtitleScale,
+    overlayControls.subtitleYPercent,
+    overlayControls.showSubtitles,
+    overlayControls.showProgress,
+    overlayControls.showChapter,
     subtitleTheme,
   ]);
 
@@ -2365,7 +2447,7 @@ export default function JobWorkspace({
       {/* Step 4: Export */}
       {(job.status === STATUS.STEP2_CONFIRMED || job.status === STATUS.SUCCEEDED) && (
         <div className="space-y-4">
-          <div className="mx-auto grid max-w-[980px] gap-3 xl:grid-cols-[minmax(0,560px)_320px] xl:items-stretch">
+          <div className="mx-auto grid max-w-[1400px] gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(420px,0.92fr)] xl:items-start 2xl:max-w-[1520px] 2xl:grid-cols-[minmax(0,1.72fr)_minmax(456px,0.94fr)]">
             <Card className="border-slate-200/80 xl:h-[min(70vh,760px)]">
               <CardContent className="flex h-full min-h-0 flex-col justify-center gap-3 p-3">
                 <ExportFramePreview
@@ -2389,8 +2471,8 @@ export default function JobWorkspace({
               </CardContent>
             </Card>
 
-            <Card className="xl:h-[min(70vh,760px)]">
-              <CardContent className="flex h-full flex-col gap-4 p-3">
+            <Card className="overflow-hidden xl:self-start">
+              <CardContent className="flex flex-col p-0">
                 <input
                   ref={renderSourceInputRef}
                   type="file"
@@ -2400,218 +2482,297 @@ export default function JobWorkspace({
                   disabled={renderBusy || busy}
                 />
 
-                {!hasRenderSource ? (
-                  <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    <p>尚未读取到当前项目的本地源视频缓存，导出前请重新选择源文件。</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2"
-                      onClick={triggerRenderSourceFileInput}
-                      disabled={renderBusy || busy}
-                    >
-                      重新选择源文件
-                    </Button>
-                  </div>
-                ) : null}
-
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium">标题行数</label>
-                  <Select
-                    value={(overlayControls.progressLabelMode ?? "auto") as ProgressLabelMode}
-                    onValueChange={(value) =>
-                      setOverlayControls((previous) => ({
-                        ...previous,
-                        progressLabelMode: value as ProgressLabelMode,
-                      }))
-                    }
-                    disabled={renderBusy}
-                  >
-                    <SelectTrigger className="w-[152px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PROGRESS_LABEL_MODE_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="border-b border-slate-200 bg-slate-50/60 px-3 py-2">
+                  <div className="text-sm font-semibold text-slate-900">导出设置</div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">预览与最终导出同步生效</div>
                 </div>
 
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-sm font-medium">字幕样式</label>
-                  <Select
-                    value={subtitleTheme}
-                    onValueChange={(v) => setSubtitleTheme(v as SubtitleTheme)}
-                    disabled={renderBusy}
-                  >
-                    <SelectTrigger className="w-[152px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SUBTITLE_THEME_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="px-3 py-2.5">
+                  <div className="space-y-2">
+                    {!hasRenderSource ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p>尚未读取到当前项目的本地源视频缓存，导出前请重新选择源文件。</p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={triggerRenderSourceFileInput}
+                          disabled={renderBusy || busy}
+                        >
+                          重新选择源文件
+                        </Button>
+                      </div>
+                    ) : null}
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <label className="font-medium">字幕大小</label>
-                    <span className="font-mono text-slate-500">
-                      {Math.round((overlayControls.subtitleScale ?? 1) * 100)}%
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={OVERLAY_SCALE_LIMITS.subtitle.min}
-                    max={OVERLAY_SCALE_LIMITS.subtitle.max}
-                    step={OVERLAY_SCALE_LIMITS.subtitle.step}
-                    value={overlayControls.subtitleScale ?? OVERLAY_SCALE_LIMITS.subtitle.defaultValue}
-                    onChange={(event) => {
-                      const nextSubtitleScale = Math.max(
-                        Number(event.currentTarget.value),
-                        OVERLAY_SCALE_LIMITS.subtitle.min
-                      );
-                      const boundedSubtitleScale = Math.min(
-                        nextSubtitleScale,
-                        OVERLAY_SCALE_LIMITS.subtitle.max
-                      );
-                      setOverlayControls((previous) => ({
-                        ...previous,
-                        subtitleScale: boundedSubtitleScale,
-                      }));
-                    }}
-                    disabled={renderBusy}
-                    className="h-2 w-full cursor-ew-resize accent-slate-900 disabled:cursor-not-allowed"
-                  />
-                </div>
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          标题行数
+                        </label>
+                        <Select
+                          value={(overlayControls.progressLabelMode ?? "auto") as ProgressLabelMode}
+                          onValueChange={(value) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              progressLabelMode: value as ProgressLabelMode,
+                            }))
+                          }
+                          disabled={renderBusy}
+                        >
+                          <SelectTrigger className="h-9 w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PROGRESS_LABEL_MODE_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <label className="font-medium">进度条大小</label>
-                    <span className="font-mono text-slate-500">
-                      {Math.round((overlayControls.progressScale ?? 1) * 100)}%
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={OVERLAY_SCALE_LIMITS.progress.min}
-                    max={OVERLAY_SCALE_LIMITS.progress.max}
-                    step={OVERLAY_SCALE_LIMITS.progress.step}
-                    value={overlayControls.progressScale ?? OVERLAY_SCALE_LIMITS.progress.defaultValue}
-                    onChange={(event) => {
-                      const nextProgressScale = Math.max(
-                        Number(event.currentTarget.value),
-                        OVERLAY_SCALE_LIMITS.progress.min
-                      );
-                      const boundedProgressScale = Math.min(
-                        nextProgressScale,
-                        OVERLAY_SCALE_LIMITS.progress.max
-                      );
-                      setOverlayControls((previous) => ({
-                        ...previous,
-                        progressScale: boundedProgressScale,
-                      }));
-                    }}
-                    disabled={renderBusy}
-                    className="h-2 w-full cursor-ew-resize accent-slate-900 disabled:cursor-not-allowed"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <label className="font-medium">章节块大小</label>
-                    <span className="font-mono text-slate-500">
-                      {Math.round((overlayControls.chapterScale ?? 1) * 100)}%
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={OVERLAY_SCALE_LIMITS.chapter.min}
-                    max={OVERLAY_SCALE_LIMITS.chapter.max}
-                    step={OVERLAY_SCALE_LIMITS.chapter.step}
-                    value={overlayControls.chapterScale ?? OVERLAY_SCALE_LIMITS.chapter.defaultValue}
-                    onChange={(event) => {
-                      const nextChapterScale = Math.max(
-                        Number(event.currentTarget.value),
-                        OVERLAY_SCALE_LIMITS.chapter.min
-                      );
-                      const boundedChapterScale = Math.min(
-                        nextChapterScale,
-                        OVERLAY_SCALE_LIMITS.chapter.max
-                      );
-                      setOverlayControls((previous) => ({
-                        ...previous,
-                        chapterScale: boundedChapterScale,
-                      }));
-                    }}
-                    disabled={renderBusy}
-                    className="h-2 w-full cursor-ew-resize accent-slate-900 disabled:cursor-not-allowed"
-                  />
-                </div>
-
-                {renderBusy && (
-                  <div className="space-y-2 border-t border-slate-200 pt-3">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>导出进度</span>
-                      <span>{Math.round(renderProgress)}%</span>
+                      <div className="space-y-1">
+                        <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                          字幕样式
+                        </label>
+                        <Select
+                          value={subtitleTheme}
+                          onValueChange={(v) => setSubtitleTheme(v as SubtitleTheme)}
+                          disabled={renderBusy}
+                        >
+                          <SelectTrigger className="h-9 w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SUBTITLE_THEME_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <Progress value={renderProgress} className="h-2" />
-                  </div>
-                )}
 
-                <div className="mt-auto flex flex-col gap-2 border-t border-slate-200 pt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="lg"
-                    className="w-full"
-                    onClick={() => void prepareRenderPreview()}
-                    disabled={busy || renderBusy || renderConfigBusy}
-                  >
-                    {renderConfigBusy ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在生成预览
-                      </>
-                    ) : (
-                      "刷新预览"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="lg"
-                    className="w-full"
-                    onClick={() => void handleStartRender()}
-                    disabled={renderBusy || busy || !hasRenderSource}
-                  >
-                    {renderBusy ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出
-                      </>
-                    ) : (
-                      <>
-                        <FileVideo className="mr-2 h-4 w-4" /> 导出视频
-                      </>
-                    )}
-                  </Button>
-                  {renderDownloadUrl && (
+                    <section className="space-y-1 pt-1">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        显示内容
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <OverlayToggleTile
+                          label="字幕"
+                          checked={overlayControls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles}
+                          disabled={renderBusy}
+                          onCheckedChange={(checked) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              showSubtitles: checked,
+                            }))
+                          }
+                        />
+                        <OverlayToggleTile
+                          label="进度条"
+                          checked={overlayControls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress}
+                          disabled={renderBusy}
+                          onCheckedChange={(checked) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              showProgress: checked,
+                            }))
+                          }
+                        />
+                        <OverlayToggleTile
+                          label="章节"
+                          checked={overlayControls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter}
+                          disabled={renderBusy}
+                          onCheckedChange={(checked) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              showChapter: checked,
+                            }))
+                          }
+                        />
+                      </div>
+                    </section>
+
+                    <section className="space-y-1 border-t border-slate-100 pt-1.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        字幕
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <OverlaySliderField
+                          label="大小"
+                          valueText={`${Math.round((overlayControls.subtitleScale ?? 1) * 100)}%`}
+                          min={OVERLAY_SCALE_LIMITS.subtitle.min}
+                          max={OVERLAY_SCALE_LIMITS.subtitle.max}
+                          step={OVERLAY_SCALE_LIMITS.subtitle.step}
+                          value={
+                            overlayControls.subtitleScale ?? OVERLAY_SCALE_LIMITS.subtitle.defaultValue
+                          }
+                          disabled={renderBusy}
+                          onChange={(value) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              subtitleScale: Math.min(
+                                Math.max(value, OVERLAY_SCALE_LIMITS.subtitle.min),
+                                OVERLAY_SCALE_LIMITS.subtitle.max
+                              ),
+                            }))
+                          }
+                        />
+                        <OverlaySliderField
+                          label="位置"
+                          valueText={`Y ${Math.round(
+                            overlayControls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent
+                          )}%`}
+                          min={OVERLAY_POSITION_LIMITS.subtitleY.min}
+                          max={OVERLAY_POSITION_LIMITS.subtitleY.max}
+                          step={OVERLAY_POSITION_LIMITS.subtitleY.step}
+                          value={
+                            overlayControls.subtitleYPercent ??
+                            OVERLAY_POSITION_LIMITS.subtitleY.defaultValue
+                          }
+                          disabled={renderBusy}
+                          onChange={(value) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              subtitleYPercent: clampPercent(value),
+                            }))
+                          }
+                        />
+                      </div>
+                    </section>
+
+                    <section className="space-y-1 border-t border-slate-100 pt-1.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        进度条
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <OverlaySliderField
+                          label="大小"
+                          valueText={`${Math.round((overlayControls.progressScale ?? 1) * 100)}%`}
+                          min={OVERLAY_SCALE_LIMITS.progress.min}
+                          max={OVERLAY_SCALE_LIMITS.progress.max}
+                          step={OVERLAY_SCALE_LIMITS.progress.step}
+                          value={
+                            overlayControls.progressScale ?? OVERLAY_SCALE_LIMITS.progress.defaultValue
+                          }
+                          disabled={renderBusy}
+                          onChange={(value) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              progressScale: Math.min(
+                                Math.max(value, OVERLAY_SCALE_LIMITS.progress.min),
+                                OVERLAY_SCALE_LIMITS.progress.max
+                              ),
+                            }))
+                          }
+                        />
+                        <OverlaySliderField
+                          label="位置"
+                          valueText={`Y ${Math.round(
+                            overlayControls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent
+                          )}%`}
+                          min={OVERLAY_POSITION_LIMITS.progressY.min}
+                          max={OVERLAY_POSITION_LIMITS.progressY.max}
+                          step={OVERLAY_POSITION_LIMITS.progressY.step}
+                          value={
+                            overlayControls.progressYPercent ??
+                            OVERLAY_POSITION_LIMITS.progressY.defaultValue
+                          }
+                          disabled={renderBusy}
+                          onChange={(value) =>
+                            setOverlayControls((previous) => ({
+                              ...previous,
+                              progressYPercent: clampPercent(value),
+                            }))
+                          }
+                        />
+                      </div>
+                    </section>
+
+                    <section className="space-y-1 border-t border-slate-100 pt-1.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                        章节
+                      </div>
+                      <OverlaySliderField
+                        label="章节块大小"
+                        valueText={`${Math.round((overlayControls.chapterScale ?? 1) * 100)}%`}
+                        min={OVERLAY_SCALE_LIMITS.chapter.min}
+                        max={OVERLAY_SCALE_LIMITS.chapter.max}
+                        step={OVERLAY_SCALE_LIMITS.chapter.step}
+                        value={overlayControls.chapterScale ?? OVERLAY_SCALE_LIMITS.chapter.defaultValue}
+                        disabled={renderBusy}
+                        onChange={(value) =>
+                          setOverlayControls((previous) => ({
+                            ...previous,
+                            chapterScale: Math.min(
+                              Math.max(value, OVERLAY_SCALE_LIMITS.chapter.min),
+                              OVERLAY_SCALE_LIMITS.chapter.max
+                            ),
+                          }))
+                        }
+                      />
+                    </section>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-200 bg-white px-3 py-2.5">
+                  {renderBusy && (
+                    <div className="mb-2.5 space-y-1.5">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>导出进度</span>
+                        <span>{Math.round(renderProgress)}%</span>
+                      </div>
+                      <Progress value={renderProgress} className="h-2" />
+                    </div>
+                  )}
+
+                  <div className="grid gap-1.5">
                     <Button
                       type="button"
                       variant="outline"
-                      size="lg"
+                      className="w-full"
+                      onClick={() => void prepareRenderPreview()}
+                      disabled={busy || renderBusy || renderConfigBusy}
+                    >
+                      {renderConfigBusy ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在生成预览
+                        </>
+                      ) : (
+                        "刷新预览"
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={() => void handleStartRender()}
+                      disabled={renderBusy || busy || !hasRenderSource}
+                    >
+                      {renderBusy ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出
+                        </>
+                      ) : (
+                        <>
+                          <FileVideo className="mr-2 h-4 w-4" /> 导出视频
+                        </>
+                      )}
+                    </Button>
+                    {renderDownloadUrl && (
+                    <Button
+                      type="button"
+                      variant="outline"
                       className="w-full"
                       onClick={() => triggerFileDownload(renderDownloadUrl, renderFileName)}
                     >
-                      <Download className="mr-2 h-4 w-4" /> 下载上次导出
-                    </Button>
-                  )}
+                        <Download className="mr-2 h-4 w-4" /> 下载上次导出
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardContent>
             </Card>

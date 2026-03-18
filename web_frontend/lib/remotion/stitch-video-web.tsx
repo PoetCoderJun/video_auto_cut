@@ -55,8 +55,13 @@ export type StitchVideoWebProps = {
   height: number;
   subtitleTheme?: SubtitleTheme;
   subtitleScale?: number;
+  subtitleYPercent?: number;
   progressScale?: number;
+  progressYPercent?: number;
   chapterScale?: number;
+  showSubtitles?: boolean;
+  showProgress?: boolean;
+  showChapter?: boolean;
   progressLabelMode?: ProgressLabelMode;
 };
 
@@ -102,8 +107,13 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   height,
   subtitleTheme = "box-white-on-black",
   subtitleScale = 1,
+  subtitleYPercent = 90,
   progressScale = 1,
+  progressYPercent = 97,
   chapterScale = 1,
+  showSubtitles = true,
+  showProgress = true,
+  showChapter = true,
   progressLabelMode = "auto",
 }) => {
   const frame = useCurrentFrame();
@@ -171,7 +181,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         position: "absolute" as const,
         left: 0,
         right: 0,
-        bottom: typography.subtitleBottom,
+        top: `${clamp(subtitleYPercent, 0, 100)}%`,
+        transform: "translateY(-50%)",
         display: "flex" as const,
         justifyContent: "center" as const,
         pointerEvents: "none" as const,
@@ -235,7 +246,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         position: "absolute" as const,
         left: typography.progressInsetX,
         right: typography.progressInsetX,
-        bottom: typography.progressBottom,
+        top: `${clamp(progressYPercent, 0, 100)}%`,
+        transform: "translateY(-50%)",
         height: typography.progressHeight,
         pointerEvents: "none" as const,
       },
@@ -566,7 +578,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           ))
         : null}
 
-      {activeTopic ? (
+      {showChapter && activeTopic ? (
         <div style={scaledStyles.chapterWrap}>
           <div style={scaledStyles.chapterCard}>
             <div style={scaledStyles.chapterMeta}>CHAPTER {activeTopicLabel}</div>
@@ -582,46 +594,50 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         </div>
       ) : null}
 
-      <div style={scaledStyles.subtitleWrap}>
-        <div
-          style={{
-            ...scaledStyles.subtitleBox,
-            ...subtitleStyleOverrides,
-            fontSize: resolvedSubtitleSet.fontSize,
-            whiteSpace: "pre-line",
-          }}
-        >
-          {activeCaptionLayout?.text ?? subtitleRenderText}
+      {showSubtitles ? (
+        <div style={scaledStyles.subtitleWrap}>
+          <div
+            style={{
+              ...scaledStyles.subtitleBox,
+              ...subtitleStyleOverrides,
+              fontSize: resolvedSubtitleSet.fontSize,
+              whiteSpace: "pre-line",
+            }}
+          >
+            {activeCaptionLayout?.text ?? subtitleRenderText}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div style={scaledStyles.progressWrap}>
-        <div style={scaledStyles.progressTrack}>
-          <div style={{...scaledStyles.progressFill, width: `${progress * 100}%`}} />
-          {topicSegments.map((segment) => (
-            <div
-              key={`segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
-              style={{
-                ...scaledStyles.progressSegment,
-                left: `${segment.startRatio * 100}%`,
-                width: `${(segment.endRatio - segment.startRatio) * 100}%`,
-                backgroundColor:
-                  segment.index === activeTopicIndex ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.02)",
-              }}
-            >
+      {showProgress ? (
+        <div style={scaledStyles.progressWrap}>
+          <div style={scaledStyles.progressTrack}>
+            <div style={{...scaledStyles.progressFill, width: `${progress * 100}%`}} />
+            {topicSegments.map((segment) => (
               <div
+                key={`segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
                 style={{
-                  ...scaledStyles.progressSegmentLabel,
-                  fontSize: segment.labelFit.fontSize,
-                  color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
+                  ...scaledStyles.progressSegment,
+                  left: `${segment.startRatio * 100}%`,
+                  width: `${(segment.endRatio - segment.startRatio) * 100}%`,
+                  backgroundColor:
+                    segment.index === activeTopicIndex ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.02)",
                 }}
               >
-                {segment.labelFit.visible ? segment.labelFit.text : ""}
+                <div
+                  style={{
+                    ...scaledStyles.progressSegmentLabel,
+                    fontSize: segment.labelFit.fontSize,
+                    color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
+                  }}
+                >
+                  {segment.labelFit.visible ? segment.labelFit.text : ""}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
     </AbsoluteFill>
   );
 };
