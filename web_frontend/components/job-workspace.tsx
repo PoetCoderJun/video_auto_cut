@@ -614,6 +614,8 @@ function shouldShowStep1SubtitlePreview(stageCode: string | null | undefined): b
 
 function getStep1ProcessingNote(stageCode: string | null | undefined): string {
   switch (String(stageCode || "").trim()) {
+    case "STEP1_QUEUED":
+      return "任务已入队，马上开始识别语音并整理字幕。";
     case "TRANSCRIBING_AUDIO":
       return "先生成初版字幕，完成后会继续自动处理。";
     case "OPTIMIZING_TEXT":
@@ -629,6 +631,32 @@ function getStep1ProcessingNote(stageCode: string | null | undefined): string {
       return "字幕已经整理完成，正在进入确认页面。";
     default:
       return "任务已启动，正在进入字幕处理流程。";
+  }
+}
+
+function getStep1ProcessingTitle(
+  stageCode: string | null | undefined,
+  stageMessage: string | null | undefined
+): string {
+  const trimmedMessage = String(stageMessage || "").trim();
+  switch (String(stageCode || "").trim()) {
+    case "STEP1_QUEUED":
+      return "正在启动字幕任务";
+    case "TRANSCRIBING_AUDIO":
+      return "正在识别语音";
+    case "OPTIMIZING_TEXT":
+    case "REMOVING_REDUNDANT_LINES":
+      return "正在筛除冗余字幕";
+    case "MERGING_SHORT_LINES":
+      return "正在合并短句";
+    case "POLISHING_EXPRESSION":
+      return "正在润色字幕";
+    case "PREPARING_STEP1_REVIEW":
+      return "正在整理字幕结果";
+    case "STEP1_READY":
+      return "正在进入字幕确认";
+    default:
+      return trimmedMessage || "正在提取字幕";
   }
 }
 
@@ -704,7 +732,7 @@ function Step1ProcessingState({
             </div>
 
             <h2 className="relative mt-3 text-[17px] font-semibold tracking-tight text-slate-900 md:text-[19px]">
-              {job.stage?.message || "正在提取字幕"}
+              {getStep1ProcessingTitle(job.stage?.code, job.stage?.message)}
             </h2>
             <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-slate-500">
             {getStep1ProcessingNote(job.stage?.code)}
@@ -801,6 +829,7 @@ export default function JobWorkspace({
   const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
   const [step1ReadyHandoffActive, setStep1ReadyHandoffActive] = useState(false);
   const [step1ReadyLinesLoaded, setStep1ReadyLinesLoaded] = useState(false);
+  const [step2ReadyLinesLoaded, setStep2ReadyLinesLoaded] = useState(false);
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
   const renderSourceInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
@@ -1029,6 +1058,9 @@ export default function JobWorkspace({
       setStep1DraftError("");
       return;
     }
+    if (step1ReadyLinesLoaded) {
+      return;
+    }
 
     setStep1ReadyHandoffActive(true);
     let cancelled = false;
@@ -1056,7 +1088,7 @@ export default function JobWorkspace({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [job?.status, jobId]);
+  }, [job?.status, jobId, step1ReadyLinesLoaded]);
 
   useEffect(() => {
     if (!job || job.status !== STATUS.STEP1_RUNNING) {
@@ -1110,6 +1142,7 @@ export default function JobWorkspace({
 
   useEffect(() => {
     if (!job || job.status !== STATUS.STEP2_READY) {
+      setStep2ReadyLinesLoaded(false);
       setStep2DraftLoaded(false);
       setStep2DraftError("");
       return;
@@ -1148,6 +1181,9 @@ export default function JobWorkspace({
     if (!job || job.status !== STATUS.STEP2_READY) {
       return;
     }
+    if (step2ReadyLinesLoaded) {
+      return;
+    }
 
     let cancelled = false;
     const pollStep2Lines = () => {
@@ -1159,6 +1195,7 @@ export default function JobWorkspace({
           setLines((previous) =>
             areStep1LinesEqual(previous, nextLines) ? previous : nextLines
           );
+          setStep2ReadyLinesLoaded(true);
         })
         .catch((err) => {
           if (cancelled) return;
@@ -1174,7 +1211,7 @@ export default function JobWorkspace({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [job?.status, jobId]);
+  }, [job?.status, jobId, step2ReadyLinesLoaded]);
 
   const handleRetryStep1DraftLoad = useCallback(() => {
     if (!job || job.status !== STATUS.STEP1_READY) return;
@@ -1184,6 +1221,7 @@ export default function JobWorkspace({
 
   const handleRetryStep2DraftLoad = useCallback(() => {
     if (!job || job.status !== STATUS.STEP2_READY) return;
+    setStep2ReadyLinesLoaded(false);
     setStep2DraftLoaded(false);
     setStep2DraftError("");
   }, [job?.status]);
@@ -1209,6 +1247,7 @@ export default function JobWorkspace({
     setChapters([]);
     setStep2DraftLoaded(false);
     setStep1ReadyLinesLoaded(false);
+    setStep2ReadyLinesLoaded(false);
     setStep1DraftError("");
     setStep2DraftError("");
     setError("");
