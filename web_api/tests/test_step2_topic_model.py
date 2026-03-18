@@ -11,6 +11,7 @@ from video_auto_cut.editing.topic_segment import (
     PiAgentTopicLoop,
     TopicSegment,
     _build_candidate_blocks,
+    _build_segmentation_prompt,
     _find_topic_plan_issues,
     _is_topic_plan_valid,
     _parse_segment_plan,
@@ -223,6 +224,29 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         self.assertTrue(any("至少需要 3 句字幕" in issue["message"] for issue in issues))
 
+    def test_topic_plan_issues_can_skip_short_chapter_validation(self) -> None:
+        issues = _find_topic_plan_issues(
+            {
+                "topics": [
+                    {"segment_ids": [1, 2], "title": "开场说明"},
+                    {"segment_ids": [3, 4, 5], "title": "解决方法"},
+                ]
+            },
+            segments=[
+                TopicSegment(segment_id=1, start=0.0, end=1.0, text="a"),
+                TopicSegment(segment_id=2, start=1.0, end=2.0, text="b"),
+                TopicSegment(segment_id=3, start=2.0, end=3.0, text="c"),
+                TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
+                TopicSegment(segment_id=5, start=4.0, end=5.0, text="e"),
+            ],
+            min_topics=1,
+            max_topics=5,
+            title_max_chars=6,
+            enforce_min_segments_per_topic=False,
+        )
+
+        self.assertFalse(any("至少需要 3 句字幕" in issue["message"] for issue in issues))
+
     def test_topic_plan_does_not_hard_fail_for_long_titles(self) -> None:
         payload = {
             "topics": [
@@ -243,6 +267,27 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 title_max_chars=6,
             )
         )
+
+    def test_segmentation_prompt_includes_computed_max_topics(self) -> None:
+        blocks = _build_candidate_blocks(
+            [
+                TopicSegment(segment_id=index, start=float(index - 1), end=float(index), text=f"句子{index}")
+                for index in range(1, 11)
+            ],
+            recommended_topics=3,
+        )
+
+        messages = _build_segmentation_prompt(
+            blocks,
+            total_segments=10,
+            min_topics=3,
+            max_topics=3,
+            recommended_topics=3,
+            title_max_chars=6,
+            min_segments_per_topic=3,
+        )
+
+        self.assertIn("基于当前共 10 句字幕、每章至少 3 句，本次最多只能分成 3 章", messages[0]["content"])
 
     def test_pi_agent_topic_loop_fails_after_validation_failure(self) -> None:
         segments = [
@@ -272,6 +317,35 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "分章数量过少"):
             loop.run(segments)
+
+    def test_pi_agent_topic_loop_allows_short_generated_chapter(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=float(index - 1), end=float(index), text=f"句子{index}")
+            for index in range(1, 11)
+        ]
+        response = """
+        {
+          "topics": [
+            {"segment_ids": [1, 2, 3, 4], "title": "开场说明"},
+            {"segment_ids": [5, 6, 7, 8], "title": "中段推进"},
+            {"segment_ids": [9, 10], "title": "最后动作"}
+          ]
+        }
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=3,
+            max_topics=6,
+            recommended_topics=3,
+            title_max_chars=6,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        result = loop.run(segments)
+
+        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-4", "5-8", "9-10"])
+        self.assertEqual(result.debug["final_source"], "draft")
 
     def test_topic_plan_issues_flag_too_few_topics_for_long_video(self) -> None:
         issues = _find_topic_plan_issues(

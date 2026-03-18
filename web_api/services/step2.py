@@ -28,8 +28,6 @@ from ..repository import (
 from .pipeline_options import build_pipeline_options
 from ..utils.srt_utils import write_topics_json
 
-MIN_STEP2_LINES_PER_CHAPTER = 3
-
 
 def _kept_lines(job_id: str) -> list[dict[str, Any]]:
     lines = list_step1_lines(job_id)
@@ -71,10 +69,6 @@ def _parse_block_range(value: Any) -> tuple[int, int] | None:
 
 def _format_block_range(start_id: int, end_id: int) -> str:
     return str(start_id) if start_id == end_id else f"{start_id}-{end_id}"
-
-
-def _required_lines_per_chapter(total_blocks: int) -> int:
-    return MIN_STEP2_LINES_PER_CHAPTER if total_blocks >= MIN_STEP2_LINES_PER_CHAPTER else 1
 
 
 def _line_ids_to_block_range(line_ids: list[int], kept_lines: list[dict[str, Any]]) -> str:
@@ -144,22 +138,6 @@ def _ensure_full_block_coverage(chapters: list[dict[str, Any]], total_blocks: in
         raise RuntimeError("chapter block_range does not fully cover kept subtitles")
 
 
-def _ensure_min_lines_per_chapter(chapters: list[dict[str, Any]], total_blocks: int) -> None:
-    required_lines = _required_lines_per_chapter(total_blocks)
-    if required_lines <= 1:
-        return
-    for idx, chapter in enumerate(chapters, start=1):
-        parsed = _parse_block_range(chapter.get("block_range"))
-        if parsed is None:
-            raise RuntimeError(f"chapter block_range invalid: {idx}")
-        start_id, end_id = parsed
-        line_count = end_id - start_id + 1
-        if line_count < required_lines:
-            raise RuntimeError(
-                f"第 {idx} 章只有 {line_count} 句字幕，请至少保留 {required_lines} 句。"
-            )
-
-
 def run_step2(job_id: str) -> None:
     files = get_job_files(job_id)
     if not files:
@@ -209,7 +187,6 @@ def run_step2(job_id: str) -> None:
     if not chapters:
         raise RuntimeError("step2 generated empty chapter list")
     _ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
-    _ensure_min_lines_per_chapter(chapters, total_blocks=len(kept_lines))
     replace_step2_chapters(job_id, chapters)
     upsert_job_files(
         job_id,
@@ -288,8 +265,6 @@ def confirm_step2(job_id: str, chapters: list[dict[str, Any]]) -> list[dict[str,
             }
         )
     _ensure_full_block_coverage(normalized, total_blocks=len(kept_lines))
-    _ensure_min_lines_per_chapter(normalized, total_blocks=len(kept_lines))
-
     replace_step2_chapters(job_id, normalized)
     dirs = ensure_job_dirs(job_id)
     final_topics = dirs["step2"] / "final_topics.json"

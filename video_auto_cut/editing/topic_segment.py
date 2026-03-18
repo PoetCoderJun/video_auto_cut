@@ -122,6 +122,7 @@ class PiAgentTopicLoop:
     def build_topic_draft_prompt(
         self,
         blocks: List["TopicBlock"],
+        total_segments: int,
         min_topics: int,
         max_topics: int,
         recommended_topics: int,
@@ -129,6 +130,7 @@ class PiAgentTopicLoop:
     ) -> List[Dict[str, str]]:
         return _build_segmentation_prompt(
             blocks,
+            total_segments,
             min_topics,
             max_topics,
             recommended_topics,
@@ -154,6 +156,7 @@ class PiAgentTopicLoop:
 
         draft_messages = self.build_topic_draft_prompt(
             blocks,
+            len(segments),
             resolved_min_topics,
             resolved_max_topics,
             resolved_recommended_topics,
@@ -172,6 +175,7 @@ class PiAgentTopicLoop:
                 min_topics=resolved_min_topics,
                 max_topics=resolved_max_topics,
                 min_segments_per_topic=min_segments_per_topic,
+                enforce_min_segments_per_topic=False,
             )
         except Exception as exc:
             logging.warning(
@@ -209,16 +213,18 @@ class PiAgentTopicLoop:
         min_topics: int,
         max_topics: int,
         min_segments_per_topic: int,
+        enforce_min_segments_per_topic: bool = True,
     ) -> tuple[dict[str, Any], bool]:
         try:
             return (
                 self._validate_payload(
-                _json_loads(raw_payload),
-                blocks=blocks,
-                segments=segments,
-                min_topics=min_topics,
-                max_topics=max_topics,
-                min_segments_per_topic=min_segments_per_topic,
+                    _json_loads(raw_payload),
+                    blocks=blocks,
+                    segments=segments,
+                    min_topics=min_topics,
+                    max_topics=max_topics,
+                    min_segments_per_topic=min_segments_per_topic,
+                    enforce_min_segments_per_topic=enforce_min_segments_per_topic,
                 ),
                 False,
             )
@@ -236,6 +242,7 @@ class PiAgentTopicLoop:
                         min_topics=min_topics,
                         max_topics=max_topics,
                         min_segments_per_topic=min_segments_per_topic,
+                        enforce_min_segments_per_topic=enforce_min_segments_per_topic,
                     ),
                     repair_instructions=(
                         "返回一个 JSON 对象，格式为 "
@@ -260,6 +267,7 @@ class PiAgentTopicLoop:
         min_topics: int,
         max_topics: int,
         min_segments_per_topic: int,
+        enforce_min_segments_per_topic: bool = True,
     ) -> dict[str, Any]:
         strict_payload = self._coerce_payload(payload, blocks, segments)
         issues = self._build_validation_issues(
@@ -268,6 +276,7 @@ class PiAgentTopicLoop:
             min_topics,
             max_topics,
             min_segments_per_topic=min_segments_per_topic,
+            enforce_min_segments_per_topic=enforce_min_segments_per_topic,
         )
         if issues:
             raise RuntimeError("; ".join(str(issue.get("message") or "").strip() for issue in issues))
@@ -306,6 +315,7 @@ class PiAgentTopicLoop:
         max_topics: int,
         *,
         min_segments_per_topic: int,
+        enforce_min_segments_per_topic: bool = True,
     ) -> List[dict[str, Any]]:
         return _find_topic_plan_issues(
             payload,
@@ -314,6 +324,7 @@ class PiAgentTopicLoop:
             max_topics,
             self.title_max_chars,
             min_segments_per_topic=min_segments_per_topic,
+            enforce_min_segments_per_topic=enforce_min_segments_per_topic,
         )
 
 
@@ -570,6 +581,7 @@ def _build_candidate_blocks(
 
 def _build_segmentation_prompt(
     blocks: List[TopicBlock],
+    total_segments: int,
     min_topics: int,
     max_topics: int,
     recommended_topics: int,
@@ -598,9 +610,10 @@ def _build_segmentation_prompt(
         '格式：{"topics":[{"block_range":"1-3","title":"..."}]}。'
         'block_range 必须是连续范围，写成 "起始-结束"；如果只有一个 block，可以写 "4"。'
         f"要求：至少 {min_topics} 章，最多 {max_topics} 章，推荐 {recommended_topics} 章左右；"
+        f"基于当前共 {total_segments} 句字幕、每章至少 {min_segments_per_topic} 句，本次最多只能分成 {max_topics} 章；"
         "必须覆盖全部 block；每章连续、按时间顺序、不能跳号、不能重叠；"
         "每章主题单一，优先在语义自然切换处断开。"
-        f"若素材总句数足够，每章至少包含 {min_segments_per_topic} 句连续字幕（segment）。"
+        f"尽量让每章至少包含 {min_segments_per_topic} 句连续字幕（segment）。"
         "title 必须是章节名，不是内容总结句。"
         "title 要像视频上屏章节标题，能让人一眼知道这一章在讲什么。"
         "优先用用户会记住的说法，可以带结论、动作、痛点或亮点。"
@@ -854,6 +867,7 @@ def _find_topic_plan_issues(
     *,
     ignore_title_length: bool = False,
     min_segments_per_topic: int = TOPIC_MIN_SEGMENTS_PER_CHAPTER,
+    enforce_min_segments_per_topic: bool = True,
 ) -> List[dict[str, Any]]:
     try:
         plan, titles = _parse_topic_plan_payload(payload)
@@ -884,7 +898,7 @@ def _find_topic_plan_issues(
                 "message": f"分章数量过少：当前 {len(plan)} 章，至少需要 {min_topics} 章。",
             }
         )
-    if len(segments) >= min_segments_per_topic:
+    if enforce_min_segments_per_topic and len(segments) >= min_segments_per_topic:
         for index, ids in enumerate(plan, start=1):
             if len(ids) < min_segments_per_topic:
                 issues.append(
@@ -914,6 +928,7 @@ def _is_topic_plan_valid(
     *,
     ignore_title_length: bool = False,
     min_segments_per_topic: int = TOPIC_MIN_SEGMENTS_PER_CHAPTER,
+    enforce_min_segments_per_topic: bool = True,
 ) -> bool:
     return not _find_topic_plan_issues(
         payload,
@@ -923,6 +938,7 @@ def _is_topic_plan_valid(
         title_max_chars,
         ignore_title_length=ignore_title_length,
         min_segments_per_topic=min_segments_per_topic,
+        enforce_min_segments_per_topic=enforce_min_segments_per_topic,
     )
 
 

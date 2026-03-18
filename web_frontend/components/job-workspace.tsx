@@ -152,7 +152,6 @@ const PROGRESS_LABEL_MODE_OPTIONS: Array<{ value: ProgressLabelMode; label: stri
   { value: "single", label: "单行" },
 ];
 const MAX_VIDEO_DURATION_SEC = 10 * 60;
-const MIN_STEP2_LINES_PER_CHAPTER = 3;
 const JOB_LOAD_RETRY_DELAY_MS = 4000;
 const STEP_DRAFT_RETRY_DELAY_MS = 3000;
 const RENDER_COMPLETE_RETRY_BASE_MS = 3000;
@@ -548,12 +547,6 @@ function moveAdjacentChapterRange(
   const targetRange = parseBlockRange(chapters[targetIndex].block_range);
   if (!sourceRange || !targetRange) {
     return { chapters, error: "章节范围无效，请刷新后重试。" };
-  }
-  if (countBlockRangeLines(sourceRange) <= MIN_STEP2_LINES_PER_CHAPTER) {
-    return {
-      chapters,
-      error: `每个章节至少要保留 ${MIN_STEP2_LINES_PER_CHAPTER} 句字幕。`,
-    };
   }
 
   const next = chapters.map((chapter) => ({ ...chapter }));
@@ -1570,11 +1563,6 @@ export default function JobWorkspace({
         if (chapterLines.length === 0) {
           throw new Error(`第 ${index + 1} 章为空，请先拖入至少一句字幕。`);
         }
-        if (keptLines.length >= MIN_STEP2_LINES_PER_CHAPTER && chapterLines.length < MIN_STEP2_LINES_PER_CHAPTER) {
-          throw new Error(
-            `第 ${index + 1} 章只有 ${chapterLines.length} 句，请至少保留 ${MIN_STEP2_LINES_PER_CHAPTER} 句字幕。`
-          );
-        }
 
         return {
           chapter_id: index + 1,
@@ -2187,7 +2175,7 @@ export default function JobWorkspace({
           <div>
             <h2 className="text-2xl font-bold tracking-tight">确认视频章节</h2>
             <p className="text-muted-foreground">
-              拖拽字幕行到相邻章节可调整连续边界，点击标题可编辑，字幕文字也可以在这里继续微调；每个章节至少保留 3 句字幕。
+              拖拽字幕行到相邻章节可调整连续边界，点击标题可编辑，字幕文字也可以在这里继续微调。
             </p>
           </div>
 

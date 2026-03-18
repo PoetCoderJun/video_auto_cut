@@ -216,7 +216,133 @@ class Step2AutoConfirmTest(unittest.TestCase):
             ],
         )
 
-    def test_confirm_step2_rejects_chapter_with_fewer_than_three_lines(self) -> None:
+    def test_run_step2_allows_generated_short_chapter_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            step2_dir = tmp_path / "step2"
+            step2_dir.mkdir(parents=True, exist_ok=True)
+            source_srt = tmp_path / "final_step1.srt"
+            source_srt.write_text(
+                "1\n00:00:00,000 --> 00:00:01,000\n第一句\n\n"
+                "2\n00:00:01,000 --> 00:00:02,000\n第二句\n\n"
+                "3\n00:00:02,000 --> 00:00:03,000\n第三句\n\n"
+                "4\n00:00:03,000 --> 00:00:04,000\n第四句\n\n"
+                "5\n00:00:04,000 --> 00:00:05,000\n第五句\n",
+                encoding="utf-8",
+            )
+
+            def fake_topic_segmentation(**kwargs: object) -> None:
+                output = Path(kwargs["topics_output_path"])
+                output.write_text(
+                    """
+{
+  "topics": [
+    {
+      "title": "开头动作",
+      "start": 0.0,
+      "end": 2.0,
+      "block_range": "1-2"
+    },
+    {
+      "title": "后续动作",
+      "start": 2.0,
+      "end": 5.0,
+      "block_range": "3-5"
+    }
+  ]
+}
+""".strip(),
+                    encoding="utf-8",
+                )
+
+            with (
+                patch(
+                    "web_api.services.step2.get_job_files",
+                    return_value={"final_step1_srt_path": str(source_srt)},
+                ),
+                patch(
+                    "web_api.services.step2.ensure_job_dirs",
+                    return_value={"step2": step2_dir},
+                ),
+                patch(
+                    "web_api.services.step2.run_topic_segmentation_from_optimized_srt",
+                    side_effect=fake_topic_segmentation,
+                ),
+                patch(
+                    "web_api.services.step2.list_step1_lines",
+                    return_value=[
+                        {
+                            "line_id": index,
+                            "start": float(index - 1),
+                            "end": float(index),
+                            "original_text": f"第{index}句",
+                            "optimized_text": f"第{index}句",
+                            "ai_suggest_remove": False,
+                            "user_final_remove": False,
+                        }
+                        for index in range(1, 6)
+                    ],
+                ),
+                patch("web_api.services.step2.build_pipeline_options"),
+                patch("web_api.services.step2.upsert_job_files"),
+                patch("web_api.services.step2.update_job"),
+                patch("web_api.services.step2.replace_step2_chapters") as mock_replace_step2_chapters,
+            ):
+                run_step2("job-123")
+
+        saved_chapters = mock_replace_step2_chapters.call_args.args[1]
+        self.assertEqual([chapter["block_range"] for chapter in saved_chapters], ["1-2", "3-5"])
+
+    def test_confirm_step2_allows_unchanged_generated_short_chapter_ranges(self) -> None:
+        kept_lines = [
+            {
+                "line_id": index,
+                "start": float(index - 1),
+                "end": float(index),
+                "original_text": f"第{index}句",
+                "optimized_text": f"第{index}句",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            }
+            for index in range(1, 6)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            step2_dir = Path(tmpdir) / "step2"
+            step2_dir.mkdir(parents=True, exist_ok=True)
+            with (
+                patch("web_api.services.step2.list_step1_lines", return_value=kept_lines),
+                patch(
+                    "web_api.services.step2.list_step2_chapters",
+                    return_value=[
+                        {"chapter_id": 1, "title": "开头动作", "block_range": "1-2"},
+                        {"chapter_id": 2, "title": "后续动作", "block_range": "3-5"},
+                    ],
+                ),
+                patch("web_api.services.step2.ensure_job_dirs", return_value={"step2": step2_dir}),
+                patch("web_api.services.step2.replace_step2_chapters"),
+                patch("web_api.services.step2.upsert_job_files"),
+                patch("web_api.services.step2.update_job"),
+            ):
+                chapters = confirm_step2(
+                    "job-123",
+                    [
+                        {
+                            "chapter_id": 1,
+                            "title": "新标题",
+                            "block_range": "1-2",
+                        },
+                        {
+                            "chapter_id": 2,
+                            "title": "正常",
+                            "block_range": "3-5",
+                        },
+                    ],
+                )
+
+        self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-2", "3-5"])
+
+    def test_confirm_step2_allows_chapter_with_fewer_than_three_lines(self) -> None:
         kept_lines = [
             {
                 "line_id": index,
@@ -230,9 +356,17 @@ class Step2AutoConfirmTest(unittest.TestCase):
             for index in range(1, 7)
         ]
 
-        with patch("web_api.services.step2.list_step1_lines", return_value=kept_lines):
-            with self.assertRaisesRegex(RuntimeError, "第 1 章只有 2 句字幕"):
-                confirm_step2(
+        with tempfile.TemporaryDirectory() as tmpdir:
+            step2_dir = Path(tmpdir) / "step2"
+            step2_dir.mkdir(parents=True, exist_ok=True)
+            with (
+                patch("web_api.services.step2.list_step1_lines", return_value=kept_lines),
+                patch("web_api.services.step2.ensure_job_dirs", return_value={"step2": step2_dir}),
+                patch("web_api.services.step2.replace_step2_chapters"),
+                patch("web_api.services.step2.upsert_job_files"),
+                patch("web_api.services.step2.update_job"),
+            ):
+                chapters = confirm_step2(
                     "job-123",
                     [
                         {
@@ -247,6 +381,8 @@ class Step2AutoConfirmTest(unittest.TestCase):
                         },
                     ],
                 )
+
+        self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-2", "3-6"])
 
 
 if __name__ == "__main__":
