@@ -33,7 +33,7 @@ import {
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import { isUnsupportedMobileUploadDevice } from "../lib/device";
-import { tryParseFpsWithMediaInfo } from "../lib/media-metadata";
+import { tryParseVideoMetadataWithMediaInfo } from "../lib/media-metadata";
 import {
   loadCachedJobSourceVideo,
   saveCachedJobSourceVideo,
@@ -312,6 +312,7 @@ function getFriendlyError(err: unknown): string {
 async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
   const url = URL.createObjectURL(file);
   try {
+    const mediaInfoPromise = tryParseVideoMetadataWithMediaInfo(file);
     const meta = await new Promise<{
       width: number;
       height: number;
@@ -322,8 +323,8 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
       video.muted = true;
       video.onloadedmetadata = () => {
         resolve({
-          width: video.videoWidth,
-          height: video.videoHeight,
+          width: Math.round(video.videoWidth || 0),
+          height: Math.round(video.videoHeight || 0),
           duration: video.duration,
         });
       };
@@ -397,14 +398,27 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
       });
     };
 
-    const fps = (await tryParseFpsWithMediaInfo(file)) ?? (await estimateFps());
+    const mediaInfoMeta = await mediaInfoPromise;
+    const width =
+      meta.width > 0 ? meta.width : Math.trunc(Number(mediaInfoMeta?.width ?? 0));
+    const height =
+      meta.height > 0 ? meta.height : Math.trunc(Number(mediaInfoMeta?.height ?? 0));
+    const durationSec =
+      typeof meta.duration === "number" && Number.isFinite(meta.duration) && meta.duration > 0
+        ? meta.duration
+        : typeof mediaInfoMeta?.durationSec === "number" &&
+            Number.isFinite(mediaInfoMeta.durationSec) &&
+            mediaInfoMeta.durationSec > 0
+          ? mediaInfoMeta.durationSec
+          : undefined;
+    if (width <= 0 || height <= 0) {
+      throw new Error("无法读取本地视频分辨率，请重新选择源文件后重试。");
+    }
+    const fps = mediaInfoMeta?.fps ?? (await estimateFps());
     return {
-      width: meta.width,
-      height: meta.height,
-      duration_sec:
-        typeof meta.duration === "number" && Number.isFinite(meta.duration)
-          ? meta.duration
-          : undefined,
+      width,
+      height,
+      duration_sec: durationSec,
       fps,
     };
   } finally {
