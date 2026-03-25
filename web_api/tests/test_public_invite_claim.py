@@ -63,6 +63,36 @@ class PublicInviteClaimTests(unittest.TestCase):
 
         self.assertEqual([row["code"] for row in rows], [first["code"], second["code"]])
 
+    def test_same_ip_rotates_claim_when_existing_coupon_is_no_longer_usable(self) -> None:
+        first = claim_public_coupon_code("203.0.113.10", credits=2, source="TEST")
+
+        with get_conn() as conn:
+            conn.execute(
+                """
+                UPDATE coupon_codes
+                SET used_count = 1, status = 'DISABLED', updated_at = created_at
+                WHERE code = ?
+                """,
+                (first["code"],),
+            )
+            conn.commit()
+
+        second = claim_public_coupon_code("203.0.113.10", credits=2, source="TEST")
+
+        self.assertTrue(second["already_claimed"])
+        self.assertNotEqual(first["code"], second["code"])
+
+        with get_conn() as conn:
+            claim_count = conn.execute("SELECT COUNT(*) AS total FROM public_invite_claims").fetchone()["total"]
+            coupon_count = conn.execute("SELECT COUNT(*) AS total FROM coupon_codes").fetchone()["total"]
+            current_claim = conn.execute(
+                "SELECT code FROM public_invite_claims WHERE ip_hash IS NOT NULL LIMIT 1"
+            ).fetchone()
+
+        self.assertEqual(claim_count, 1)
+        self.assertEqual(coupon_count, 2)
+        self.assertEqual(current_claim["code"], second["code"])
+
     def test_new_claim_stops_after_max_claims(self) -> None:
         with get_conn() as conn:
             conn.execute(

@@ -54,3 +54,9 @@
 - Required envs for online mode: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
 - Local/offline fallback: set `WEB_DB_LOCAL_ONLY=1`.
 - Never commit `.env`, credentials, model weights, or `workdir/` runtime files.
+
+## Requirement Tracking
+- Maintain `docs/requirements_todo.md` as the single source of truth for requirement tracking.
+- When a new user requirement, change request, or follow-up task appears, update `docs/requirements_todo.md` in the same turn when appropriate.
+- Move items across `Backlog`, `In Progress`, and `Done` instead of rewriting history from scratch.
+- Keep entries concise and action-oriented, and include dates or affected paths when they help clarify status.

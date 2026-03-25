@@ -3,10 +3,24 @@ from __future__ import annotations
 import logging
 import unittest
 
+from starlette.requests import Request
+
+from web_api.api.routes import _resolve_client_ip
 from web_api.app import _SuppressPollingAccessFilter, _should_suppress_request_log
 
 
 class RequestLoggingTest(unittest.TestCase):
+    def _make_request(self, headers: list[tuple[bytes, bytes]], client: tuple[str, int]) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/api/v1/public/invites/claim",
+                "headers": headers,
+                "client": client,
+            }
+        )
+
     def test_should_suppress_polling_requests(self) -> None:
         self.assertTrue(_should_suppress_request_log("OPTIONS", "/api/v1/jobs/job_123"))
         self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123"))
@@ -37,6 +51,25 @@ class RequestLoggingTest(unittest.TestCase):
 
         self.assertFalse(log_filter.filter(polling_record))
         self.assertTrue(log_filter.filter(regular_record))
+
+    def test_resolve_client_ip_prefers_cf_connecting_ip(self) -> None:
+        request = self._make_request(
+            [
+                (b"cf-connecting-ip", b"198.51.100.77"),
+                (b"x-forwarded-for", b"203.0.113.9, 10.0.0.1"),
+            ],
+            ("10.0.0.1", 4321),
+        )
+
+        self.assertEqual(_resolve_client_ip(request), "198.51.100.77")
+
+    def test_resolve_client_ip_parses_forwarded_header(self) -> None:
+        request = self._make_request(
+            [(b"forwarded", b'for="198.51.100.91:443";proto=https;by=203.0.113.43')],
+            ("10.0.0.1", 4321),
+        )
+
+        self.assertEqual(_resolve_client_ip(request), "198.51.100.91")
 
 
 if __name__ == "__main__":

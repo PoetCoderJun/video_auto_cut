@@ -24,11 +24,17 @@ import {
   uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
-import { isUnsupportedMobileUploadDevice } from "../lib/device";
+import {
+  isUnsupportedLocalVideoBrowser,
+  isUnsupportedMobileUploadDevice,
+} from "../lib/device";
 import {
   getLikelyAppExportFileMessage,
   isLikelyAppExportFileName,
 } from "../lib/source-video-guard";
+import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
+import { probeBrowserRenderability } from "../lib/upload-render-probe";
+import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
 import {
@@ -167,11 +173,13 @@ export default function HomePageClient() {
   }, [isSignedIn]);
 
   useEffect(() => {
-    setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
+    setMobileUploadBlocked(
+      isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser()
+    );
   }, []);
 
   const showMobileUploadError = useCallback(() => {
-    setError("移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。");
+    setError("当前浏览器暂不支持上传视频，请使用桌面版 Chrome。");
   }, []);
 
   const saveJobId = useCallback((id: string) => {
@@ -348,19 +356,37 @@ export default function HomePageClient() {
         return;
       }
 
+      setUploadStageMessage("正在检查源视频兼容性...");
+      const preparedSource = await prepareUploadSourceFile(file, {
+        onStageChange: (stage) => {
+          if (stage === "checking") {
+            setUploadStageMessage("正在检查源视频兼容性...");
+            return;
+          }
+          if (stage === "transcoding") {
+            setUploadStageMessage("正在转码兼容 MP4...");
+            return;
+          }
+          setUploadStageMessage("");
+        },
+        onTranscodeProgress: (progress) => {
+          setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
+        },
+      });
+
+      await probeBrowserRenderability(preparedSource.file);
+
       // 4. Create job and upload through backend; backend forwards to OSS.
       const job = await createJob();
       setUploadStageMessage("正在提取音频...");
-      const audioFile = await extractAudioForAsr(file);
+      const audioFile = await extractAudioForAsr(preparedSource.file);
       setUploadStageMessage("正在上传音频...");
       await uploadAudioDirectToOss(job.job_id, audioFile);
       // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
-      await saveCachedJobSourceVideo(job.job_id, file).catch(() => undefined);
+      await saveCachedJobSourceVideo(job.job_id, preparedSource.file).catch(() => undefined);
       saveJobId(job.job_id);
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "创建项目失败，请稍后重试。";
-      setError(message);
+      setError(getFriendlyUploadErrorMessage(err));
     } finally {
       setUploadStageMessage("");
       setLoading(false);
@@ -534,12 +560,12 @@ export default function HomePageClient() {
                       {loading
                         ? uploadStageMessage || "正在上传并分析..."
                         : mobileUploadBlocked
-                        ? "移动端暂不支持上传"
+                        ? "当前浏览器暂不支持上传"
                         : "点击或拖拽上传视频"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       {mobileUploadBlocked
-                        ? "请在电脑浏览器使用，建议 Chrome"
+                        ? "请使用桌面版 Chrome"
                         : loading
                         ? "请保持页面开启，我们会自动继续处理。"
                         : "支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟"}
@@ -562,7 +588,7 @@ export default function HomePageClient() {
 
               {mobileUploadBlocked && (
                 <div className="w-full max-w-lg rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800 text-center">
-                  移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。
+                  当前浏览器暂不支持上传视频，请使用桌面版 Chrome。
                 </div>
               )}
 

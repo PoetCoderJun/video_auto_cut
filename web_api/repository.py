@@ -11,6 +11,8 @@ from typing import Any
 from .config import ensure_job_dirs, get_settings, job_dir
 from .constants import (
     ALLOWED_VIDEO_EXTENSIONS,
+    JOB_ERROR_CODE_FILES_MISSING,
+    JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_CREATED,
     JOB_STATUS_FAILED,
     JOB_STATUS_STEP1_CONFIRMED,
@@ -41,6 +43,19 @@ JOB_FILE_FIELDS = (
     "final_topics_path",
     "final_video_path",
 )
+
+_STATUS_RANK = {
+    JOB_STATUS_CREATED: 0,
+    JOB_STATUS_UPLOAD_READY: 1,
+    JOB_STATUS_STEP1_RUNNING: 2,
+    JOB_STATUS_STEP1_READY: 3,
+    JOB_STATUS_STEP1_CONFIRMED: 4,
+    JOB_STATUS_STEP2_RUNNING: 5,
+    JOB_STATUS_STEP2_READY: 6,
+    JOB_STATUS_STEP2_CONFIRMED: 7,
+    JOB_STATUS_SUCCEEDED: 8,
+    JOB_STATUS_FAILED: 9,
+}
 
 
 def now_iso() -> str:
@@ -200,7 +215,7 @@ def claim_public_coupon_code(
         if existing_code:
             coupon = conn.execute(
                 """
-                SELECT code, credits
+                SELECT code, credits, used_count, expires_at, status
                 FROM coupon_codes
                 WHERE code = ?
                 LIMIT 1
@@ -208,16 +223,21 @@ def claim_public_coupon_code(
                 (existing_code,),
             ).fetchone()
             if coupon:
-                conn.execute(
-                    "UPDATE public_invite_claims SET updated_at = ? WHERE ip_hash = ?",
-                    (now, ip_hash),
-                )
-                conn.commit()
-                return {
-                    "code": str(_row_get(coupon, "code", 0)),
-                    "credits": int(_row_get(coupon, "credits", 1) or normalized_credits),
-                    "already_claimed": True,
-                }
+                try:
+                    _assert_coupon_usable_in_tx(coupon)
+                except LookupError:
+                    coupon = None
+                else:
+                    conn.execute(
+                        "UPDATE public_invite_claims SET updated_at = ? WHERE ip_hash = ?",
+                        (now, ip_hash),
+                    )
+                    conn.commit()
+                    return {
+                        "code": str(_row_get(coupon, "code", 0)),
+                        "credits": int(_row_get(coupon, "credits", 1) or normalized_credits),
+                        "already_claimed": True,
+                    }
 
         if not has_existing_claim:
             settings_row = conn.execute(
@@ -715,14 +735,56 @@ def _effective_status(meta_status: str | None, inferred_status: str) -> str:
         JOB_STATUS_STEP2_READY,
     }:
         return JOB_STATUS_STEP2_RUNNING
-    if meta_status == JOB_STATUS_FAILED and inferred_status in {
-        JOB_STATUS_CREATED,
-        JOB_STATUS_UPLOAD_READY,
-        JOB_STATUS_STEP1_RUNNING,
-        JOB_STATUS_STEP2_RUNNING,
-    }:
+    if meta_status == JOB_STATUS_FAILED:
         return JOB_STATUS_FAILED
+    if (
+        meta_status is not None
+        and _STATUS_RANK.get(meta_status, -1) > _STATUS_RANK.get(inferred_status, -1)
+    ):
+        return meta_status
     return inferred_status
+
+
+def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any]) -> dict[str, str] | None:
+    if status in {JOB_STATUS_CREATED, JOB_STATUS_FAILED}:
+        return None
+
+    if status in {JOB_STATUS_UPLOAD_READY, JOB_STATUS_STEP1_RUNNING}:
+        if files.get("audio_path") or files.get("asr_oss_key"):
+            return None
+        return {
+            "code": JOB_ERROR_CODE_FILES_MISSING,
+            "message": JOB_ERROR_MESSAGE_FILES_MISSING,
+        }
+
+    if status == JOB_STATUS_STEP1_READY:
+        if _step1_lines_path(job_id).exists():
+            return None
+        return {
+            "code": JOB_ERROR_CODE_FILES_MISSING,
+            "message": JOB_ERROR_MESSAGE_FILES_MISSING,
+        }
+
+    if status in {JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_STEP2_RUNNING}:
+        if _step1_lines_path(job_id).exists() and files.get("final_step1_srt_path"):
+            return None
+        return {
+            "code": JOB_ERROR_CODE_FILES_MISSING,
+            "message": JOB_ERROR_MESSAGE_FILES_MISSING,
+        }
+
+    if status in {JOB_STATUS_STEP2_READY, JOB_STATUS_STEP2_CONFIRMED}:
+        if _step1_lines_path(job_id).exists() and files.get("final_step1_srt_path"):
+            return None
+        return {
+            "code": JOB_ERROR_CODE_FILES_MISSING,
+            "message": JOB_ERROR_MESSAGE_FILES_MISSING,
+        }
+
+    if status == JOB_STATUS_SUCCEEDED:
+        return None
+
+    return None
 
 
 def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
@@ -763,6 +825,7 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
     if owner_user_id and str(meta.get("owner_user_id") or "") != owner_user_id:
         return None
 
+    files = _normalize_files(job_id, _read_files_manifest(job_id))
     inferred_status = _infer_job_status(job_id)
     meta_status = _normalize_meta_status(meta.get("status"))
     status = _effective_status(meta_status, inferred_status)
@@ -781,6 +844,11 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
         message = str(error_payload.get("message") or "").strip()
         if code:
             error = {"code": code, "message": message}
+    if error is None:
+        synthesized_error = _missing_job_artifact_error(job_id, status, files)
+        if synthesized_error is not None:
+            status = JOB_STATUS_FAILED
+            error = synthesized_error
 
     stage_code = str(meta.get("stage_code") or "").strip()
     stage_message = str(meta.get("stage_message") or "").strip()
@@ -790,6 +858,8 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
             "code": stage_code or "UNKNOWN_STAGE",
             "message": stage_message,
         }
+    if status == JOB_STATUS_FAILED:
+        stage = None
 
     return {
         "job_id": job_id,

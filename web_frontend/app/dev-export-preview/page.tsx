@@ -26,6 +26,10 @@ import {
   OVERLAY_SCALE_LIMITS,
   type OverlayScaleControls,
 } from "@/lib/remotion/overlay-controls";
+import {
+  WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
+  getFriendlyWebRenderErrorMessage,
+} from "@/lib/remotion/rendering";
 import {StitchVideoWeb} from "@/lib/remotion/stitch-video-web";
 
 const PROGRESS_LABEL_MODE_OPTIONS: Array<{value: ProgressLabelMode; label: string}> = [
@@ -372,6 +376,7 @@ function DevExportPreviewPageInner() {
           container,
           videoCodec,
           videoBitrate: "high",
+          delayRenderTimeoutInMilliseconds: WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
           ...(muted ? {muted: true} : {}),
           onProgress: (progress) => {
             const totalFrames = Math.max(1, Number(activeConfig.composition.durationInFrames) || 1);
@@ -433,7 +438,7 @@ function DevExportPreviewPageInner() {
     } catch (error) {
       setMockExport({
         status: "failed",
-        message: error instanceof Error ? error.message : "mock 导出失败",
+        message: getFriendlyWebRenderErrorMessage(error),
         outputUrl: null,
         outputName: null,
         frames: [],

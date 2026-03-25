@@ -182,6 +182,12 @@ function toMessage(err: unknown): string {
   return String(err);
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function parseApiErrorText(text: string, fallbackStatus: number): ApiClientError {
   const trimmed = String(text || "").trim();
   if (!trimmed) {
@@ -475,13 +481,35 @@ export async function uploadAudioDirectToOss(jobId: string, file: File): Promise
 }
 
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
-  const form = new FormData();
-  form.append("file", file);
-  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio`, {
-    method: "POST",
-    body: form,
-  });
-  return data.job;
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const form = new FormData();
+    form.append("file", file);
+
+    try {
+      const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio`, {
+        method: "POST",
+        body: form,
+      });
+      return data.job;
+    } catch (err) {
+      const isTransientNetworkError =
+        err instanceof ApiClientError && err.code === "NETWORK_ERROR";
+      if (!isTransientNetworkError || attempt >= maxAttempts) {
+        throw err;
+      }
+
+      const waitMs = attempt * 1000;
+      console.warn(
+        `[upload-audio] transient network failure, retrying attempt ${attempt + 1}/${maxAttempts} in ${waitMs}ms`,
+        err
+      );
+      await delay(waitMs);
+    }
+  }
+
+  throw new ApiClientError("音频上传失败，请稍后重试。", "NETWORK_ERROR", 0);
 }
 
 export async function runStep1(jobId: string): Promise<QueueAccepted> {
@@ -531,6 +559,10 @@ export type RenderMeta = {
   height: number;
   fps: number;
   duration_sec?: number;
+  source_overall_bitrate?: number;
+  source_video_bitrate?: number;
+  source_audio_bitrate?: number;
+  source_video_codec?: string;
 };
 
 export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta): Promise<WebRenderConfig> {

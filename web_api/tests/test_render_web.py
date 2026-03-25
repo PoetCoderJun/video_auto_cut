@@ -9,6 +9,7 @@ from unittest.mock import patch
 from web_api.services.render_web import (
     _fit_uniform_progress_font,
     _prepare_render_topics,
+    _resolve_dimensions,
     build_web_render_config,
 )
 
@@ -24,6 +25,10 @@ class _DummySettings:
 
 
 class RenderWebTopicRewriteTest(unittest.TestCase):
+    def test_resolve_dimensions_rejects_non_positive_values_with_user_facing_message(self) -> None:
+        with self.assertRaisesRegex(ValueError, "视频分辨率无效，请重新选择源文件后重试"):
+            _resolve_dimensions(0, 0)
+
     def _assert_progress_principles(
         self,
         topics: list[dict[str, object]],

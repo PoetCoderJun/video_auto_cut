@@ -39,6 +39,10 @@ class RenderCompletionTests(unittest.TestCase):
         job_id = "job_render_done"
         user_id = "user_render_done"
         create_job(job_id, "CREATED", user_id)
+        step1_dir = Path(self.tmpdir.name) / "jobs" / job_id / "step1"
+        step1_dir.mkdir(parents=True, exist_ok=True)
+        (step1_dir / "final_step1.json").write_text("[]", encoding="utf-8")
+        (step1_dir / "final_step1.srt").write_text("", encoding="utf-8")
         update_job(job_id, status=JOB_STATUS_STEP2_CONFIRMED)
 
         with get_conn() as conn:
@@ -85,6 +89,10 @@ class RenderCompletionTests(unittest.TestCase):
         job_id = "job_render_no_credit"
         user_id = "user_render_no_credit"
         create_job(job_id, "CREATED", user_id)
+        step1_dir = Path(self.tmpdir.name) / "jobs" / job_id / "step1"
+        step1_dir.mkdir(parents=True, exist_ok=True)
+        (step1_dir / "final_step1.json").write_text("[]", encoding="utf-8")
+        (step1_dir / "final_step1.srt").write_text("", encoding="utf-8")
         update_job(job_id, status=JOB_STATUS_STEP2_CONFIRMED)
 
         with self.assertRaises(RuntimeError) as ctx:

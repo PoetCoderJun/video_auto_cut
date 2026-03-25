@@ -32,8 +32,18 @@ import {
   uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
-import { isUnsupportedMobileUploadDevice } from "../lib/device";
-import { tryParseVideoMetadataWithMediaInfo } from "../lib/media-metadata";
+import {
+  isUnsupportedLocalVideoBrowser,
+  isUnsupportedMobileUploadDevice,
+} from "../lib/device";
+import { resetBrowserFfmpeg } from "../lib/ffmpeg-browser";
+import {
+  choosePreferredVideoDimensions,
+  tryParseVideoMetadataWithMediaInfo,
+} from "../lib/media-metadata";
+import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
+import { probeBrowserRenderability } from "../lib/upload-render-probe";
+import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import {
   loadCachedJobSourceVideo,
   saveCachedJobSourceVideo,
@@ -53,6 +63,21 @@ import {
   StitchVideoWeb,
   type SubtitleTheme,
 } from "../lib/remotion/stitch-video-web";
+import {
+  WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
+  getFriendlyWebRenderErrorMessage,
+} from "../lib/remotion/rendering";
+import {
+  buildDynamicRenderBitratePlan,
+  buildVideoBitrateFallbacks,
+  type WebRenderAudioCodec,
+  type WebRenderVideoCodec,
+} from "../lib/remotion/export-bitrate";
+import {
+  inspectRenderSourceCompatibility,
+  type RenderSourceCompatibility,
+} from "../lib/video-render-compatibility";
+import { transcodeVideoToBrowserCompatibleMp4 } from "../lib/video-transcode";
 import {
   DEFAULT_OVERLAY_CONTROLS,
   OVERLAY_POSITION_LIMITS,
@@ -154,6 +179,15 @@ const PROGRESS_LABEL_MODE_OPTIONS: Array<{ value: ProgressLabelMode; label: stri
   { value: "double", label: "双行" },
   { value: "single", label: "单行" },
 ];
+
+type RenderSourceCompatibilityState =
+  | RenderSourceCompatibility
+  | {
+      status: "idle" | "checking";
+      message: string;
+      videoCodec: string | null;
+      audioCodec: string | null;
+    };
 
 function OverlayToggleTile({
   label,
@@ -399,10 +433,14 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
     };
 
     const mediaInfoMeta = await mediaInfoPromise;
-    const width =
-      meta.width > 0 ? meta.width : Math.trunc(Number(mediaInfoMeta?.width ?? 0));
-    const height =
-      meta.height > 0 ? meta.height : Math.trunc(Number(mediaInfoMeta?.height ?? 0));
+    const preferredDimensions = choosePreferredVideoDimensions({
+      browserWidth: meta.width,
+      browserHeight: meta.height,
+      metadataWidth: Math.trunc(Number(mediaInfoMeta?.width ?? 0)),
+      metadataHeight: Math.trunc(Number(mediaInfoMeta?.height ?? 0)),
+    });
+    const width = Math.trunc(Number(preferredDimensions.width ?? 0));
+    const height = Math.trunc(Number(preferredDimensions.height ?? 0));
     const durationSec =
       typeof meta.duration === "number" && Number.isFinite(meta.duration) && meta.duration > 0
         ? meta.duration
@@ -420,6 +458,10 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
       height,
       duration_sec: durationSec,
       fps,
+      source_overall_bitrate: mediaInfoMeta?.overallBitrate ?? undefined,
+      source_video_bitrate: mediaInfoMeta?.videoBitrate ?? undefined,
+      source_audio_bitrate: mediaInfoMeta?.audioBitrate ?? undefined,
+      source_video_codec: mediaInfoMeta?.videoCodec ?? undefined,
     };
   } finally {
     URL.revokeObjectURL(url);
@@ -461,6 +503,18 @@ function getRandomPreviewTime(config: WebRenderConfig): number {
     )
   );
   return totalDuration * (0.25 + Math.random() * 0.5);
+}
+
+function getRenderConfigTotalDuration(config: WebRenderConfig): number {
+  return Math.max(
+    1,
+    config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
+    config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
+    config.input_props.segments.reduce(
+      (sum, item) => sum + Math.max(0, item.end - item.start),
+      0
+    )
+  );
 }
 
 function getOriginalDurationFromLines(lines: Step1Line[]): number {
@@ -901,6 +955,15 @@ export default function JobWorkspace({
     ...DEFAULT_OVERLAY_CONTROLS,
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [renderSourceCompatibility, setRenderSourceCompatibility] =
+    useState<RenderSourceCompatibilityState>({
+      status: "idle",
+      message: "",
+      videoCodec: null,
+      audioCodec: null,
+    });
+  const [transcodeBusy, setTranscodeBusy] = useState(false);
+  const [transcodeProgress, setTranscodeProgress] = useState(0);
   const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
   const [uploadStageMessage, setUploadStageMessage] = useState("");
   const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
@@ -915,15 +978,18 @@ export default function JobWorkspace({
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      resetBrowserFfmpeg();
     };
   }, []);
 
   useEffect(() => {
-    setMobileUploadBlocked(isUnsupportedMobileUploadDevice());
+    setMobileUploadBlocked(
+      isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser()
+    );
   }, []);
 
   const showMobileUploadError = useCallback(() => {
-    setError("移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。");
+    setError("当前浏览器暂不支持上传视频，请使用桌面版 Chrome。");
   }, []);
 
   const loadRenderConfigWithMeta = useCallback(
@@ -965,11 +1031,48 @@ export default function JobWorkspace({
     return sourceFile ?? null;
   }, [jobId, selectedFile]);
 
-  const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
-    if (renderBusy) return null;
+  const applyRenderPreviewConfig = useCallback((config: WebRenderConfig) => {
+    setRenderConfig(config);
+    setPreviewTimeSec((previous) => {
+      const totalDuration = getRenderConfigTotalDuration(config);
+      if (previous > 0 && previous < totalDuration) {
+        return previous;
+      }
+      return getRandomPreviewTime(config);
+    });
+    return config;
+  }, []);
 
-    setRenderConfigBusy(true);
-    setRenderSetupError("");
+  const prepareRenderPreviewForFile = useCallback(
+    async (sourceFile: File): Promise<WebRenderConfig | null> => {
+      setRenderConfigBusy(true);
+      setRenderSetupError("");
+      try {
+        const meta = await withTimeout(
+          resolveRenderMetaFromFile(sourceFile),
+          10000,
+          "读取本地视频元数据超时，请刷新页面后重试。"
+        );
+        const config = await loadRenderConfigWithMeta(sourceFile, meta, {
+          timeoutMs: { config: 15000 },
+        });
+        return applyRenderPreviewConfig(config);
+      } catch (err) {
+        setRenderConfig(null);
+        setRenderSetupError(
+          err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
+        );
+        return null;
+      } finally {
+        setRenderConfigBusy(false);
+      }
+    },
+    [applyRenderPreviewConfig, loadRenderConfigWithMeta]
+  );
+
+  const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
+    if (renderBusy || transcodeBusy) return null;
+
     try {
       const sourceFile = await loadRenderSourceFile();
       if (!sourceFile) {
@@ -977,42 +1080,15 @@ export default function JobWorkspace({
           "当前会话缺少本地原始视频，请先重新选择当前任务对应的源文件。"
         );
       }
-
-      const meta = await withTimeout(
-        resolveRenderMetaFromFile(sourceFile),
-        10000,
-        "读取本地视频元数据超时，请刷新页面后重试。"
-      );
-      const config = await loadRenderConfigWithMeta(sourceFile, meta, {
-        timeoutMs: { config: 15000 },
-      });
-      setRenderConfig(config);
-      setPreviewTimeSec((previous) => {
-        const totalDuration = Math.max(
-          1,
-          config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
-          config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
-          config.input_props.segments.reduce(
-            (sum, item) => sum + Math.max(0, item.end - item.start),
-            0
-          )
-        );
-        if (previous > 0 && previous < totalDuration) {
-          return previous;
-        }
-        return getRandomPreviewTime(config);
-      });
-      return config;
+      return await prepareRenderPreviewForFile(sourceFile);
     } catch (err) {
       setRenderConfig(null);
       setRenderSetupError(
         err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
       );
       return null;
-    } finally {
-      setRenderConfigBusy(false);
     }
-  }, [jobId, loadRenderConfigWithMeta, renderBusy, selectedFile]);
+  }, [loadRenderSourceFile, prepareRenderPreviewForFile, renderBusy, transcodeBusy]);
 
   const refreshJob = useCallback(async () => {
     try {
@@ -1342,6 +1418,15 @@ export default function JobWorkspace({
     setOverlayControls({
       ...DEFAULT_OVERLAY_CONTROLS,
     });
+    setSelectedFile(null);
+    setRenderSourceCompatibility({
+      status: "idle",
+      message: "",
+      videoCodec: null,
+      audioCodec: null,
+    });
+    setTranscodeBusy(false);
+    setTranscodeProgress(0);
     setUploadStageMessage("");
   }, [jobId]);
 
@@ -1357,6 +1442,50 @@ export default function JobWorkspace({
       active = false;
     };
   }, [jobId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedFile) {
+      setRenderSourceCompatibility({
+        status: "idle",
+        message: "",
+        videoCodec: null,
+        audioCodec: null,
+      });
+      return;
+    }
+
+    setRenderSourceCompatibility({
+      status: "checking",
+      message: "正在检查当前源视频是否可直接用于浏览器导出...",
+      videoCodec: null,
+      audioCodec: null,
+    });
+
+    inspectRenderSourceCompatibility(selectedFile)
+      .then((result) => {
+        if (!cancelled) {
+          setRenderSourceCompatibility(result);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setRenderSourceCompatibility({
+            status: "unknown",
+            message:
+              error instanceof Error
+                ? `兼容性检查失败：${error.message}。将继续允许直接导出。`
+                : "兼容性检查失败。将继续允许直接导出。",
+            videoCodec: null,
+            audioCodec: null,
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFile]);
 
   const handleSourceFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -1385,9 +1514,9 @@ export default function JobWorkspace({
         setRenderFileName("output.mp4");
       }
       void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
-      void prepareRenderPreview();
+      void prepareRenderPreviewForFile(file);
     },
-    [jobId, prepareRenderPreview, selectedFile]
+    [jobId, prepareRenderPreviewForFile, selectedFile]
   );
 
   useEffect(() => {
@@ -1496,16 +1625,35 @@ export default function JobWorkspace({
       }
       setBusy(true);
       try {
-        setUploadStageMessage("正在提取音频...");
+        setUploadStageMessage("正在检查源视频兼容性...");
+        const preparedSource = await prepareUploadSourceFile(file, {
+          onStageChange: (stage) => {
+            if (stage === "checking") {
+              setUploadStageMessage("正在检查源视频兼容性...");
+              return;
+            }
+            if (stage === "transcoding") {
+              setUploadStageMessage("正在转码兼容 MP4...");
+              return;
+            }
+            setUploadStageMessage("");
+          },
+          onTranscodeProgress: (progress) => {
+            setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
+          },
+        });
+        await probeBrowserRenderability(preparedSource.file);
         const nextJob = await createJob();
-        const audioFile = await extractAudioForAsr(file);
+        setSelectedFile(preparedSource.file);
+        setUploadStageMessage("正在提取音频...");
+        const audioFile = await extractAudioForAsr(preparedSource.file);
         setUploadStageMessage("正在上传音频...");
         const uploadedJob = await uploadAudioDirectToOss(nextJob.job_id, audioFile);
-        await saveCachedJobSourceVideo(nextJob.job_id, file).catch(() => undefined);
+        await saveCachedJobSourceVideo(nextJob.job_id, preparedSource.file).catch(() => undefined);
         onSwitchJob?.(nextJob.job_id);
         setJob((previous) => mergeJobSnapshot(previous, uploadedJob));
       } catch (err) {
-        setError(err instanceof Error ? err.message : "音频提取或上传失败，请重试。");
+        setError(getFriendlyUploadErrorMessage(err));
       } finally {
         setUploadStageMessage("");
         setBusy(false);
@@ -1609,7 +1757,6 @@ export default function JobWorkspace({
         showMobileUploadError();
         return;
       }
-      setSelectedFile(file);
       void handleUpload(file);
     }
   };
@@ -1708,6 +1855,32 @@ export default function JobWorkspace({
     [keptLinePositionById]
   );
 
+  const transcodeRenderSourceFile = useCallback(
+    async (sourceFile: File): Promise<File> => {
+      setTranscodeBusy(true);
+      setTranscodeProgress(0);
+      try {
+        const transcodedFile = await transcodeVideoToBrowserCompatibleMp4(sourceFile, {
+          onProgress: (progress) => {
+            setTranscodeProgress(clampPercent(progress * 100));
+          },
+        });
+        setSelectedFile(transcodedFile);
+        setRenderConfig(null);
+        await saveCachedJobSourceVideo(jobId, transcodedFile).catch(() => undefined);
+        const compatibility = await inspectRenderSourceCompatibility(transcodedFile);
+        setRenderSourceCompatibility(compatibility);
+        if (compatibility.status === "incompatible" || compatibility.status === "blocked") {
+          throw new Error(compatibility.message);
+        }
+        return transcodedFile;
+      } finally {
+        setTranscodeBusy(false);
+      }
+    },
+    [jobId]
+  );
+
   const handleStartRender = useCallback(async () => {
     setError("");
     setRenderNote("");
@@ -1716,16 +1889,27 @@ export default function JobWorkspace({
     setRenderProgress(0);
     let sourceObjectUrl: string | null = null;
     try {
-      const sourceFile = await loadRenderSourceFile();
-      if (!sourceFile) {
+      const initialSourceFile = await loadRenderSourceFile();
+      if (!initialSourceFile) {
         throw new Error(
           "当前会话缺少本地原始视频，请先选择对应的源文件后再导出。"
         );
       }
+      const compatibility = await inspectRenderSourceCompatibility(initialSourceFile);
+      setRenderSourceCompatibility(compatibility);
+      if (compatibility.status === "blocked") {
+        throw new Error(compatibility.message);
+      }
+
+      let sourceFile = initialSourceFile;
+      if (compatibility.status === "incompatible") {
+        sourceFile = await transcodeRenderSourceFile(initialSourceFile);
+        setRenderNote("已先将源视频转成兼容 MP4，继续浏览器导出。");
+      }
+
       const sourceMeta = await resolveRenderMetaFromFile(sourceFile);
-      const config =
-        renderConfig ?? (await loadRenderConfigWithMeta(sourceFile, sourceMeta));
-      setRenderConfig((previous) => previous ?? config);
+      const config = await loadRenderConfigWithMeta(sourceFile, sourceMeta);
+      applyRenderPreviewConfig(config);
       sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
         ...config.input_props,
@@ -1761,7 +1945,11 @@ export default function JobWorkspace({
         }
       }
 
-      const { renderMediaOnWeb, getEncodableAudioCodecs } = await import("@remotion/web-renderer");
+      const {
+        renderMediaOnWeb,
+        getEncodableAudioCodecs,
+        getEncodableVideoCodecs,
+      } = await import("@remotion/web-renderer");
 
       // Determine the best available container+codec for this browser.
       // On non-cross-origin-isolated pages (missing COOP/COEP headers), audio
@@ -1773,9 +1961,8 @@ export default function JobWorkspace({
       const hasMp4Audio = mp4AudioCodecs.length > 0;
       const hasWebmAudio = webmAudioCodecs.length > 0;
 
-      type WebRendererVideoCodec = "h264" | "vp8" | "vp9" | "h265" | "av1";
       let container: "mp4" | "webm" = "mp4";
-      let videoCodec: WebRendererVideoCodec = "h264";
+      let videoCodec: WebRenderVideoCodec = "h264";
       let muted = false;
 
       if (hasMp4Audio) {
@@ -1793,13 +1980,49 @@ export default function JobWorkspace({
         muted = true;
       }
 
+      const audioCodec: WebRenderAudioCodec = container === "mp4" ? "aac" : "opus";
+      const bitratePlan = buildDynamicRenderBitratePlan({
+        meta: sourceMeta,
+        fileSizeBytes: sourceFile.size,
+        videoCodec,
+        audioCodec,
+      });
+
+      let resolvedVideoBitrate = bitratePlan.videoBitrate;
+      const bitrateCandidates = buildVideoBitrateFallbacks(
+        bitratePlan.videoBitrate,
+        bitratePlan.fallbackVideoBitrate
+      );
+
+      for (const candidate of bitrateCandidates) {
+        const encodableVideoCodecs = await getEncodableVideoCodecs(container, {
+          videoBitrate: candidate,
+        });
+        if (encodableVideoCodecs.includes(videoCodec)) {
+          resolvedVideoBitrate = candidate;
+          break;
+        }
+      }
+
+      let resolvedAudioBitrate = bitratePlan.audioBitrate;
+      if (!muted) {
+        const preferredAudioCodecs = await getEncodableAudioCodecs(container, {
+          audioBitrate: resolvedAudioBitrate,
+        });
+        if (!preferredAudioCodecs.includes(audioCodec)) {
+          resolvedAudioBitrate = audioCodec === "aac" ? 128_000 : 96_000;
+        }
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const renderOptions: Parameters<typeof renderMediaOnWeb>[0] = {
         composition: composition as any,
         inputProps,
         container,
         videoCodec,
-        videoBitrate: "high",
+        audioBitrate: resolvedAudioBitrate,
+        videoBitrate: resolvedVideoBitrate,
+        delayRenderTimeoutInMilliseconds: WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
         ...(muted ? { muted: true } : {}),
         onProgress: (progress) => {
           const totalFrames = Math.max(
@@ -1837,6 +2060,12 @@ export default function JobWorkspace({
       const outputName = `${baseName}.${container}`;
       if (muted) {
         setRenderNote("导出成功，但当前浏览器环境不支持音频编码，导出文件无声音。建议使用 Chrome / Edge 浏览器，或联系管理员确认服务器已配置 COOP/COEP 响应头。");
+      } else if (bitratePlan.usingSourceBitrate || resolvedVideoBitrate !== bitratePlan.fallbackVideoBitrate) {
+        setRenderNote(
+          `已按源片码率策略导出，视频约 ${Math.round(resolvedVideoBitrate / 1_000_000)} Mbps，音频约 ${Math.round(
+            resolvedAudioBitrate / 1_000
+          )} kbps。`
+        );
       }
       setRenderFileName(outputName);
       const blob = await result.getBlob();
@@ -1861,7 +2090,7 @@ export default function JobWorkspace({
         setRenderCompletionPending(jobId, message);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "浏览器导出失败，请重试。");
+      setError(getFriendlyWebRenderErrorMessage(err));
     } finally {
       if (sourceObjectUrl) {
         URL.revokeObjectURL(sourceObjectUrl);
@@ -1869,6 +2098,7 @@ export default function JobWorkspace({
       setRenderBusy(false);
     }
   }, [
+    applyRenderPreviewConfig,
     jobId,
     loadRenderConfigWithMeta,
     overlayControls.progressLabelMode,
@@ -1881,8 +2111,8 @@ export default function JobWorkspace({
     overlayControls.showProgress,
     overlayControls.showChapter,
     loadRenderSourceFile,
-    renderConfig,
     subtitleTheme,
+    transcodeRenderSourceFile,
   ]);
 
   useEffect(() => {
@@ -1948,6 +2178,17 @@ export default function JobWorkspace({
 
   const activeStep = getActiveStep(job.status);
   const hasRenderSource = Boolean(selectedFile);
+  const renderActionBusy = renderBusy || transcodeBusy;
+  const canStartRender =
+    hasRenderSource &&
+    !busy &&
+    !renderActionBusy &&
+    renderSourceCompatibility.status !== "checking" &&
+    renderSourceCompatibility.status !== "blocked";
+  const renderPrimaryButtonLabel =
+    renderSourceCompatibility.status === "incompatible"
+      ? "转兼容 MP4 并导出"
+      : "导出视频";
   return (
     <main className="container mx-auto max-w-6xl px-4 py-8">
       {/* Stepper */}
@@ -2059,14 +2300,14 @@ export default function JobWorkspace({
                     {busy
                       ? uploadStageMessage || "正在上传..."
                       : mobileUploadBlocked
-                      ? "移动端暂不支持上传"
+                      ? "当前浏览器暂不支持上传"
                       : selectedFile
                       ? selectedFile.name
                       : "点击或拖拽上传视频"}
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {mobileUploadBlocked
-                      ? "请在电脑浏览器使用，建议 Chrome"
+                      ? "请使用桌面版 Chrome"
                       : busy
                       ? "请保持页面开启，我们会自动继续处理。"
                       : "AI 将自动提取字幕并进行智能分析"}
@@ -2076,7 +2317,7 @@ export default function JobWorkspace({
             </div>
             {mobileUploadBlocked && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                移动端暂不支持上传视频，请在电脑浏览器使用（建议 Chrome）。
+                当前浏览器暂不支持上传视频，请使用桌面版 Chrome。
               </div>
             )}
           </CardContent>
@@ -2493,7 +2734,7 @@ export default function JobWorkspace({
                   accept={SUPPORTED_UPLOAD_ACCEPT}
                   className="hidden"
                   onChange={handleSourceFileChange}
-                  disabled={renderBusy || busy}
+                  disabled={renderActionBusy || busy}
                 />
 
                 <div className="border-b border-slate-200 bg-slate-50/60 px-3 py-2">
@@ -2512,10 +2753,44 @@ export default function JobWorkspace({
                           size="sm"
                           className="mt-2"
                           onClick={triggerRenderSourceFileInput}
-                          disabled={renderBusy || busy}
+                          disabled={renderActionBusy || busy}
                         >
                           重新选择源文件
                         </Button>
+                      </div>
+                    ) : null}
+
+                    {hasRenderSource && renderSourceCompatibility.status === "checking" ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <span>{renderSourceCompatibility.message}</span>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {hasRenderSource && renderSourceCompatibility.status === "incompatible" ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        <div className="font-medium">当前源视频不能直接浏览器导出</div>
+                        <div className="mt-1">{renderSourceCompatibility.message}</div>
+                      </div>
+                    ) : null}
+
+                    {hasRenderSource && renderSourceCompatibility.status === "blocked" ? (
+                      <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                        {renderSourceCompatibility.message}
+                      </div>
+                    ) : null}
+
+                    {hasRenderSource && renderSourceCompatibility.status === "unknown" ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                        {renderSourceCompatibility.message}
+                      </div>
+                    ) : null}
+
+                    {hasRenderSource && renderSourceCompatibility.status === "compatible" ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                        {renderSourceCompatibility.message}
                       </div>
                     ) : null}
 
@@ -2532,7 +2807,7 @@ export default function JobWorkspace({
                               progressLabelMode: value as ProgressLabelMode,
                             }))
                           }
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                         >
                           <SelectTrigger className="h-9 w-full">
                             <SelectValue />
@@ -2554,7 +2829,7 @@ export default function JobWorkspace({
                         <Select
                           value={subtitleTheme}
                           onValueChange={(v) => setSubtitleTheme(v as SubtitleTheme)}
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                         >
                           <SelectTrigger className="h-9 w-full">
                             <SelectValue />
@@ -2578,7 +2853,7 @@ export default function JobWorkspace({
                         <OverlayToggleTile
                           label="字幕"
                           checked={overlayControls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles}
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2589,7 +2864,7 @@ export default function JobWorkspace({
                         <OverlayToggleTile
                           label="进度条"
                           checked={overlayControls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress}
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2600,7 +2875,7 @@ export default function JobWorkspace({
                         <OverlayToggleTile
                           label="章节"
                           checked={overlayControls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter}
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2625,7 +2900,7 @@ export default function JobWorkspace({
                           value={
                             overlayControls.subtitleScale ?? OVERLAY_SCALE_LIMITS.subtitle.defaultValue
                           }
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2648,7 +2923,7 @@ export default function JobWorkspace({
                             overlayControls.subtitleYPercent ??
                             OVERLAY_POSITION_LIMITS.subtitleY.defaultValue
                           }
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2673,7 +2948,7 @@ export default function JobWorkspace({
                           value={
                             overlayControls.progressScale ?? OVERLAY_SCALE_LIMITS.progress.defaultValue
                           }
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2696,7 +2971,7 @@ export default function JobWorkspace({
                             overlayControls.progressYPercent ??
                             OVERLAY_POSITION_LIMITS.progressY.defaultValue
                           }
-                          disabled={renderBusy}
+                          disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2718,7 +2993,7 @@ export default function JobWorkspace({
                         max={OVERLAY_SCALE_LIMITS.chapter.max}
                         step={OVERLAY_SCALE_LIMITS.chapter.step}
                         value={overlayControls.chapterScale ?? OVERLAY_SCALE_LIMITS.chapter.defaultValue}
-                        disabled={renderBusy}
+                        disabled={renderActionBusy}
                         onChange={(value) =>
                           setOverlayControls((previous) => ({
                             ...previous,
@@ -2734,7 +3009,17 @@ export default function JobWorkspace({
                 </div>
 
                 <div className="border-t border-slate-200 bg-white px-3 py-2.5">
-                  {renderBusy && (
+                  {transcodeBusy && (
+                    <div className="mb-2.5 space-y-1.5">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>转码进度</span>
+                        <span>{Math.round(transcodeProgress)}%</span>
+                      </div>
+                      <Progress value={transcodeProgress} className="h-2" />
+                    </div>
+                  )}
+
+                  {renderBusy && !transcodeBusy && (
                     <div className="mb-2.5 space-y-1.5">
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>导出进度</span>
@@ -2750,7 +3035,7 @@ export default function JobWorkspace({
                       variant="outline"
                       className="w-full"
                       onClick={() => void prepareRenderPreview()}
-                      disabled={busy || renderBusy || renderConfigBusy}
+                      disabled={busy || renderActionBusy || renderConfigBusy}
                     >
                       {renderConfigBusy ? (
                         <>
@@ -2764,15 +3049,19 @@ export default function JobWorkspace({
                       type="button"
                       className="w-full"
                       onClick={() => void handleStartRender()}
-                      disabled={renderBusy || busy || !hasRenderSource}
+                      disabled={!canStartRender || renderConfigBusy}
                     >
-                      {renderBusy ? (
+                      {transcodeBusy ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在转码兼容 MP4
+                        </>
+                      ) : renderBusy ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出
                         </>
                       ) : (
                         <>
-                          <FileVideo className="mr-2 h-4 w-4" /> 导出视频
+                          <FileVideo className="mr-2 h-4 w-4" /> {renderPrimaryButtonLabel}
                         </>
                       )}
                     </Button>

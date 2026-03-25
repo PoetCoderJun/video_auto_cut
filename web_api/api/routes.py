@@ -63,19 +63,57 @@ def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"request_id": _request_id(), "data": data}
 
 
+def _normalize_ip_candidate(value: str | None) -> str:
+    candidate = str(value or "").strip().strip('"')
+    if not candidate or candidate.lower() == "unknown":
+        return ""
+    if candidate.startswith("["):
+        closing = candidate.find("]")
+        if closing > 1:
+            return candidate[1:closing]
+    if candidate.count(":") == 1:
+        host, port = candidate.rsplit(":", 1)
+        if "." in host and port.isdigit():
+            return host
+    return candidate
+
+
+def _parse_forwarded_header(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    for entry in raw.split(","):
+        for part in entry.split(";"):
+            key, sep, token = part.strip().partition("=")
+            if sep and key.strip().lower() == "for":
+                candidate = _normalize_ip_candidate(token)
+                if candidate:
+                    return candidate
+    return ""
+
+
 def _resolve_client_ip(request: Request) -> str:
+    for header_name in ("cf-connecting-ip", "true-client-ip"):
+        candidate = _normalize_ip_candidate(request.headers.get(header_name))
+        if candidate:
+            return candidate
+
     forwarded = str(request.headers.get("x-forwarded-for") or "").strip()
     if forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        candidate = _normalize_ip_candidate(forwarded.split(",")[0].strip())
+        if candidate:
+            return candidate
 
-    real_ip = str(request.headers.get("x-real-ip") or "").strip()
+    real_ip = _normalize_ip_candidate(request.headers.get("x-real-ip"))
     if real_ip:
         return real_ip
 
+    forwarded_header = _parse_forwarded_header(request.headers.get("forwarded"))
+    if forwarded_header:
+        return forwarded_header
+
     client = getattr(request, "client", None)
-    host = str(getattr(client, "host", "") or "").strip()
+    host = _normalize_ip_candidate(getattr(client, "host", None))
     if host:
         return host
 
@@ -314,7 +352,7 @@ def render_config(
             fps=fps,
             duration_sec=duration_sec,
         )
-    except RuntimeError as exc:
+    except (RuntimeError, ValueError) as exc:
         raise invalid_step_state(str(exc)) from exc
     return _ok({"render": render})
 

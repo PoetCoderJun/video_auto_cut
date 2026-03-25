@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 
 from ..constants import (
+    JOB_ERROR_CODE_FILES_MISSING,
+    JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_FAILED,
     JOB_STATUS_STEP1_RUNNING,
     JOB_STATUS_STEP2_RUNNING,
@@ -30,10 +32,32 @@ def _is_insufficient_credit_error(exc: Exception) -> bool:
     return "额度不足" in message
 
 
+def _is_missing_job_file_error(exc: Exception) -> bool:
+    message = str(exc or "").strip().lower()
+    if not message:
+        return False
+    return (
+        "job files missing" in message
+        or "job files not found" in message
+        or "upload audio missing" in message
+        or "final_step1.srt missing" in message
+    )
+
+
+def _public_task_error_code(exc: Exception) -> str:
+    if _is_missing_job_file_error(exc):
+        return JOB_ERROR_CODE_FILES_MISSING
+    if _is_insufficient_credit_error(exc):
+        return "INVALID_STEP_STATE"
+    return "INTERNAL_ERROR"
+
+
 def _public_task_error_message(exc: Exception) -> str:
     message = str(exc or "").strip()
     if _is_insufficient_credit_error(exc):
         return message or "额度不足，请先兑换邀请码后重试"
+    if _is_missing_job_file_error(exc):
+        return JOB_ERROR_MESSAGE_FILES_MISSING
     return "任务执行失败，请重试。"
 
 
@@ -99,14 +123,14 @@ def execute_task(task: dict[str, object]) -> None:
                 job_id,
                 status=JOB_STATUS_UPLOAD_READY,
                 progress=PROGRESS_UPLOAD_READY,
-                error_code="INVALID_STEP_STATE",
+                error_code=_public_task_error_code(exc),
                 error_message=_public_task_error_message(exc),
             )
             return
         update_job(
             job_id,
             status=JOB_STATUS_FAILED,
-            error_code="INTERNAL_ERROR",
+            error_code=_public_task_error_code(exc),
             error_message=_public_task_error_message(exc),
         )
         return

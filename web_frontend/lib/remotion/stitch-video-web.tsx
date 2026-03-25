@@ -20,6 +20,7 @@ import {
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "./typography";
+import {WEB_RENDER_DELAY_RENDER_TIMEOUT_MS} from "./rendering";
 
 export type RenderCaption = {
   index: number;
@@ -566,6 +567,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
               <Video
                 src={src}
                 trimBefore={segment.trimBefore}
+                delayRenderTimeoutInMilliseconds={WEB_RENDER_DELAY_RENDER_TIMEOUT_MS}
                 style={{
                   width: "100%",
                   height: "100%",

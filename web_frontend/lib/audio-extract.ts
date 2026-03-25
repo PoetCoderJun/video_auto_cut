@@ -1,11 +1,38 @@
-import { FFmpeg } from "@ffmpeg/ffmpeg";
-import { fetchFile, toBlobURL } from "@ffmpeg/util";
+import type { FFmpeg } from "@ffmpeg/ffmpeg";
+import { fetchFile } from "@ffmpeg/util";
 
-const FFMPEG_CORE_VERSION = "0.12.9";
-const FFMPEG_CORE_BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/umd`;
+import { getBrowserFfmpeg, resetBrowserFfmpeg } from "./ffmpeg-browser";
 
-let ffmpegInstance: FFmpeg | null = null;
-let ffmpegLoadPromise: Promise<FFmpeg> | null = null;
+const RESET_FFMPEG_AFTER_SOURCE_BYTES = 512 * 1024 * 1024;
+
+export const LARGE_FILE_AUDIO_EXTRACT_BYTES = 512 * 1024 * 1024;
+
+export type AudioExtractErrorCode =
+  | "AUDIO_CONTEXT_UNSUPPORTED"
+  | "LARGE_FILE_RESOURCE_LIMIT"
+  | "AUDIO_DECODE_FAILED"
+  | "UNKNOWN";
+
+export class AudioExtractError extends Error {
+  code: AudioExtractErrorCode;
+  causeMessage: string | null;
+  fileSizeBytes: number;
+
+  constructor(
+    code: AudioExtractErrorCode,
+    message: string,
+    options: {
+      causeMessage?: string | null;
+      fileSizeBytes?: number;
+    } = {}
+  ) {
+    super(message);
+    this.name = "AudioExtractError";
+    this.code = code;
+    this.causeMessage = options.causeMessage ?? null;
+    this.fileSizeBytes = options.fileSizeBytes ?? 0;
+  }
+}
 
 function getFileExt(name: string): string {
   const idx = name.lastIndexOf(".");
@@ -13,42 +40,16 @@ function getFileExt(name: string): string {
   return name.slice(idx).toLowerCase();
 }
 
-async function getFfmpeg(): Promise<FFmpeg> {
-  if (ffmpegInstance?.loaded) {
-    return ffmpegInstance;
-  }
-  if (ffmpegLoadPromise) {
-    return ffmpegLoadPromise;
-  }
-
-  ffmpegLoadPromise = (async () => {
-    const ffmpeg = ffmpegInstance ?? new FFmpeg();
-    const [coreURL, wasmURL] = await Promise.all([
-      toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript"),
-      toBlobURL(`${FFMPEG_CORE_BASE_URL}/ffmpeg-core.wasm`, "application/wasm"),
-    ]);
-    await ffmpeg.load({ coreURL, wasmURL });
-    ffmpegInstance = ffmpeg;
-    return ffmpeg;
-  })();
-
-  try {
-    return await ffmpegLoadPromise;
-  } catch (err) {
-    ffmpegLoadPromise = null;
-    throw err;
-  }
-}
-
 async function encodeMp3WithFfmpeg(
   sourceFile: File,
   sampleRate: number,
   kbps: number
 ): Promise<Blob> {
-  const ffmpeg = await getFfmpeg();
+  const ffmpeg: FFmpeg = await getBrowserFfmpeg();
   const nonce = Math.random().toString(36).slice(2, 10);
   const inputName = `input_${nonce}${getFileExt(sourceFile.name)}`;
   const outputName = `output_${nonce}.mp3`;
+  let shouldResetFfmpeg = sourceFile.size >= RESET_FFMPEG_AFTER_SOURCE_BYTES;
 
   try {
     await ffmpeg.writeFile(inputName, await fetchFile(sourceFile));
@@ -73,11 +74,17 @@ async function encodeMp3WithFfmpeg(
       throw new Error("ffmpeg output is not Uint8Array");
     }
     return new Blob([data], { type: "audio/mpeg" });
+  } catch (error) {
+    shouldResetFfmpeg = true;
+    throw error;
   } finally {
     await Promise.allSettled([
       ffmpeg.deleteFile(inputName),
       ffmpeg.deleteFile(outputName),
     ]);
+    if (shouldResetFfmpeg) {
+      resetBrowserFfmpeg();
+    }
   }
 }
 
@@ -186,6 +193,7 @@ export async function extractAudioForAsr(
   sampleRate = 16000,
   format: ExtractAudioFormat = "mp3"
 ): Promise<File> {
+  let mp3ExtractError: unknown = null;
   try {
     if (format === "mp3") {
       try {
@@ -194,19 +202,62 @@ export async function extractAudioForAsr(
           type: "audio/mpeg",
         });
       } catch (err) {
+        mp3ExtractError = err;
         console.warn("[audio-extract] MP3 encode failed, fallback to WAV", err);
       }
     }
 
     const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) {
-      throw new Error("当前浏览器不支持 AudioContext，无法提取音频。");
+      throw new AudioExtractError(
+        "AUDIO_CONTEXT_UNSUPPORTED",
+        "当前浏览器不支持本地音频提取，请使用桌面版 Chrome，Edge 暂不支持。",
+        {
+          causeMessage:
+            mp3ExtractError instanceof Error ? mp3ExtractError.message : null,
+          fileSizeBytes: sourceFile.size,
+        }
+      );
     }
 
     const audioCtx: AudioContext = new Ctx();
     try {
-      const input = await sourceFile.arrayBuffer();
-      const decoded = await audioCtx.decodeAudioData(input.slice(0));
+      let input: ArrayBuffer;
+      try {
+        input = await sourceFile.arrayBuffer();
+      } catch (error) {
+        throw new AudioExtractError(
+          sourceFile.size >= LARGE_FILE_AUDIO_EXTRACT_BYTES
+            ? "LARGE_FILE_RESOURCE_LIMIT"
+            : "UNKNOWN",
+          sourceFile.size >= LARGE_FILE_AUDIO_EXTRACT_BYTES
+            ? "当前视频文件较大，浏览器在本地读取时资源不足。请先压缩视频或截短后再试。"
+            : "浏览器读取当前视频失败，请重新选择文件后重试。",
+          {
+            causeMessage: error instanceof Error ? error.message : null,
+            fileSizeBytes: sourceFile.size,
+          }
+        );
+      }
+
+      let decoded: AudioBuffer;
+      try {
+        decoded = await audioCtx.decodeAudioData(input.slice(0));
+      } catch (error) {
+        throw new AudioExtractError(
+          sourceFile.size >= LARGE_FILE_AUDIO_EXTRACT_BYTES
+            ? "LARGE_FILE_RESOURCE_LIMIT"
+            : "AUDIO_DECODE_FAILED",
+          sourceFile.size >= LARGE_FILE_AUDIO_EXTRACT_BYTES
+            ? "当前视频文件较大，浏览器在本地提取音频时资源不足。请先压缩视频或截短后再试。"
+            : "当前视频的音频轨无法在浏览器中读取。可能是音频编码不兼容或文件异常，建议先转成 H.264/AAC 的 MP4 后再上传。",
+          {
+            causeMessage: error instanceof Error ? error.message : null,
+            fileSizeBytes: sourceFile.size,
+          }
+        );
+      }
+
       const mono = toMonoChannelData(decoded);
       const resampled = resampleLinear(mono, decoded.sampleRate, sampleRate);
       const wav = encodeWavPcm16Mono(resampled, sampleRate);
@@ -221,6 +272,16 @@ export async function extractAudioForAsr(
       }
     }
   } catch (error) {
-    throw new Error("浏览器音频提取失败，请尝试使用 Chrome 或更换视频格式。");
+    if (error instanceof AudioExtractError) {
+      throw error;
+    }
+    throw new AudioExtractError(
+      "UNKNOWN",
+      "浏览器本地音频提取失败，请使用桌面版 Chrome，或更换更标准的视频格式后重试。",
+      {
+        causeMessage: error instanceof Error ? error.message : null,
+        fileSizeBytes: sourceFile.size,
+      }
+    );
   }
 }

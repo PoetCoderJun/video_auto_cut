@@ -20,6 +20,8 @@ from ..repository import get_job_files, list_step2_chapters
 REFERENCE_WIDTH = 1920.0
 REFERENCE_HEIGHT = 1080.0
 SCALE_EXPONENT = 0.72
+_MISSING_DIMENSIONS_MESSAGE = "缺少视频分辨率，请重新选择源文件后重试"
+_INVALID_DIMENSIONS_MESSAGE = "视频分辨率无效，请重新选择源文件后重试"
 CJK_RE = re.compile(r"[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]")
 BREAK_PUNCT_RE = re.compile(r"[，。！？；：、,.!?;:…—]")
 EM_DASH_RE = re.compile(r"[—―－]")
@@ -745,15 +747,15 @@ def _resolve_dimensions(
     override_height: int | None,
 ) -> tuple[int, int]:
     if override_width is None or override_height is None:
-        raise ValueError("width and height are required to build render config")
+        raise ValueError(_MISSING_DIMENSIONS_MESSAGE)
     try:
         width = int(override_width)
         height = int(override_height)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid width/height: {override_width}, {override_height}") from exc
+        raise ValueError(_INVALID_DIMENSIONS_MESSAGE) from exc
 
     if width <= 0 or height <= 0:
-        raise ValueError(f"width and height must be positive, got {width}x{height}")
+        raise ValueError(_INVALID_DIMENSIONS_MESSAGE)
 
     return _ensure_even(width), _ensure_even(height)
 

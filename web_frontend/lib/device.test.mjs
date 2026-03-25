@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { isUnsupportedMobileUploadDevice } from "./device.ts";
+import {
+  isUnsupportedLocalVideoBrowser,
+  isUnsupportedMobileUploadDevice,
+} from "./device.ts";
 
 function withMockBrowserEnv({
   hasWindow = true,
@@ -123,6 +126,51 @@ test("keeps desktop Chrome upload enabled", () => {
     },
     () => {
       assert.equal(isUnsupportedMobileUploadDevice(), false);
+      assert.equal(isUnsupportedLocalVideoBrowser(), false);
+    }
+  );
+});
+
+test("blocks desktop Edge for local video processing", () => {
+  withMockBrowserEnv(
+    {
+      navigatorValue: {
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36 Edg/136.0.0.0",
+        vendor: "Google Inc.",
+        platform: "MacIntel",
+        maxTouchPoints: 0,
+        userAgentData: {
+          mobile: false,
+          brands: [
+            { brand: "Chromium", version: "136" },
+            { brand: "Microsoft Edge", version: "136" },
+          ],
+        },
+      },
+    },
+    () => {
+      assert.equal(isUnsupportedLocalVideoBrowser(), true);
+    }
+  );
+});
+
+test("blocks desktop Safari for local video processing", () => {
+  withMockBrowserEnv(
+    {
+      navigatorValue: {
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15",
+        vendor: "Apple Computer, Inc.",
+        platform: "MacIntel",
+        maxTouchPoints: 0,
+        userAgentData: {
+          mobile: false,
+        },
+      },
+    },
+    () => {
+      assert.equal(isUnsupportedLocalVideoBrowser(), true);
     }
   );
 });
