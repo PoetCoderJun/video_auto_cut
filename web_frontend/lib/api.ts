@@ -106,6 +106,7 @@ export type ClientUploadIssueStage =
   | "session_check"
   | "profile_check"
   | "source_preflight"
+  | "render_validation"
   | "job_create"
   | "audio_extract"
   | "audio_upload"

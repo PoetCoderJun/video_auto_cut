@@ -44,6 +44,7 @@ import {
   tryParseVideoMetadataWithMediaInfo,
 } from "../lib/media-metadata";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
+import { validateBrowserRenderCapability } from "../lib/upload-render-validation";
 import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import {
   loadCachedJobSourceVideo,
@@ -1645,6 +1646,9 @@ export default function JobWorkspace({
             setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
           },
         });
+        uploadStage = "render_validation";
+        setUploadStageMessage("正在校验浏览器导出能力...");
+        await validateBrowserRenderCapability(preparedSource.file);
         uploadStage = "job_create";
         const nextJob = await createJob();
         setSelectedFile(preparedSource.file);

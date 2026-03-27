@@ -35,6 +35,7 @@ import {
   isLikelyAppExportFileName,
 } from "../lib/source-video-guard";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
+import { validateBrowserRenderCapability } from "../lib/upload-render-validation";
 import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
@@ -378,6 +379,9 @@ export default function HomePageClient() {
           setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
         },
       });
+      uploadStage = "render_validation";
+      setUploadStageMessage("正在校验浏览器导出能力...");
+      await validateBrowserRenderCapability(preparedSource.file);
       // 4. Create job and upload through backend; backend forwards to OSS.
       uploadStage = "job_create";
       const job = await createJob();
