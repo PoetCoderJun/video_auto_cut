@@ -12,6 +12,7 @@ import {
 import {
   ApiClientError,
   Chapter,
+  type ClientUploadIssueStage,
   createJob,
   Job,
   RenderMeta,
@@ -27,6 +28,7 @@ import {
   clearRenderCompletionPending,
   setRenderCompletionPending,
   markRenderSucceeded,
+  reportClientUploadIssue,
   runStep1,
   runStep2,
   uploadAudioDirectToOss,
@@ -42,7 +44,6 @@ import {
   tryParseVideoMetadataWithMediaInfo,
 } from "../lib/media-metadata";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
-import { probeBrowserRenderability } from "../lib/upload-render-probe";
 import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import {
   loadCachedJobSourceVideo,
@@ -1624,7 +1625,9 @@ export default function JobWorkspace({
         return;
       }
       setBusy(true);
+      let uploadStage: ClientUploadIssueStage = "source_preflight";
       try {
+        uploadStage = "source_preflight";
         setUploadStageMessage("正在检查源视频兼容性...");
         const preparedSource = await prepareUploadSourceFile(file, {
           onStageChange: (stage) => {
@@ -1642,18 +1645,34 @@ export default function JobWorkspace({
             setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
           },
         });
-        await probeBrowserRenderability(preparedSource.file);
+        uploadStage = "job_create";
         const nextJob = await createJob();
         setSelectedFile(preparedSource.file);
+        uploadStage = "audio_extract";
         setUploadStageMessage("正在提取音频...");
         const audioFile = await extractAudioForAsr(preparedSource.file);
+        uploadStage = "audio_upload";
         setUploadStageMessage("正在上传音频...");
         const uploadedJob = await uploadAudioDirectToOss(nextJob.job_id, audioFile);
+        uploadStage = "source_cache";
         await saveCachedJobSourceVideo(nextJob.job_id, preparedSource.file).catch(() => undefined);
         onSwitchJob?.(nextJob.job_id);
         setJob((previous) => mergeJobSnapshot(previous, uploadedJob));
       } catch (err) {
-        setError(getFriendlyUploadErrorMessage(err));
+        const friendlyMessage = getFriendlyUploadErrorMessage(err);
+        void reportClientUploadIssue({
+          stage: uploadStage,
+          page: "/",
+          file_name: file.name,
+          file_type: file.type,
+          file_size_bytes: file.size,
+          error_name: err instanceof Error ? err.name : typeof err,
+          error_message: err instanceof Error ? err.message : String(err ?? ""),
+          friendly_message: friendlyMessage,
+          user_agent:
+            typeof navigator !== "undefined" ? navigator.userAgent : "",
+        }).catch(() => undefined);
+        setError(friendlyMessage);
       } finally {
         setUploadStageMessage("");
         setBusy(false);

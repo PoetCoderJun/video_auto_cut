@@ -102,6 +102,27 @@ export type QueueAccepted = {
   job: Job;
 };
 
+export type ClientUploadIssueStage =
+  | "session_check"
+  | "profile_check"
+  | "source_preflight"
+  | "job_create"
+  | "audio_extract"
+  | "audio_upload"
+  | "source_cache";
+
+export type ClientUploadIssueReport = {
+  stage: ClientUploadIssueStage;
+  page?: string;
+  file_name?: string;
+  file_type?: string;
+  file_size_bytes?: number;
+  error_name?: string;
+  error_message?: string;
+  friendly_message?: string;
+  user_agent?: string;
+};
+
 export type UserProfile = {
   user_id: string;
   email: string | null;
@@ -387,6 +408,18 @@ export async function getJob(jobId: string): Promise<Job> {
 export async function getMe(): Promise<UserProfile> {
   const data = await requestAuthed<{user: UserProfile}>("/me");
   return data.user;
+}
+
+export async function reportClientUploadIssue(
+  payload: ClientUploadIssueReport
+): Promise<void> {
+  await requestAuthed<{accepted: boolean}>("/client/upload-issues", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  }, {
+    keepalive: true,
+  });
 }
 
 export async function activateInviteCode(

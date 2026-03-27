@@ -17,9 +17,11 @@ import {
 import {
   ApiClientError,
   activateInviteCode,
+  type ClientUploadIssueStage,
   createJob,
   getMe,
   invalidateTokenCache,
+  reportClientUploadIssue,
   setApiAuthTokenProvider,
   uploadAudioDirectToOss,
 } from "../lib/api";
@@ -33,7 +35,6 @@ import {
   isLikelyAppExportFileName,
 } from "../lib/source-video-guard";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
-import { probeBrowserRenderability } from "../lib/upload-render-probe";
 import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
 import { saveCachedJobSourceVideo } from "../lib/video-cache";
 import { authClient } from "../lib/auth-client";
@@ -257,6 +258,7 @@ export default function HomePageClient() {
 
     setError("");
     setLoading(true);
+    let uploadStage: ClientUploadIssueStage = "session_check";
     try {
       // 0. Check video duration — reject anything >= 10 minutes.
       const durationSec = await new Promise<number>((resolve) => {
@@ -283,6 +285,7 @@ export default function HomePageClient() {
       }
 
       // 1. Verify session lazily at consumption time.
+      uploadStage = "session_check";
       const sessionResult = await (authClient as any).getSession();
       const user = sessionResult?.data?.user;
       if (!user?.id) {
@@ -294,6 +297,7 @@ export default function HomePageClient() {
       setAuthAccount(String(user.email || user.name || user.id || "").trim());
 
       // 2. Fetch profile to check account status and credits.
+      uploadStage = "profile_check";
       let me;
       try {
         me = await getMe();
@@ -356,6 +360,7 @@ export default function HomePageClient() {
         return;
       }
 
+      uploadStage = "source_preflight";
       setUploadStageMessage("正在检查源视频兼容性...");
       const preparedSource = await prepareUploadSourceFile(file, {
         onStageChange: (stage) => {
@@ -373,20 +378,34 @@ export default function HomePageClient() {
           setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
         },
       });
-
-      await probeBrowserRenderability(preparedSource.file);
-
       // 4. Create job and upload through backend; backend forwards to OSS.
+      uploadStage = "job_create";
       const job = await createJob();
+      uploadStage = "audio_extract";
       setUploadStageMessage("正在提取音频...");
       const audioFile = await extractAudioForAsr(preparedSource.file);
+      uploadStage = "audio_upload";
       setUploadStageMessage("正在上传音频...");
       await uploadAudioDirectToOss(job.job_id, audioFile);
+      uploadStage = "source_cache";
       // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
       await saveCachedJobSourceVideo(job.job_id, preparedSource.file).catch(() => undefined);
       saveJobId(job.job_id);
     } catch (err) {
-      setError(getFriendlyUploadErrorMessage(err));
+      const friendlyMessage = getFriendlyUploadErrorMessage(err);
+      void reportClientUploadIssue({
+        stage: uploadStage,
+        page: "/",
+        file_name: file.name,
+        file_type: file.type,
+        file_size_bytes: file.size,
+        error_name: err instanceof Error ? err.name : typeof err,
+        error_message: err instanceof Error ? err.message : String(err ?? ""),
+        friendly_message: friendlyMessage,
+        user_agent:
+          typeof navigator !== "undefined" ? navigator.userAgent : "",
+      }).catch(() => undefined);
+      setError(friendlyMessage);
     } finally {
       setUploadStageMessage("");
       setLoading(false);
