@@ -15,6 +15,8 @@ import {
   normalizeCaptionDisplayText,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
+  getSubtitleThemeFitWidth,
+  getSubtitleThemeRenderFontSize,
 } from "./typography.ts";
 import {applyOverlayScaleToTypography} from "./overlay-controls.ts";
 
@@ -500,4 +502,45 @@ test("caps aggressive subtitle scale on extra-narrow portrait exports", () => {
 
   assert.ok(safeScale < 1.45, `expected narrow portrait subtitle scale to be capped, got ${safeScale}`);
   assert.ok(safeScale >= 1.25, `expected cap to stay usable, got ${safeScale}`);
+});
+
+test("keeps subtitle scaling visible for text themes after fitting", () => {
+  const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
+  const captions = [
+    "这是一个特别特别特别长的字幕样本，用来模拟真实导出里被统一拟合的长句。",
+    "第二句也保持足够长，避免短句把字号变化掩盖掉。",
+    "最后一句继续拉长，确保 text-white 和 box-white-on-black 都会走到相同的拟合边界。",
+  ].map((text, index) => ({text, displayText: text, index}));
+
+  const resolveThemeFontSize = (subtitleScale, isTextTheme) => {
+    const fitWidth = getSubtitleThemeFitWidth({
+      maxWidth: typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio * 1920,
+      subtitleScale,
+      isTextTheme,
+    });
+    const fitted = fitUniformAdaptiveTextToBox({
+      items: captions.map((caption) => ({text: caption.displayText, maxWidth: fitWidth})),
+      baseFontSize: typography.subtitleFontSize,
+      minFontSize: Math.max(26, Math.floor(typography.subtitleFontSize * 0.68)),
+      preferredMaxLines: 2,
+      fallbackMaxLines: 3,
+      finalMaxLines: 4,
+      fontWeight: 700,
+      fontFamily: OVERLAY_FONT_FAMILY,
+    });
+    return getSubtitleThemeRenderFontSize({
+      fittedFontSize: fitted.fontSize,
+      subtitleScale,
+      isTextTheme,
+    });
+  };
+
+  const textSmall = resolveThemeFontSize(0.7, true);
+  const textLarge = resolveThemeFontSize(1.45, true);
+  const boxSmall = resolveThemeFontSize(0.7, false);
+  const boxLarge = resolveThemeFontSize(1.45, false);
+
+  assert.ok(textLarge > textSmall, `expected text theme subtitle size to grow, got ${textSmall} -> ${textLarge}`);
+  assert.ok(boxLarge >= boxSmall, `expected boxed theme subtitle size to stay monotonic, got ${boxSmall} -> ${boxLarge}`);
+  assert.ok(textLarge > boxLarge * 0.75, "expected text theme scaling to remain visibly responsive after fitting");
 });

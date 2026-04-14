@@ -2,6 +2,10 @@ import type {
   CanRenderIssue,
   CanRenderMediaOnWebOptions,
 } from "@remotion/web-renderer";
+import {
+  getFriendlyBrowserAudioPipelineErrorMessage,
+  isBrowserAudioPipelineCompatibilityError,
+} from "./browser-audio-pipeline-error.ts";
 
 type RenderValidationMetadata = {
   width: number;
@@ -61,17 +65,6 @@ function buildValidationAttempts(
         audioCodec: "opus",
       },
     },
-    {
-      label: "mp4-muted",
-      options: {
-        width: metadata.width,
-        height: metadata.height,
-        container: "mp4",
-        videoCodec: "h264",
-        audioCodec: null,
-        muted: true,
-      },
-    },
   ];
 }
 
@@ -114,6 +107,21 @@ export function getFriendlyCanRenderIssueMessage(
   return "当前浏览器环境暂不支持视频导出。请使用最新版 Chrome，并通过 HTTPS 访问本站后重试。";
 }
 
+export function getFriendlyCanRenderThrownErrorMessage(error: unknown): string {
+  const detail =
+    error instanceof Error ? error.message.trim() : String(error ?? "").trim();
+
+  if (isBrowserAudioPipelineCompatibilityError(detail)) {
+    return getFriendlyBrowserAudioPipelineErrorMessage("upload");
+  }
+
+  if (detail) {
+    return `当前浏览器环境暂不支持本地导出：${detail}`;
+  }
+
+  return "当前浏览器环境暂不支持视频导出。请使用最新版 Chrome，并通过 HTTPS 访问本站后重试。";
+}
+
 export async function validateBrowserRenderCapability(
   sourceFile: File,
 ): Promise<void> {
@@ -125,16 +133,31 @@ export async function validateBrowserRenderCapability(
   const { canRenderMediaOnWeb } = await import("@remotion/web-renderer");
 
   let lastIssues: CanRenderIssue[] = [];
+  let lastThrownError: unknown = null;
   for (const attempt of buildValidationAttempts(metadata)) {
-    const result = await canRenderMediaOnWeb(attempt.options);
-    if (result.canRender) {
-      return;
+    try {
+      const result = await canRenderMediaOnWeb(attempt.options);
+      if (result.canRender) {
+        return;
+      }
+      lastThrownError = null;
+      lastIssues = result.issues;
+      console.warn("[upload-render-validation] capability check failed", {
+        attempt: attempt.label,
+        issues: result.issues,
+      });
+    } catch (error) {
+      lastIssues = [];
+      lastThrownError = error;
+      console.warn("[upload-render-validation] capability check threw", {
+        attempt: attempt.label,
+        error,
+      });
     }
-    lastIssues = result.issues;
-    console.warn("[upload-render-validation] capability check failed", {
-      attempt: attempt.label,
-      issues: result.issues,
-    });
+  }
+
+  if (lastThrownError) {
+    throw new Error(getFriendlyCanRenderThrownErrorMessage(lastThrownError));
   }
 
   throw new Error(getFriendlyCanRenderIssueMessage(lastIssues));

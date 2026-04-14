@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getFriendlyCanRenderIssueMessage } from "./upload-render-validation.ts";
+import {
+  getFriendlyCanRenderIssueMessage,
+  getFriendlyCanRenderThrownErrorMessage,
+} from "./upload-render-validation.ts";
 
 test("maps webcodecs unavailable issues to a HTTPS or Chrome hint", () => {
   const message = getFriendlyCanRenderIssueMessage([
@@ -35,4 +38,14 @@ test("falls back to the first issue detail when no specific mapping exists", () 
     },
   ]);
   assert.match(message, /Transparent videos unsupported/);
+});
+
+test("maps AudioData copy conversion failures to upload guidance", () => {
+  const message = getFriendlyCanRenderThrownErrorMessage(
+    new Error(
+      "Failed to execute 'copyTo' on 'AudioData': AudioData currently only supports copy conversion to f32-planar."
+    )
+  );
+  assert.match(message, /本地音频处理失败/);
+  assert.match(message, /上传/);
 });

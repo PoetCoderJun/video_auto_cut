@@ -1,3 +1,8 @@
+import {
+  getFriendlyBrowserAudioPipelineErrorMessage,
+  isBrowserAudioPipelineCompatibilityError,
+} from "../browser-audio-pipeline-error.ts";
+
 export const WEB_RENDER_DELAY_RENDER_TIMEOUT_MS = 120_000;
 
 const FRAME_EXTRACTION_DELAY_RENDER_RE =
@@ -16,6 +21,10 @@ export function getFriendlyWebRenderErrorMessage(error: unknown): string {
     FRAME_EXTRACTION_TIMEOUT_RE.test(message)
   ) {
     return "浏览器读取原视频帧超时。请保持当前页面在前台后重试；如果仍失败，请改用 Chrome / Edge，重新选择原始视频，或先将视频转成 H.264 MP4 后再导出。";
+  }
+
+  if (isBrowserAudioPipelineCompatibilityError(message)) {
+    return getFriendlyBrowserAudioPipelineErrorMessage("render");
   }
 
   if (FLUSHING_ERROR_RE.test(message) || WEB_CODEC_PIPELINE_ERROR_RE.test(message)) {

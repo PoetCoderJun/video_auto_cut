@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import os
 import tempfile
@@ -128,6 +129,44 @@ class TaskQueueTest(unittest.TestCase):
                         ).fetchone()
                     self.assertIsNotNone(row)
                     self.assertNotEqual(str(row[0]), "2000-01-01T00:00:00Z")
+                finally:
+                    get_settings.cache_clear()
+
+    def test_claim_next_task_does_not_retry_transient_turso_stream_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            replica_path = str(Path(tmpdir) / "queue.db")
+            with patch.dict(
+                os.environ,
+                {
+                    "WEB_DB_LOCAL_ONLY": "1",
+                    "TURSO_LOCAL_REPLICA_PATH": replica_path,
+                },
+                clear=False,
+            ):
+                get_settings.cache_clear()
+                try:
+                    init_task_queue_db()
+                    call_count = {"value": 0}
+
+                    def flaky_get_conn():
+                        call_count["value"] += 1
+
+                        @contextmanager
+                        def broken_conn():
+                            raise ValueError(
+                                'Hrana: `api error: `status=404 Not Found, body={"error":"stream not found: retry-test"}``'
+                            )
+                            yield
+
+                        return broken_conn()
+
+                    with patch("web_api.task_queue.reclaim_stale_running_tasks", return_value=0):
+                        with patch("web_api.task_queue.get_conn", side_effect=flaky_get_conn):
+                            with patch("web_api.db._is_turso_enabled", return_value=True):
+                                with self.assertRaisesRegex(ValueError, "stream not found"):
+                                    claim_next_task()
+
+                    self.assertEqual(call_count["value"], 1)
                 finally:
                     get_settings.cache_clear()
 

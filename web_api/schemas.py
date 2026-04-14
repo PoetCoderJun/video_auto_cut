@@ -31,3 +31,15 @@ class CouponRedeemRequest(BaseModel):
 
 class AudioOssReadyRequest(BaseModel):
     object_key: str = Field(..., min_length=1)
+
+
+class ClientUploadIssueReportRequest(BaseModel):
+    stage: str = Field(..., min_length=1, max_length=64)
+    page: str = Field(default="", max_length=128)
+    file_name: str = Field(default="", max_length=255)
+    file_type: str = Field(default="", max_length=128)
+    file_size_bytes: int = Field(default=0, ge=0)
+    error_name: str = Field(default="", max_length=128)
+    error_message: str = Field(default="", max_length=2000)
+    friendly_message: str = Field(default="", max_length=1000)
+    user_agent: str = Field(default="", max_length=1000)

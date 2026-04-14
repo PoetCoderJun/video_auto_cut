@@ -10,6 +10,40 @@
 - `scripts/`：运维脚本（保留 Railway/本地开发相关）
 - `docs/`：设计与接口文档
 
+## Quick Start
+
+环境要求：
+
+- Python 3.9
+- `uv`
+- `pi`（可选；用于代理式协作，依赖 Node.js 20+）
+
+安装 `uv`：
+
+```bash
+# macOS（Homebrew）
+brew install uv
+
+# macOS / Linux 通用官方安装脚本
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+安装 `pi`：
+
+```bash
+npm install -g @mariozechner/pi-coding-agent
+```
+
+如果当前 shell 需要加载仓库里的本地凭证：
+
+```bash
+set -a
+source .env
+set +a
+```
+
+当前仓库的 Python 依赖仍通过 `requirements.txt` 安装，尚未切换到 `uv sync` 项目结构。
+
 ## 本地开发
 
 ```bash

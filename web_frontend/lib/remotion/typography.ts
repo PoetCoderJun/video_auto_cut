@@ -841,6 +841,39 @@ export const getSubtitleLineHeight = ({
   return clamp(base + scaleBoost, base, isPortrait ? 1.74 : 1.68);
 };
 
+export const isTextSubtitleTheme = (subtitleTheme: string | undefined): boolean =>
+  subtitleTheme === "text-black" || subtitleTheme === "text-white";
+
+export const getSubtitleThemeFitWidth = ({
+  maxWidth,
+  subtitleScale = 1,
+  isTextTheme,
+}: {
+  maxWidth: number;
+  subtitleScale?: number;
+  isTextTheme: boolean;
+}): number => {
+  const normalizedScale = clamp(subtitleScale, 0.7, 1.45);
+  if (!isTextTheme) {
+    return Math.max(1, maxWidth);
+  }
+  return Math.max(1, maxWidth / normalizedScale);
+};
+
+export const getSubtitleThemeRenderFontSize = ({
+  fittedFontSize,
+  subtitleScale = 1,
+  isTextTheme,
+}: {
+  fittedFontSize: number;
+  subtitleScale?: number;
+  isTextTheme: boolean;
+}): number => {
+  const normalizedScale = clamp(subtitleScale, 0.7, 1.45);
+  const renderedFontSize = isTextTheme ? fittedFontSize * normalizedScale : fittedFontSize;
+  return Math.max(1, Math.round(renderedFontSize));
+};
+
 export const getSafeSubtitleScale = ({
   requestedScale = 1,
   width,

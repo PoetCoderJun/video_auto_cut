@@ -17,6 +17,9 @@ import {
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
+  getSubtitleThemeFitWidth,
+  getSubtitleThemeRenderFontSize,
+  isTextSubtitleTheme,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "./typography";
@@ -159,6 +162,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
   const subtitleBoxedTheme =
     subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
+  const subtitleThemeIsText = isTextSubtitleTheme(subtitleTheme);
   const subtitleBoxMaxWidth = Math.max(
     1,
     width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio
@@ -167,6 +171,12 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     1,
     subtitleBoxMaxWidth - (subtitleBoxedTheme ? typography.subtitlePaddingX * 2 : 0)
   );
+  const subtitleFitMaxWidth = getSubtitleThemeFitWidth({
+    maxWidth: subtitleTextMaxWidth,
+    subtitleScale: safeSubtitleScale,
+    isTextTheme: subtitleThemeIsText,
+  });
+  const subtitleLayoutTypography = subtitleThemeIsText ? baseTypography : typography;
   const allowWrappedProgressLabels =
     progressLabelMode === "double" || (progressLabelMode === "auto" && isPortrait);
   const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
@@ -363,17 +373,17 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const activeCaptionIndex = wrappedCaptions.findIndex((caption) => t >= caption.start && t < caption.end);
   const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
   const subtitleRenderText = activeCaption?.displayText ?? "";
-  const subtitleInitialFontSize = typography.subtitleFontSize;
+  const subtitleInitialFontSize = subtitleLayoutTypography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
     isPortrait ? 23 : 26,
-    Math.floor(typography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
+    Math.floor(subtitleLayoutTypography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
   );
   const resolvedSubtitleSet = useMemo(
     () =>
       fitUniformAdaptiveTextToBox({
         items: wrappedCaptions.map((caption) => ({
           text: caption.displayText,
-          maxWidth: subtitleTextMaxWidth,
+          maxWidth: subtitleFitMaxWidth,
         })),
         baseFontSize: subtitleInitialFontSize,
         minFontSize: subtitleMinFontSize,
@@ -383,9 +393,18 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
       }),
-    [subtitleInitialFontSize, subtitleMinFontSize, subtitleTextMaxWidth, wrappedCaptions]
+    [subtitleFitMaxWidth, subtitleInitialFontSize, subtitleMinFontSize, wrappedCaptions]
   );
   const activeCaptionLayout = activeCaptionIndex >= 0 ? resolvedSubtitleSet.labels[activeCaptionIndex] : null;
+  const subtitleRenderFontSize = useMemo(
+    () =>
+      getSubtitleThemeRenderFontSize({
+        fittedFontSize: resolvedSubtitleSet.fontSize,
+        subtitleScale: safeSubtitleScale,
+        isTextTheme: subtitleThemeIsText,
+      }),
+    [resolvedSubtitleSet.fontSize, safeSubtitleScale, subtitleThemeIsText]
+  );
 
   const normalizedTopics = useMemo(() => {
     return (topics || [])
@@ -602,7 +621,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
             style={{
               ...scaledStyles.subtitleBox,
               ...subtitleStyleOverrides,
-              fontSize: resolvedSubtitleSet.fontSize,
+              fontSize: subtitleRenderFontSize,
               whiteSpace: "pre-line",
             }}
           >

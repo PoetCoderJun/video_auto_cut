@@ -3,10 +3,12 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import wraps
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator, TypeVar
 
 from .config import get_settings
 
@@ -14,6 +16,9 @@ try:
     import libsql  # type: ignore
 except Exception:  # pragma: no cover - optional dependency for Turso mode
     libsql = None
+
+
+_RetryFn = TypeVar("_RetryFn", bound=Callable[..., Any])
 
 
 def _is_local_only_mode() -> bool:
@@ -78,6 +83,80 @@ def _is_wal_conflict_error(exc: Exception) -> bool:
     message = str(exc or "")
     normalized = message.lower()
     return "wal frame insert conflict" in normalized or "walconflict" in normalized
+
+
+def is_retryable_turso_error(exc: Exception) -> bool:
+    if not _is_turso_enabled():
+        return False
+
+    normalized = str(exc or "").strip().lower()
+    if not normalized:
+        return False
+
+    if "stream not found" in normalized:
+        return True
+
+    markers = ("hrana", "libsql", "turso")
+    transient_signals = (
+        "404 not found",
+        "500 internal server error",
+        "502 bad gateway",
+        "503 service unavailable",
+        "504 gateway timeout",
+        "broken pipe",
+        "connection closed",
+        "connection reset",
+        "deadline has elapsed",
+        "network error",
+        "temporarily unavailable",
+        "timed out",
+        "timeout",
+        "unexpected eof",
+    )
+    return any(marker in normalized for marker in markers) and any(
+        signal in normalized for signal in transient_signals
+    )
+
+
+def retry_turso_operation(
+    operation_name: str,
+    fn: _RetryFn | None = None,
+    *,
+    max_attempts: int = 2,
+    base_delay_seconds: float = 0.15,
+) -> _RetryFn | Callable[[_RetryFn], _RetryFn]:
+    def decorator(inner: _RetryFn) -> _RetryFn:
+        @wraps(inner)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            attempt = 1
+            while True:
+                try:
+                    return inner(*args, **kwargs)
+                except Exception as exc:
+                    if attempt >= max(1, int(max_attempts)) or not is_retryable_turso_error(exc):
+                        raise
+                    logging.warning(
+                        "[web_api] transient Turso error during %s attempt=%s/%s: %s",
+                        operation_name,
+                        attempt,
+                        max_attempts,
+                        exc,
+                    )
+                    time.sleep(max(0.0, float(base_delay_seconds)) * attempt)
+                    attempt += 1
+
+        return wrapped  # type: ignore[return-value]
+
+    if fn is not None:
+        return decorator(fn)
+    return decorator
+
+
+def is_retryable_turso_stream_error(exc: Exception) -> bool:
+    if not _is_turso_enabled():
+        return False
+    normalized = str(exc or "").lower()
+    return "stream not found" in normalized or ("hrana:" in normalized and "404 not found" in normalized)
 
 
 def _replica_related_paths(replica_path: Path) -> list[Path]:

@@ -14,7 +14,7 @@ from .constants import (
     TASK_TYPE_STEP1,
     TASK_TYPE_STEP2,
 )
-from .db import get_conn
+from .db import get_conn, retry_turso_operation
 
 
 def _now_iso() -> str:
@@ -42,6 +42,7 @@ def get_queue_db_path() -> str:
     return str(settings.turso_local_replica_path)
 
 
+@retry_turso_operation("init task queue")
 def init_task_queue_db() -> None:
     with get_conn() as conn:
         conn.execute(
@@ -113,6 +114,7 @@ def _task_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
+@retry_turso_operation("reclaim stale queue tasks")
 def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
     settings = get_settings()
     lease_seconds = float(settings.task_queue_lease_seconds)
@@ -168,6 +170,7 @@ def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
     return reclaimed
 
 
+@retry_turso_operation("heartbeat task")
 def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
     now = _now_iso()
     with get_conn() as conn:
@@ -190,6 +193,7 @@ def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
     return int(getattr(updated, "rowcount", 0) or 0) > 0
 
 
+@retry_turso_operation("enqueue task")
 def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = None) -> int:
     if task_type not in {TASK_TYPE_STEP1, TASK_TYPE_STEP2}:
         raise RuntimeError(f"unsupported task type: {task_type}")
@@ -256,6 +260,8 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
 
 
 def claim_next_task() -> dict[str, Any] | None:
+    # Claiming changes task ownership. Let the worker loop retry on failure
+    # instead of replaying the claim inside this function.
     worker_id = f"pid-{os.getpid()}"
     now = _now_iso()
     reclaim_stale_running_tasks(now=datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(timezone.utc))
@@ -335,6 +341,7 @@ def claim_next_task() -> dict[str, Any] | None:
     return None
 
 
+@retry_turso_operation("mark task succeeded")
 def set_task_succeeded(task_id: int) -> None:
     now = _now_iso()
     with get_conn() as conn:
@@ -352,6 +359,7 @@ def set_task_succeeded(task_id: int) -> None:
         conn.commit()
 
 
+@retry_turso_operation("mark task failed")
 def set_task_failed(task_id: int, error_message: str) -> None:
     now = _now_iso()
     with get_conn() as conn:

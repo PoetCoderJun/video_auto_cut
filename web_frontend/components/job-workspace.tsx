@@ -176,7 +176,10 @@ const SUBTITLE_THEME_OPTIONS: Array<{ value: SubtitleTheme; label: string }> = [
   { value: "text-white", label: "白色" },
   { value: "text-black", label: "黑色" },
 ];
-const PROGRESS_LABEL_MODE_OPTIONS: Array<{ value: ProgressLabelMode; label: string }> = [
+const PROGRESS_LABEL_MODE_OPTIONS: Array<{
+  value: ProgressLabelMode;
+  label: string;
+}> = [
   { value: "auto", label: "自动" },
   { value: "double", label: "双行" },
   { value: "single", label: "单行" },
@@ -209,7 +212,7 @@ function OverlayToggleTile({
         checked
           ? "bg-slate-900 text-white"
           : "bg-slate-100 text-slate-700 hover:bg-slate-200/70",
-        disabled && "cursor-not-allowed opacity-60"
+        disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <span className="text-[12px] font-medium">{label}</span>
@@ -220,7 +223,7 @@ function OverlayToggleTile({
         className={cn(
           checked
             ? "h-4 w-4 border-white/70 data-[state=checked]:border-white data-[state=checked]:bg-white data-[state=checked]:text-slate-900"
-            : "h-4 w-4 border-slate-300 bg-white"
+            : "h-4 w-4 border-slate-300 bg-white",
         )}
       />
     </label>
@@ -249,8 +252,12 @@ function OverlaySliderField({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
-        <label className="text-[12px] font-medium text-slate-800">{label}</label>
-        <span className="font-mono text-[12px] text-slate-500">{valueText}</span>
+        <label className="text-[12px] font-medium text-slate-800">
+          {label}
+        </label>
+        <span className="font-mono text-[12px] text-slate-500">
+          {valueText}
+        </span>
       </div>
       <input
         type="range"
@@ -311,7 +318,7 @@ function clampPercent(value: number): number {
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
-  message: string
+  message: string,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
@@ -326,7 +333,7 @@ function withTimeout<T>(
       (error) => {
         window.clearTimeout(timeoutId);
         reject(error);
-      }
+      },
     );
   });
 }
@@ -412,7 +419,8 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
         };
 
         const onFrame = (_now: number, frame: { mediaTime: number }) => {
-          const t = typeof frame?.mediaTime === "number" ? frame.mediaTime : NaN;
+          const t =
+            typeof frame?.mediaTime === "number" ? frame.mediaTime : NaN;
           if (Number.isFinite(t)) {
             if (firstMediaTime === null) firstMediaTime = t;
             lastMediaTime = t;
@@ -444,7 +452,9 @@ async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta> {
     const width = Math.trunc(Number(preferredDimensions.width ?? 0));
     const height = Math.trunc(Number(preferredDimensions.height ?? 0));
     const durationSec =
-      typeof meta.duration === "number" && Number.isFinite(meta.duration) && meta.duration > 0
+      typeof meta.duration === "number" &&
+      Number.isFinite(meta.duration) &&
+      meta.duration > 0
         ? meta.duration
         : typeof mediaInfoMeta?.durationSec === "number" &&
             Number.isFinite(mediaInfoMeta.durationSec) &&
@@ -476,7 +486,10 @@ function getRandomPreviewTime(config: WebRenderConfig): number {
     .map((caption) => {
       const start = Number(caption.start);
       const end = Number(caption.end);
-      return Math.max(start, Math.min(end - 0.08, start + (end - start) * 0.45));
+      return Math.max(
+        start,
+        Math.min(end - 0.08, start + (end - start) * 0.45),
+      );
     })
     .filter((value) => Number.isFinite(value) && value >= 0);
 
@@ -497,12 +510,15 @@ function getRandomPreviewTime(config: WebRenderConfig): number {
 
   const totalDuration = Math.max(
     1,
-    config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
+    config.input_props.captions.reduce(
+      (max, item) => Math.max(max, item.end),
+      0,
+    ),
     config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
     config.input_props.segments.reduce(
       (sum, item) => sum + Math.max(0, item.end - item.start),
-      0
-    )
+      0,
+    ),
   );
   return totalDuration * (0.25 + Math.random() * 0.5);
 }
@@ -510,12 +526,15 @@ function getRandomPreviewTime(config: WebRenderConfig): number {
 function getRenderConfigTotalDuration(config: WebRenderConfig): number {
   return Math.max(
     1,
-    config.input_props.captions.reduce((max, item) => Math.max(max, item.end), 0),
+    config.input_props.captions.reduce(
+      (max, item) => Math.max(max, item.end),
+      0,
+    ),
     config.input_props.topics.reduce((max, item) => Math.max(max, item.end), 0),
     config.input_props.segments.reduce(
       (sum, item) => sum + Math.max(0, item.end - item.start),
-      0
-    )
+      0,
+    ),
   );
 }
 
@@ -539,7 +558,7 @@ function getEstimatedDurationFromLines(lines: Step1Line[]): number {
       (line) =>
         Number.isFinite(line.start) &&
         Number.isFinite(line.end) &&
-        line.end > line.start
+        line.end > line.start,
     )
     .sort((a, b) => a.start - b.start);
 
@@ -588,12 +607,14 @@ function areStep1LinesEqual(left: Step1Line[], right: Step1Line[]): boolean {
 }
 
 function getStep1PreviewLines(
-  lines: Step1Line[]
+  lines: Step1Line[],
 ): Array<{ time: string; text: string; removed: boolean }> {
   const visible = lines
     .map((line) => {
       const removed = Boolean(line.user_final_remove);
-      const text = String(line.optimized_text || line.original_text || "").trim();
+      const text = String(
+        line.optimized_text || line.original_text || "",
+      ).trim();
       const resolvedText = text || (removed ? "<No Speech>" : "");
       return {
         time: formatDuration(line.start),
@@ -648,7 +669,12 @@ function parseBlockRange(value: string): { start: number; end: number } | null {
   const [startRaw, endRaw] = raw.split("-", 2);
   const start = Number.parseInt(startRaw.trim(), 10);
   const end = Number.parseInt(endRaw.trim(), 10);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 1 || end < start) {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    start < 1 ||
+    end < start
+  ) {
     return null;
   }
   return { start, end };
@@ -658,13 +684,19 @@ function formatBlockRange(start: number, end: number): string {
   return start === end ? String(start) : `${start}-${end}`;
 }
 
-function getChapterLinesFromRange(chapter: Chapter, keptLines: Step1Line[]): Step1Line[] {
+function getChapterLinesFromRange(
+  chapter: Chapter,
+  keptLines: Step1Line[],
+): Step1Line[] {
   const parsed = parseBlockRange(chapter.block_range);
   if (!parsed) return [];
   return keptLines.slice(parsed.start - 1, parsed.end);
 }
 
-function findChapterIndexByPosition(chapters: Chapter[], position: number): number {
+function findChapterIndexByPosition(
+  chapters: Chapter[],
+  position: number,
+): number {
   return chapters.findIndex((chapter) => {
     const parsed = parseBlockRange(chapter.block_range);
     return Boolean(parsed && parsed.start <= position && position <= parsed.end);
@@ -674,10 +706,12 @@ function findChapterIndexByPosition(chapters: Chapter[], position: number): numb
 function moveAdjacentChapterRange(
   chapters: Chapter[],
   draggedPosition: number,
-  targetChapterId: number
+  targetChapterId: number,
 ): { chapters: Chapter[]; error: string | null } {
   const sourceIndex = findChapterIndexByPosition(chapters, draggedPosition);
-  const targetIndex = chapters.findIndex((chapter) => chapter.chapter_id === targetChapterId);
+  const targetIndex = chapters.findIndex(
+    (chapter) => chapter.chapter_id === targetChapterId,
+  );
   if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
     return { chapters, error: null };
   }
@@ -693,21 +727,40 @@ function moveAdjacentChapterRange(
   if (!sourceRange || !targetRange) {
     return { chapters, error: "章节范围无效，请刷新后重试。" };
   }
+
   const next = chapters.map((chapter) => ({ ...chapter }));
   if (sourceIndex < targetIndex) {
-    if (draggedPosition < sourceRange.start || draggedPosition > sourceRange.end) {
+    if (
+      draggedPosition < sourceRange.start ||
+      draggedPosition > sourceRange.end
+    ) {
       return { chapters, error: "拖拽位置无效，请重试。" };
     }
-    next[sourceIndex].block_range = formatBlockRange(sourceRange.start, draggedPosition - 1);
-    next[targetIndex].block_range = formatBlockRange(draggedPosition, targetRange.end);
+    next[sourceIndex].block_range = formatBlockRange(
+      sourceRange.start,
+      draggedPosition - 1,
+    );
+    next[targetIndex].block_range = formatBlockRange(
+      draggedPosition,
+      targetRange.end,
+    );
     return { chapters: next, error: null };
   }
 
-  if (draggedPosition < sourceRange.start || draggedPosition > sourceRange.end) {
+  if (
+    draggedPosition < sourceRange.start ||
+    draggedPosition > sourceRange.end
+  ) {
     return { chapters, error: "拖拽位置无效，请重试。" };
   }
-  next[targetIndex].block_range = formatBlockRange(targetRange.start, draggedPosition);
-  next[sourceIndex].block_range = formatBlockRange(draggedPosition + 1, sourceRange.end);
+  next[targetIndex].block_range = formatBlockRange(
+    targetRange.start,
+    draggedPosition,
+  );
+  next[sourceIndex].block_range = formatBlockRange(
+    draggedPosition + 1,
+    sourceRange.end,
+  );
   return { chapters: next, error: null };
 }
 
@@ -726,16 +779,19 @@ function getStep1VisualProgress(job: Job): number {
     job.status === STATUS.UPLOAD_READY ||
     job.status === STATUS.STEP1_RUNNING
   ) {
-    const normalized = ((Math.max(30, Math.min(35, job.progress)) - 30) / 5) * 100;
+    const normalized =
+      ((Math.max(30, Math.min(35, job.progress)) - 30) / 5) * 100;
     return clampPercent(
-      Math.max(normalized, job.status === STATUS.UPLOAD_READY ? 8 : 24)
+      Math.max(normalized, job.status === STATUS.UPLOAD_READY ? 8 : 24),
     );
   }
 
   return clampPercent(job.progress);
 }
 
-function shouldShowStep1SubtitlePreview(stageCode: string | null | undefined): boolean {
+function shouldShowStep1SubtitlePreview(
+  stageCode: string | null | undefined,
+): boolean {
   switch (String(stageCode || "").trim()) {
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
@@ -773,7 +829,7 @@ function getStep1ProcessingNote(stageCode: string | null | undefined): string {
 
 function getStep1ProcessingTitle(
   stageCode: string | null | undefined,
-  stageMessage: string | null | undefined
+  stageMessage: string | null | undefined,
 ): string {
   const trimmedMessage = String(stageMessage || "").trim();
   switch (String(stageCode || "").trim()) {
@@ -839,7 +895,7 @@ function Step1ProcessingState({
                       "min-w-0 flex-1 text-[15px] leading-[1.7]",
                       line.removed
                         ? "text-[#94a3b8] line-through"
-                        : "text-[#334155]"
+                        : "text-[#334155]",
                     )}
                   >
                     {line.text}
@@ -872,41 +928,43 @@ function Step1ProcessingState({
               {getStep1ProcessingTitle(job.stage?.code, job.stage?.message)}
             </h2>
             <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-slate-500">
-            {getStep1ProcessingNote(job.stage?.code)}
-          </p>
-          {draftError && (
-            <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-red-600">
-              {draftError}
+              {getStep1ProcessingNote(job.stage?.code)}
             </p>
-          )}
+            {draftError && (
+              <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-red-600">
+                {draftError}
+              </p>
+            )}
 
-          <Progress
-            value={visualProgress}
-            className="relative mx-auto mt-3 h-1 w-20 bg-slate-200/80"
-            indicatorClassName="bg-gradient-to-r from-[#60a5fa] via-[#2563eb] to-[#0f172a]"
-          />
+            <Progress
+              value={visualProgress}
+              className="relative mx-auto mt-3 h-1 w-20 bg-slate-200/80"
+              indicatorClassName="bg-gradient-to-r from-[#60a5fa] via-[#2563eb] to-[#0f172a]"
+            />
 
-          {draftError && (
-            <Button
-              type="button"
-              variant="outline"
-              className="relative mt-4 h-8 rounded-full px-3 text-xs"
-              onClick={onRetryDraft}
-            >
-              重新加载字幕草稿
-            </Button>
-          )}
-
-          {job.status === STATUS.UPLOAD_READY && !busy && autoStep1Triggered && (
-            <Button
-              type="button"
+            {draftError && (
+              <Button
+                type="button"
                 variant="outline"
                 className="relative mt-4 h-8 rounded-full px-3 text-xs"
-                onClick={onRetry}
+                onClick={onRetryDraft}
               >
-                重新尝试启动字幕任务
+                重新加载字幕草稿
               </Button>
             )}
+
+            {job.status === STATUS.UPLOAD_READY &&
+              !busy &&
+              autoStep1Triggered && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="relative mt-4 h-8 rounded-full px-3 text-xs"
+                  onClick={onRetry}
+                >
+                  重新尝试启动字幕任务
+                </Button>
+              )}
           </div>
         </div>
       </div>
@@ -928,8 +986,11 @@ export default function JobWorkspace({
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const keptLines = useMemo(() => getKeptStep1Lines(lines), [lines]);
   const keptLinePositionById = useMemo(
-    () => new Map(keptLines.map((line, index) => [line.line_id, index + 1] as const)),
-    [keptLines]
+    () =>
+      new Map(
+        keptLines.map((line, index) => [line.line_id, index + 1] as const),
+      ),
+    [keptLines],
   );
   const [error, setError] = useState("");
   const [renderNote, setRenderNote] = useState("");
@@ -938,21 +999,23 @@ export default function JobWorkspace({
   const [step1DraftError, setStep1DraftError] = useState("");
   const [step2DraftError, setStep2DraftError] = useState("");
   const [step2DraftLoaded, setStep2DraftLoaded] = useState(false);
-  const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] = useState("");
+  const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] =
+    useState("");
   const [busy, setBusy] = useState(false);
   const [renderBusy, setRenderBusy] = useState(false);
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderDownloadUrl, setRenderDownloadUrl] = useState<string | null>(
-    null
+    null,
   );
   const [renderFileName, setRenderFileName] = useState("output.mp4");
-  const [renderConfig, setRenderConfig] = useState<WebRenderConfig | null>(null);
+  const [renderConfig, setRenderConfig] = useState<WebRenderConfig | null>(
+    null,
+  );
   const [renderConfigBusy, setRenderConfigBusy] = useState(false);
   const [renderSetupError, setRenderSetupError] = useState("");
   const [previewTimeSec, setPreviewTimeSec] = useState(0);
-  const [subtitleTheme, setSubtitleTheme] = useState<SubtitleTheme>(
-    "box-white-on-black"
-  );
+  const [subtitleTheme, setSubtitleTheme] =
+    useState<SubtitleTheme>("box-white-on-black");
   const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>({
     ...DEFAULT_OVERLAY_CONTROLS,
   });
@@ -986,7 +1049,7 @@ export default function JobWorkspace({
 
   useEffect(() => {
     setMobileUploadBlocked(
-      isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser()
+      isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser(),
     );
   }, []);
 
@@ -998,7 +1061,7 @@ export default function JobWorkspace({
     async (
       sourceFile: File,
       meta: RenderMeta,
-      { timeoutMs }: { timeoutMs?: { config?: number } } = {}
+      { timeoutMs }: { timeoutMs?: { config?: number } } = {},
     ): Promise<WebRenderConfig> => {
       const configRequest = getWebRenderConfigWithMeta(jobId, meta);
       const config =
@@ -1006,20 +1069,20 @@ export default function JobWorkspace({
           ? await withTimeout(
               configRequest,
               timeoutMs.config,
-              "生成预览配置超时，请重试。"
+              "生成预览配置超时，请重试。",
             )
           : await configRequest;
       const sourceMismatchMessage = getSourceVideoMismatchMessage(
         sourceFile.name,
         meta,
-        config
+        config,
       );
       if (sourceMismatchMessage) {
         throw new Error(sourceMismatchMessage);
       }
       return config;
     },
-    [jobId]
+    [jobId],
   );
 
   const loadRenderSourceFile = useCallback(async (): Promise<File | null> => {
@@ -1053,7 +1116,7 @@ export default function JobWorkspace({
         const meta = await withTimeout(
           resolveRenderMetaFromFile(sourceFile),
           10000,
-          "读取本地视频元数据超时，请刷新页面后重试。"
+          "读取本地视频元数据超时，请刷新页面后重试。",
         );
         const config = await loadRenderConfigWithMeta(sourceFile, meta, {
           timeoutMs: { config: 15000 },
@@ -1062,35 +1125,41 @@ export default function JobWorkspace({
       } catch (err) {
         setRenderConfig(null);
         setRenderSetupError(
-          err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
+          err instanceof Error ? err.message : "导出预览初始化失败，请重试。",
         );
         return null;
       } finally {
         setRenderConfigBusy(false);
       }
     },
-    [applyRenderPreviewConfig, loadRenderConfigWithMeta]
+    [applyRenderPreviewConfig, loadRenderConfigWithMeta],
   );
 
-  const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
-    if (renderBusy || transcodeBusy) return null;
+  const prepareRenderPreview =
+    useCallback(async (): Promise<WebRenderConfig | null> => {
+      if (renderBusy || transcodeBusy) return null;
 
-    try {
-      const sourceFile = await loadRenderSourceFile();
-      if (!sourceFile) {
-        throw new Error(
-          "当前会话缺少本地原始视频，请先重新选择当前任务对应的源文件。"
+      try {
+        const sourceFile = await loadRenderSourceFile();
+        if (!sourceFile) {
+          throw new Error(
+            "当前会话缺少本地原始视频，请先重新选择当前任务对应的源文件。",
+          );
+        }
+        return await prepareRenderPreviewForFile(sourceFile);
+      } catch (err) {
+        setRenderConfig(null);
+        setRenderSetupError(
+          err instanceof Error ? err.message : "导出预览初始化失败，请重试。",
         );
+        return null;
       }
-      return await prepareRenderPreviewForFile(sourceFile);
-    } catch (err) {
-      setRenderConfig(null);
-      setRenderSetupError(
-        err instanceof Error ? err.message : "导出预览初始化失败，请重试。"
-      );
-      return null;
-    }
-  }, [loadRenderSourceFile, prepareRenderPreviewForFile, renderBusy, transcodeBusy]);
+    }, [
+      loadRenderSourceFile,
+      prepareRenderPreviewForFile,
+      renderBusy,
+      transcodeBusy,
+    ]);
 
   const refreshJob = useCallback(async () => {
     try {
@@ -1127,7 +1196,7 @@ export default function JobWorkspace({
           setError((previous) =>
             previous.includes("正在重试") || previous.includes("无法连接 API")
               ? ""
-              : previous
+              : previous,
           );
         }
         return next;
@@ -1138,7 +1207,7 @@ export default function JobWorkspace({
             setError(
               message.includes("无法连接 API")
                 ? `${message}，正在重试。`
-                : `项目状态刷新失败：${message}，正在重试。`
+                : `项目状态刷新失败：${message}，正在重试。`,
             );
           }
           return;
@@ -1169,7 +1238,7 @@ export default function JobWorkspace({
           setJobLoadError(
             message.includes("无法连接 API")
               ? message
-              : "无法连接 API，请确认后端服务正在运行。"
+              : "无法连接 API，请确认后端服务正在运行。",
           );
         }
       } finally {
@@ -1180,7 +1249,7 @@ export default function JobWorkspace({
         }
       }
     },
-    [refreshJob]
+    [refreshJob],
   );
 
   const handleRetryLoadJob = useCallback(() => {
@@ -1226,20 +1295,23 @@ export default function JobWorkspace({
           if (cancelled) return;
           setStep1DraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines
+            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
           );
           setStep1ReadyLinesLoaded(nextLines.length > 0);
         })
         .catch((err) => {
           if (cancelled) return;
           setStep1DraftError(
-            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
     pollStep1Lines();
-    const intervalId = window.setInterval(pollStep1Lines, STEP_DRAFT_RETRY_DELAY_MS);
+    const intervalId = window.setInterval(
+      pollStep1Lines,
+      STEP_DRAFT_RETRY_DELAY_MS,
+    );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -1259,19 +1331,22 @@ export default function JobWorkspace({
           if (nextLines.length === 0) return;
           setStep1DraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines
+            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
           );
         })
         .catch((err) => {
           if (cancelled) return;
           setStep1DraftError(
-            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
     pollStep1Lines();
-    const intervalId = window.setInterval(pollStep1Lines, STEP_DRAFT_RETRY_DELAY_MS);
+    const intervalId = window.setInterval(
+      pollStep1Lines,
+      STEP_DRAFT_RETRY_DELAY_MS,
+    );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -1314,19 +1389,24 @@ export default function JobWorkspace({
           if (cancelled) return;
           if (!nextChapters || nextChapters.length === 0) return;
           setStep2DraftError("");
-          setChapters((previous) => (previous.length ? previous : nextChapters));
+          setChapters((previous) =>
+            previous.length ? previous : nextChapters,
+          );
           setStep2DraftLoaded(true);
         })
         .catch((err) => {
           if (cancelled) return;
           setStep2DraftError(
-            `章节草稿加载失败：${getFriendlyError(err)}，已自动重试。`
+            `章节草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
     pollChapters();
-    const intervalId = window.setInterval(pollChapters, STEP_DRAFT_RETRY_DELAY_MS);
+    const intervalId = window.setInterval(
+      pollChapters,
+      STEP_DRAFT_RETRY_DELAY_MS,
+    );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -1349,20 +1429,23 @@ export default function JobWorkspace({
           if (nextLines.length === 0) return;
           setStep2DraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines
+            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
           );
           setStep2ReadyLinesLoaded(true);
         })
         .catch((err) => {
           if (cancelled) return;
           setStep2DraftError(
-            `章节页字幕加载失败：${getFriendlyError(err)}，已自动重试。`
+            `章节页字幕加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
     pollStep2Lines();
-    const intervalId = window.setInterval(pollStep2Lines, STEP_DRAFT_RETRY_DELAY_MS);
+    const intervalId = window.setInterval(
+      pollStep2Lines,
+      STEP_DRAFT_RETRY_DELAY_MS,
+    );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -1498,11 +1581,11 @@ export default function JobWorkspace({
 
       const lowerName = file.name.toLowerCase();
       const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
-        lowerName.endsWith(ext)
+        lowerName.endsWith(ext),
       );
       if (!hasSupportedExt) {
         setRenderSetupError(
-          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。",
         );
         return;
       }
@@ -1512,13 +1595,16 @@ export default function JobWorkspace({
       setRenderCompletionMarkerMessage("");
       setStep1DraftError("");
       setStep2DraftError("");
-      if (selectedFile?.name !== file.name || selectedFile?.size !== file.size) {
+      if (
+        selectedFile?.name !== file.name ||
+        selectedFile?.size !== file.size
+      ) {
         setRenderFileName("output.mp4");
       }
       void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
       void prepareRenderPreviewForFile(file);
     },
-    [jobId, prepareRenderPreviewForFile, selectedFile]
+    [jobId, prepareRenderPreviewForFile, selectedFile],
   );
 
   useEffect(() => {
@@ -1543,7 +1629,9 @@ export default function JobWorkspace({
       const latestMarker = getRenderCompletionPending(jobId);
       if (!latestMarker) return;
       try {
-        const completion = await markRenderSucceeded(jobId, {keepalive: true});
+        const completion = await markRenderSucceeded(jobId, {
+          keepalive: true,
+        });
         if (cancelled) return;
         clearRenderCompletionPending(jobId);
         setRenderCompletionMarkerMessage("");
@@ -1554,10 +1642,11 @@ export default function JobWorkspace({
         const nextMarker = setRenderCompletionPending(jobId, message);
         const delay = Math.min(
           RENDER_COMPLETE_RETRY_MAX_MS,
-          RENDER_COMPLETE_RETRY_BASE_MS * 2 ** Math.max((nextMarker?.attempts || 1) - 1, 0)
+          RENDER_COMPLETE_RETRY_BASE_MS *
+            2 ** Math.max((nextMarker?.attempts || 1) - 1, 0),
         );
         setRenderCompletionMarkerMessage(
-          `导出确认未完成：${message}，约 ${Math.ceil(delay / 1000)} 秒后将自动重试。`
+          `导出确认未完成：${message}，约 ${Math.ceil(delay / 1000)} 秒后将自动重试。`,
         );
         timer = window.setTimeout(retry, delay);
       }
@@ -1575,12 +1664,19 @@ export default function JobWorkspace({
 
   useEffect(() => {
     const exportReady =
-      job?.status === STATUS.STEP2_CONFIRMED || job?.status === STATUS.SUCCEEDED;
+      job?.status === STATUS.STEP2_CONFIRMED ||
+      job?.status === STATUS.SUCCEEDED;
     if (!exportReady) return;
     if (renderConfig) return;
     if (renderConfigBusy || renderSetupError) return;
     void prepareRenderPreview();
-  }, [job?.status, prepareRenderPreview, renderConfig, renderConfigBusy, renderSetupError]);
+  }, [
+    job?.status,
+    prepareRenderPreview,
+    renderConfig,
+    renderConfigBusy,
+    renderSetupError,
+  ]);
 
   const handleUpload = useCallback(
     async (file: File) => {
@@ -1591,11 +1687,11 @@ export default function JobWorkspace({
       setError("");
       const lowerName = file.name.toLowerCase();
       const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
-        lowerName.endsWith(ext)
+        lowerName.endsWith(ext),
       );
       if (!hasSupportedExt) {
         setError(
-          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。"
+          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。",
         );
         return;
       }
@@ -1621,7 +1717,7 @@ export default function JobWorkspace({
         const mins = Math.floor(durationSec / 60);
         const secs = Math.round(durationSec % 60);
         setError(
-          `视频时长 ${mins} 分 ${secs} 秒，已达到 10 分钟限制，请上传更短的视频。`
+          `视频时长 ${mins} 分 ${secs} 秒，已达到 10 分钟限制，请上传更短的视频。`,
         );
         return;
       }
@@ -1643,7 +1739,9 @@ export default function JobWorkspace({
             setUploadStageMessage("");
           },
           onTranscodeProgress: (progress) => {
-            setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
+            setUploadStageMessage(
+              `正在转码兼容 MP4（${Math.round(progress * 100)}%）...`,
+            );
           },
         });
         uploadStage = "render_validation";
@@ -1657,9 +1755,15 @@ export default function JobWorkspace({
         const audioFile = await extractAudioForAsr(preparedSource.file);
         uploadStage = "audio_upload";
         setUploadStageMessage("正在上传音频...");
-        const uploadedJob = await uploadAudioDirectToOss(nextJob.job_id, audioFile);
+        const uploadedJob = await uploadAudioDirectToOss(
+          nextJob.job_id,
+          audioFile,
+        );
         uploadStage = "source_cache";
-        await saveCachedJobSourceVideo(nextJob.job_id, preparedSource.file).catch(() => undefined);
+        await saveCachedJobSourceVideo(
+          nextJob.job_id,
+          preparedSource.file,
+        ).catch(() => undefined);
         onSwitchJob?.(nextJob.job_id);
         setJob((previous) => mergeJobSnapshot(previous, uploadedJob));
       } catch (err) {
@@ -1682,7 +1786,7 @@ export default function JobWorkspace({
         setBusy(false);
       }
     },
-    [mobileUploadBlocked, onSwitchJob, showMobileUploadError]
+    [mobileUploadBlocked, onSwitchJob, showMobileUploadError],
   );
 
   useEffect(() => {
@@ -1764,7 +1868,7 @@ export default function JobWorkspace({
     if (!shouldPollJobStatus(job.status)) return;
 
     const timer = setInterval(() => {
-      loadJob({background: true}).catch(() => undefined);
+      loadJob({ background: true }).catch(() => undefined);
     }, 2500);
     return () => {
       clearInterval(timer);
@@ -1883,17 +1987,26 @@ export default function JobWorkspace({
       setTranscodeBusy(true);
       setTranscodeProgress(0);
       try {
-        const transcodedFile = await transcodeVideoToBrowserCompatibleMp4(sourceFile, {
-          onProgress: (progress) => {
-            setTranscodeProgress(clampPercent(progress * 100));
+        const transcodedFile = await transcodeVideoToBrowserCompatibleMp4(
+          sourceFile,
+          {
+            onProgress: (progress) => {
+              setTranscodeProgress(clampPercent(progress * 100));
+            },
           },
-        });
+        );
         setSelectedFile(transcodedFile);
         setRenderConfig(null);
-        await saveCachedJobSourceVideo(jobId, transcodedFile).catch(() => undefined);
-        const compatibility = await inspectRenderSourceCompatibility(transcodedFile);
+        await saveCachedJobSourceVideo(jobId, transcodedFile).catch(
+          () => undefined,
+        );
+        const compatibility =
+          await inspectRenderSourceCompatibility(transcodedFile);
         setRenderSourceCompatibility(compatibility);
-        if (compatibility.status === "incompatible" || compatibility.status === "blocked") {
+        if (
+          compatibility.status === "incompatible" ||
+          compatibility.status === "blocked"
+        ) {
           throw new Error(compatibility.message);
         }
         return transcodedFile;
@@ -1901,7 +2014,7 @@ export default function JobWorkspace({
         setTranscodeBusy(false);
       }
     },
-    [jobId]
+    [jobId],
   );
 
   const handleStartRender = useCallback(async () => {
@@ -1915,10 +2028,11 @@ export default function JobWorkspace({
       const initialSourceFile = await loadRenderSourceFile();
       if (!initialSourceFile) {
         throw new Error(
-          "当前会话缺少本地原始视频，请先选择对应的源文件后再导出。"
+          "当前会话缺少本地原始视频，请先选择对应的源文件后再导出。",
         );
       }
-      const compatibility = await inspectRenderSourceCompatibility(initialSourceFile);
+      const compatibility =
+        await inspectRenderSourceCompatibility(initialSourceFile);
       setRenderSourceCompatibility(compatibility);
       if (compatibility.status === "blocked") {
         throw new Error(compatibility.message);
@@ -1956,7 +2070,7 @@ export default function JobWorkspace({
 
       if (!window.isSecureContext) {
         throw new Error(
-          "当前页面不在安全上下文中（需要 HTTPS 或 localhost），浏览器禁用了视频解码器 (VideoDecoder)，无法导出视频。请通过 HTTPS 访问本站，或联系管理员配置 SSL 证书。"
+          "当前页面不在安全上下文中（需要 HTTPS 或 localhost），浏览器禁用了视频解码器 (VideoDecoder)，无法导出视频。请通过 HTTPS 访问本站，或联系管理员配置 SSL 证书。",
         );
       }
 
@@ -1974,11 +2088,9 @@ export default function JobWorkspace({
         getEncodableVideoCodecs,
       } = await import("@remotion/web-renderer");
 
-      // Determine the best available container+codec for this browser.
-      // On non-cross-origin-isolated pages (missing COOP/COEP headers), audio
-      // encoders are restricted by the browser. We probe MP4 first, then WebM,
-      // and as a last resort render muted (no audio) inside MP4 so the export
-      // never hard-crashes.
+      // Require an audio-capable export path. If the browser cannot encode
+      // audio for any supported container, fail explicitly instead of silently
+      // downgrading to a muted export.
       const mp4AudioCodecs = await getEncodableAudioCodecs("mp4");
       const webmAudioCodecs = await getEncodableAudioCodecs("webm");
       const hasMp4Audio = mp4AudioCodecs.length > 0;
@@ -1986,7 +2098,6 @@ export default function JobWorkspace({
 
       let container: "mp4" | "webm" = "mp4";
       let videoCodec: WebRenderVideoCodec = "h264";
-      let muted = false;
 
       if (hasMp4Audio) {
         container = "mp4";
@@ -1995,15 +2106,13 @@ export default function JobWorkspace({
         container = "webm";
         videoCodec = "vp8";
       } else {
-        // Neither container can encode audio — render muted and warn the user.
-        // The proper fix is to deploy COOP/COEP response headers so the page
-        // becomes cross-origin isolated (window.crossOriginIsolated === true).
-        container = "mp4";
-        videoCodec = "h264";
-        muted = true;
+        throw new Error(
+          "No audio codec can be encoded by this browser for container mp4 or webm.",
+        );
       }
 
-      const audioCodec: WebRenderAudioCodec = container === "mp4" ? "aac" : "opus";
+      const audioCodec: WebRenderAudioCodec =
+        container === "mp4" ? "aac" : "opus";
       const bitratePlan = buildDynamicRenderBitratePlan({
         meta: sourceMeta,
         fileSizeBytes: sourceFile.size,
@@ -2014,7 +2123,7 @@ export default function JobWorkspace({
       let resolvedVideoBitrate = bitratePlan.videoBitrate;
       const bitrateCandidates = buildVideoBitrateFallbacks(
         bitratePlan.videoBitrate,
-        bitratePlan.fallbackVideoBitrate
+        bitratePlan.fallbackVideoBitrate,
       );
 
       for (const candidate of bitrateCandidates) {
@@ -2028,13 +2137,27 @@ export default function JobWorkspace({
       }
 
       let resolvedAudioBitrate = bitratePlan.audioBitrate;
-      if (!muted) {
-        const preferredAudioCodecs = await getEncodableAudioCodecs(container, {
-          audioBitrate: resolvedAudioBitrate,
+      const audioBitrateCandidates = Array.from(
+        new Set([
+          bitratePlan.audioBitrate,
+          audioCodec === "aac" ? 128_000 : 96_000,
+        ]),
+      );
+      let audioCodecSupported = false;
+      for (const candidate of audioBitrateCandidates) {
+        const encodableAudioCodecs = await getEncodableAudioCodecs(container, {
+          audioBitrate: candidate,
         });
-        if (!preferredAudioCodecs.includes(audioCodec)) {
-          resolvedAudioBitrate = audioCodec === "aac" ? 128_000 : 96_000;
+        if (encodableAudioCodecs.includes(audioCodec)) {
+          resolvedAudioBitrate = candidate;
+          audioCodecSupported = true;
+          break;
         }
+      }
+      if (!audioCodecSupported) {
+        throw new Error(
+          `No audio codec can be encoded by this browser for container ${container}.`,
+        );
       }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2046,11 +2169,10 @@ export default function JobWorkspace({
         audioBitrate: resolvedAudioBitrate,
         videoBitrate: resolvedVideoBitrate,
         delayRenderTimeoutInMilliseconds: WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
-        ...(muted ? { muted: true } : {}),
         onProgress: (progress) => {
           const totalFrames = Math.max(
             1,
-            Number(config.composition.durationInFrames) || 1
+            Number(config.composition.durationInFrames) || 1,
           );
           const doneFrames =
             typeof progress.encodedFrames === "number" &&
@@ -2058,36 +2180,26 @@ export default function JobWorkspace({
               ? progress.encodedFrames
               : progress.renderedFrames;
           setRenderProgress((previous) =>
-            Math.max(previous, clampPercent((doneFrames / totalFrames) * 100))
+            Math.max(previous, clampPercent((doneFrames / totalFrames) * 100)),
           );
         },
       };
 
-      // Try the probed container first; if rendering itself reports no audio
-      // codec (browser capability detection can lag behind actual support),
-      // retry once with muted=true so the user always gets a file.
-      let result: Awaited<ReturnType<typeof renderMediaOnWeb>>;
-      try {
-        result = await renderMediaOnWeb(renderOptions);
-      } catch (renderErr) {
-        const msg = renderErr instanceof Error ? renderErr.message : String(renderErr);
-        if (msg.includes("No audio codec can be encoded")) {
-          result = await renderMediaOnWeb({ ...renderOptions, muted: true });
-          muted = true;
-        } else {
-          throw renderErr;
-        }
-      }
+      const result = await renderMediaOnWeb(renderOptions);
 
-      const baseName = (config.output_name || "output").replace(/\.(mp4|webm)$/i, "");
+      const baseName = (config.output_name || "output").replace(
+        /\.(mp4|webm)$/i,
+        "",
+      );
       const outputName = `${baseName}.${container}`;
-      if (muted) {
-        setRenderNote("导出成功，但当前浏览器环境不支持音频编码，导出文件无声音。建议使用 Chrome / Edge 浏览器，或联系管理员确认服务器已配置 COOP/COEP 响应头。");
-      } else if (bitratePlan.usingSourceBitrate || resolvedVideoBitrate !== bitratePlan.fallbackVideoBitrate) {
+      if (
+        bitratePlan.usingSourceBitrate ||
+        resolvedVideoBitrate !== bitratePlan.fallbackVideoBitrate
+      ) {
         setRenderNote(
           `已按源片码率策略导出，视频约 ${Math.round(resolvedVideoBitrate / 1_000_000)} Mbps，音频约 ${Math.round(
-            resolvedAudioBitrate / 1_000
-          )} kbps。`
+            resolvedAudioBitrate / 1_000,
+          )} kbps。`,
         );
       }
       setRenderFileName(outputName);
@@ -2101,14 +2213,16 @@ export default function JobWorkspace({
       triggerFileDownload(objectUrl, outputName);
       setRenderProgress(100);
       try {
-        const completion = await markRenderSucceeded(jobId, {keepalive: true});
+        const completion = await markRenderSucceeded(jobId, {
+          keepalive: true,
+        });
         setJob((previous) => mergeJobSnapshot(previous, completion.job));
         clearRenderCompletionPending(jobId);
         setRenderCompletionMarkerMessage("");
       } catch (syncErr) {
         const message = getFriendlyError(syncErr);
         setRenderCompletionMarkerMessage(
-          `视频已导出，但服务端确认失败：${message}。页面刷新后会自动继续重试确认。`
+          `视频已导出，但服务端确认失败：${message}。页面刷新后会自动继续重试确认。`,
         );
         setRenderCompletionPending(jobId, message);
       }
@@ -2156,7 +2270,9 @@ export default function JobWorkspace({
 
   const updateLine = (lineId: number, patch: Partial<Step1Line>) => {
     setLines((prev) =>
-      prev.map((line) => (line.line_id === lineId ? { ...line, ...patch } : line))
+      prev.map((line) =>
+        line.line_id === lineId ? { ...line, ...patch } : line,
+      ),
     );
   };
 
@@ -2232,8 +2348,8 @@ export default function JobWorkspace({
                       isActive
                         ? "bg-primary text-primary-foreground"
                         : isCompleted
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground opacity-50"
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground opacity-50",
                     )}
                   >
                     <div
@@ -2241,10 +2357,14 @@ export default function JobWorkspace({
                         "flex h-5 w-5 items-center justify-center rounded-full border text-[10px]",
                         isActive
                           ? "border-primary-foreground"
-                          : "border-current"
+                          : "border-current",
                       )}
                     >
-                      {isCompleted ? <CheckCircle2 className="h-3 w-3" /> : step.id}
+                      {isCompleted ? (
+                        <CheckCircle2 className="h-3 w-3" />
+                      ) : (
+                        step.id
+                      )}
                     </div>
                     <span className="hidden sm:inline">{step.label}</span>
                   </div>
@@ -2256,7 +2376,12 @@ export default function JobWorkspace({
             })}
           </div>
           {onBackHome && (
-            <Button type="button" variant="ghost" size="sm" onClick={onBackHome}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onBackHome}
+            >
               重新上传
             </Button>
           )}
@@ -2300,7 +2425,7 @@ export default function JobWorkspace({
                 selectedFile && "border-primary bg-primary/5",
                 busy || mobileUploadBlocked
                   ? "opacity-70 cursor-not-allowed"
-                  : "cursor-pointer"
+                  : "cursor-pointer",
               )}
             >
               <input
@@ -2323,17 +2448,17 @@ export default function JobWorkspace({
                     {busy
                       ? uploadStageMessage || "正在上传..."
                       : mobileUploadBlocked
-                      ? "当前浏览器暂不支持上传"
-                      : selectedFile
-                      ? selectedFile.name
-                      : "点击或拖拽上传视频"}
+                        ? "当前浏览器暂不支持上传"
+                        : selectedFile
+                          ? selectedFile.name
+                          : "点击或拖拽上传视频"}
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {mobileUploadBlocked
                       ? "请使用桌面版 Chrome"
                       : busy
-                      ? "请保持页面开启，我们会自动继续处理。"
-                      : "AI 将自动提取字幕并进行智能分析"}
+                        ? "请保持页面开启，我们会自动继续处理。"
+                        : "AI 将自动提取字幕并进行智能分析"}
                   </p>
                 </div>
               </div>
@@ -2396,7 +2521,9 @@ export default function JobWorkspace({
                 字幕整理完成后，这里会显示可编辑内容。
               </p>
               {step1DraftError && (
-                <p className="mx-auto max-w-md text-sm text-red-600">{step1DraftError}</p>
+                <p className="mx-auto max-w-md text-sm text-red-600">
+                  {step1DraftError}
+                </p>
               )}
               {step1DraftError && (
                 <Button
@@ -2430,12 +2557,13 @@ export default function JobWorkspace({
                 <div className="max-w-3xl mx-auto flex flex-col gap-[6px]">
                   {lines.map((line) => {
                     const isRemoved = line.user_final_remove;
-                    const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
+                    const isNoSpeech =
+                      !line.optimized_text || line.optimized_text.trim() === "";
                     const lineTime = formatDuration(Number(line.start) || 0);
-                    
+
                     return (
-                      <div 
-                        key={line.line_id} 
+                      <div
+                        key={line.line_id}
                         className="group relative flex items-start gap-3"
                       >
                         <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
@@ -2443,13 +2571,18 @@ export default function JobWorkspace({
                         </span>
                         <div className="flex-1 min-w-0">
                           {isRemoved ? (
-                            <div
-                              className="text-[12px] text-[#94a3b8] line-through cursor-pointer select-none py-[2px]"
-                              onClick={() => updateLine(line.line_id, { user_final_remove: false })}
+                            <button
+                              type="button"
+                              className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
+                              onClick={() =>
+                                updateLine(line.line_id, {
+                                  user_final_remove: false,
+                                })
+                              }
                               title="点击恢复此行"
                             >
                               {isNoSpeech ? "<No Speech>" : line.optimized_text}
-                            </div>
+                            </button>
                           ) : (
                             <Textarea
                               value={line.optimized_text}
@@ -2543,13 +2676,17 @@ export default function JobWorkspace({
             <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <div>
-                <p className="font-medium text-slate-900">正在载入章节草稿...</p>
+                <p className="font-medium text-slate-900">
+                  正在载入章节草稿...
+                </p>
                 <p className="text-sm text-slate-500">
                   章节和字幕准备好后，这里会自动显示可编辑内容。
                 </p>
               </div>
               {step2DraftError && (
-                <p className="max-w-md text-sm text-red-600">{step2DraftError}</p>
+                <p className="max-w-md text-sm text-red-600">
+                  {step2DraftError}
+                </p>
               )}
               {step2DraftError && (
                 <Button
@@ -2568,10 +2705,15 @@ export default function JobWorkspace({
             <div className="space-y-6">
               {chapters.map((chapter, chapterIdx) => {
                 const badgeColorClass =
-                  CHAPTER_BADGE_COLORS[chapterIdx % CHAPTER_BADGE_COLORS.length];
+                  CHAPTER_BADGE_COLORS[
+                    chapterIdx % CHAPTER_BADGE_COLORS.length
+                  ];
                 const borderClass =
                   CHAPTER_COLORS[chapterIdx % CHAPTER_COLORS.length];
-                const chapterLines = getChapterLinesFromRange(chapter, keptLines);
+                const chapterLines = getChapterLinesFromRange(
+                  chapter,
+                  keptLines,
+                );
 
                 return (
                   <div
@@ -2723,7 +2865,8 @@ export default function JobWorkspace({
       )}
 
       {/* Step 4: Export */}
-      {(job.status === STATUS.STEP2_CONFIRMED || job.status === STATUS.SUCCEEDED) && (
+      {(job.status === STATUS.STEP2_CONFIRMED ||
+        job.status === STATUS.SUCCEEDED) && (
         <div className="space-y-4">
           <div className="mx-auto grid max-w-[1400px] gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(420px,0.92fr)] xl:items-start 2xl:max-w-[1520px] 2xl:grid-cols-[minmax(0,1.72fr)_minmax(456px,0.94fr)]">
             <Card className="border-slate-200/80 xl:h-[min(70vh,760px)]">
@@ -2761,15 +2904,21 @@ export default function JobWorkspace({
                 />
 
                 <div className="border-b border-slate-200 bg-slate-50/60 px-3 py-2">
-                  <div className="text-sm font-semibold text-slate-900">导出设置</div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">预览与最终导出同步生效</div>
+                  <div className="text-sm font-semibold text-slate-900">
+                    导出设置
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">
+                    预览与最终导出同步生效
+                  </div>
                 </div>
 
                 <div className="px-3 py-2.5">
                   <div className="space-y-2">
                     {!hasRenderSource ? (
                       <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                        <p>尚未读取到当前项目的本地源视频缓存，导出前请重新选择源文件。</p>
+                        <p>
+                          尚未读取到当前项目的本地源视频缓存，导出前请重新选择源文件。
+                        </p>
                         <Button
                           type="button"
                           variant="outline"
@@ -2783,7 +2932,8 @@ export default function JobWorkspace({
                       </div>
                     ) : null}
 
-                    {hasRenderSource && renderSourceCompatibility.status === "checking" ? (
+                    {hasRenderSource &&
+                    renderSourceCompatibility.status === "checking" ? (
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                         <div className="flex items-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -2792,26 +2942,34 @@ export default function JobWorkspace({
                       </div>
                     ) : null}
 
-                    {hasRenderSource && renderSourceCompatibility.status === "incompatible" ? (
+                    {hasRenderSource &&
+                    renderSourceCompatibility.status === "incompatible" ? (
                       <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                        <div className="font-medium">当前源视频不能直接浏览器导出</div>
-                        <div className="mt-1">{renderSourceCompatibility.message}</div>
+                        <div className="font-medium">
+                          当前源视频不能直接浏览器导出
+                        </div>
+                        <div className="mt-1">
+                          {renderSourceCompatibility.message}
+                        </div>
                       </div>
                     ) : null}
 
-                    {hasRenderSource && renderSourceCompatibility.status === "blocked" ? (
+                    {hasRenderSource &&
+                    renderSourceCompatibility.status === "blocked" ? (
                       <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
                         {renderSourceCompatibility.message}
                       </div>
                     ) : null}
 
-                    {hasRenderSource && renderSourceCompatibility.status === "unknown" ? (
+                    {hasRenderSource &&
+                    renderSourceCompatibility.status === "unknown" ? (
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                         {renderSourceCompatibility.message}
                       </div>
                     ) : null}
 
-                    {hasRenderSource && renderSourceCompatibility.status === "compatible" ? (
+                    {hasRenderSource &&
+                    renderSourceCompatibility.status === "compatible" ? (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                         {renderSourceCompatibility.message}
                       </div>
@@ -2823,7 +2981,10 @@ export default function JobWorkspace({
                           标题行数
                         </label>
                         <Select
-                          value={(overlayControls.progressLabelMode ?? "auto") as ProgressLabelMode}
+                          value={
+                            (overlayControls.progressLabelMode ??
+                              "auto") as ProgressLabelMode
+                          }
                           onValueChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
@@ -2837,7 +2998,10 @@ export default function JobWorkspace({
                           </SelectTrigger>
                           <SelectContent>
                             {PROGRESS_LABEL_MODE_OPTIONS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
                                 {option.label}
                               </SelectItem>
                             ))}
@@ -2851,7 +3015,9 @@ export default function JobWorkspace({
                         </label>
                         <Select
                           value={subtitleTheme}
-                          onValueChange={(v) => setSubtitleTheme(v as SubtitleTheme)}
+                          onValueChange={(v) =>
+                            setSubtitleTheme(v as SubtitleTheme)
+                          }
                           disabled={renderActionBusy}
                         >
                           <SelectTrigger className="h-9 w-full">
@@ -2859,7 +3025,10 @@ export default function JobWorkspace({
                           </SelectTrigger>
                           <SelectContent>
                             {SUBTITLE_THEME_OPTIONS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
                                 {option.label}
                               </SelectItem>
                             ))}
@@ -2875,7 +3044,10 @@ export default function JobWorkspace({
                       <div className="grid grid-cols-3 gap-1.5">
                         <OverlayToggleTile
                           label="字幕"
-                          checked={overlayControls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles}
+                          checked={
+                            overlayControls.showSubtitles ??
+                            DEFAULT_OVERLAY_CONTROLS.showSubtitles
+                          }
                           disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
@@ -2886,7 +3058,10 @@ export default function JobWorkspace({
                         />
                         <OverlayToggleTile
                           label="进度条"
-                          checked={overlayControls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress}
+                          checked={
+                            overlayControls.showProgress ??
+                            DEFAULT_OVERLAY_CONTROLS.showProgress
+                          }
                           disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
@@ -2897,7 +3072,10 @@ export default function JobWorkspace({
                         />
                         <OverlayToggleTile
                           label="章节"
-                          checked={overlayControls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter}
+                          checked={
+                            overlayControls.showChapter ??
+                            DEFAULT_OVERLAY_CONTROLS.showChapter
+                          }
                           disabled={renderActionBusy}
                           onCheckedChange={(checked) =>
                             setOverlayControls((previous) => ({
@@ -2921,15 +3099,19 @@ export default function JobWorkspace({
                           max={OVERLAY_SCALE_LIMITS.subtitle.max}
                           step={OVERLAY_SCALE_LIMITS.subtitle.step}
                           value={
-                            overlayControls.subtitleScale ?? OVERLAY_SCALE_LIMITS.subtitle.defaultValue
+                            overlayControls.subtitleScale ??
+                            OVERLAY_SCALE_LIMITS.subtitle.defaultValue
                           }
                           disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
                               subtitleScale: Math.min(
-                                Math.max(value, OVERLAY_SCALE_LIMITS.subtitle.min),
-                                OVERLAY_SCALE_LIMITS.subtitle.max
+                                Math.max(
+                                  value,
+                                  OVERLAY_SCALE_LIMITS.subtitle.min,
+                                ),
+                                OVERLAY_SCALE_LIMITS.subtitle.max,
                               ),
                             }))
                           }
@@ -2937,7 +3119,8 @@ export default function JobWorkspace({
                         <OverlaySliderField
                           label="位置"
                           valueText={`Y ${Math.round(
-                            overlayControls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent
+                            overlayControls.subtitleYPercent ??
+                              DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
                           )}%`}
                           min={OVERLAY_POSITION_LIMITS.subtitleY.min}
                           max={OVERLAY_POSITION_LIMITS.subtitleY.max}
@@ -2969,15 +3152,19 @@ export default function JobWorkspace({
                           max={OVERLAY_SCALE_LIMITS.progress.max}
                           step={OVERLAY_SCALE_LIMITS.progress.step}
                           value={
-                            overlayControls.progressScale ?? OVERLAY_SCALE_LIMITS.progress.defaultValue
+                            overlayControls.progressScale ??
+                            OVERLAY_SCALE_LIMITS.progress.defaultValue
                           }
                           disabled={renderActionBusy}
                           onChange={(value) =>
                             setOverlayControls((previous) => ({
                               ...previous,
                               progressScale: Math.min(
-                                Math.max(value, OVERLAY_SCALE_LIMITS.progress.min),
-                                OVERLAY_SCALE_LIMITS.progress.max
+                                Math.max(
+                                  value,
+                                  OVERLAY_SCALE_LIMITS.progress.min,
+                                ),
+                                OVERLAY_SCALE_LIMITS.progress.max,
                               ),
                             }))
                           }
@@ -2985,7 +3172,8 @@ export default function JobWorkspace({
                         <OverlaySliderField
                           label="位置"
                           valueText={`Y ${Math.round(
-                            overlayControls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent
+                            overlayControls.progressYPercent ??
+                              DEFAULT_OVERLAY_CONTROLS.progressYPercent,
                           )}%`}
                           min={OVERLAY_POSITION_LIMITS.progressY.min}
                           max={OVERLAY_POSITION_LIMITS.progressY.max}
@@ -3015,14 +3203,17 @@ export default function JobWorkspace({
                         min={OVERLAY_SCALE_LIMITS.chapter.min}
                         max={OVERLAY_SCALE_LIMITS.chapter.max}
                         step={OVERLAY_SCALE_LIMITS.chapter.step}
-                        value={overlayControls.chapterScale ?? OVERLAY_SCALE_LIMITS.chapter.defaultValue}
+                        value={
+                          overlayControls.chapterScale ??
+                          OVERLAY_SCALE_LIMITS.chapter.defaultValue
+                        }
                         disabled={renderActionBusy}
                         onChange={(value) =>
                           setOverlayControls((previous) => ({
                             ...previous,
                             chapterScale: Math.min(
                               Math.max(value, OVERLAY_SCALE_LIMITS.chapter.min),
-                              OVERLAY_SCALE_LIMITS.chapter.max
+                              OVERLAY_SCALE_LIMITS.chapter.max,
                             ),
                           }))
                         }
@@ -3062,7 +3253,8 @@ export default function JobWorkspace({
                     >
                       {renderConfigBusy ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在生成预览
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                          正在生成预览
                         </>
                       ) : (
                         "刷新预览"
@@ -3076,25 +3268,30 @@ export default function JobWorkspace({
                     >
                       {transcodeBusy ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在转码兼容 MP4
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                          正在转码兼容 MP4
                         </>
                       ) : renderBusy ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                          正在导出
                         </>
                       ) : (
                         <>
-                          <FileVideo className="mr-2 h-4 w-4" /> {renderPrimaryButtonLabel}
+                          <FileVideo className="mr-2 h-4 w-4" />{" "}
+                          {renderPrimaryButtonLabel}
                         </>
                       )}
                     </Button>
                     {renderDownloadUrl && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => triggerFileDownload(renderDownloadUrl, renderFileName)}
-                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() =>
+                          triggerFileDownload(renderDownloadUrl, renderFileName)
+                        }
+                      >
                         <Download className="mr-2 h-4 w-4" /> 下载上次导出
                       </Button>
                     )}
@@ -3105,7 +3302,6 @@ export default function JobWorkspace({
           </div>
         </div>
       )}
-
     </main>
   );
 }

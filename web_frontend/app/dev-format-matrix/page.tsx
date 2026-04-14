@@ -5,7 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { AbsoluteFill } from "remotion";
 import { Video } from "@remotion/media";
 
-import { WEB_RENDER_DELAY_RENDER_TIMEOUT_MS } from "@/lib/remotion/rendering";
+import {
+  WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
+  getFriendlyWebRenderErrorMessage,
+} from "@/lib/remotion/rendering";
 import {
   buildDynamicRenderBitratePlan,
   buildVideoBitrateFallbacks,
@@ -291,7 +294,6 @@ async function probeSample(
 
     let container: "mp4" | "webm" = "mp4";
     let videoCodec: WebRenderVideoCodec = "h264";
-    let muted = false;
 
     if (hasMp4Audio) {
       container = "mp4";
@@ -300,9 +302,9 @@ async function probeSample(
       container = "webm";
       videoCodec = "vp8";
     } else {
-      container = "mp4";
-      videoCodec = "h264";
-      muted = true;
+      throw new Error(
+        "No audio codec can be encoded by this browser for container mp4 or webm.",
+      );
     }
 
     const audioCodec: WebRenderAudioCodec = container === "mp4" ? "aac" : "opus";
@@ -335,13 +337,27 @@ async function probeSample(
     }
 
     let resolvedAudioBitrate = bitratePlan.audioBitrate;
-    if (!muted) {
+    const audioBitrateCandidates = Array.from(
+      new Set([
+        bitratePlan.audioBitrate,
+        audioCodec === "aac" ? 128_000 : 96_000,
+      ])
+    );
+    let audioCodecSupported = false;
+    for (const candidate of audioBitrateCandidates) {
       const encodableAudio = await getEncodableAudioCodecs(container, {
-        audioBitrate: resolvedAudioBitrate,
+        audioBitrate: candidate,
       });
-      if (!encodableAudio.includes(audioCodec)) {
-        resolvedAudioBitrate = audioCodec === "aac" ? 128_000 : 96_000;
+      if (encodableAudio.includes(audioCodec)) {
+        resolvedAudioBitrate = candidate;
+        audioCodecSupported = true;
+        break;
       }
+    }
+    if (!audioCodecSupported) {
+      throw new Error(
+        `No audio codec can be encoded by this browser for container ${container}.`,
+      );
     }
 
     const durationSec = Math.max(0.5, Math.min(sourceMeta.durationSec, 0.8));
@@ -370,21 +386,9 @@ async function probeSample(
       audioBitrate: resolvedAudioBitrate,
       videoBitrate: resolvedVideoBitrate,
       delayRenderTimeoutInMilliseconds: WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
-      ...(muted ? { muted: true } : {}),
     };
 
-    let result: Awaited<ReturnType<typeof renderMediaOnWeb>>;
-    try {
-      result = await renderMediaOnWeb(renderOptions);
-    } catch (renderErr) {
-      const message = renderErr instanceof Error ? renderErr.message : String(renderErr);
-      if (!muted && message.includes("No audio codec can be encoded")) {
-        result = await renderMediaOnWeb({ ...renderOptions, muted: true });
-        muted = true;
-      } else {
-        throw renderErr;
-      }
-    }
+    const result = await renderMediaOnWeb(renderOptions);
 
     const outputBlob = await result.getBlob();
     const outputFile = new File([outputBlob], `${name}.${container}`, {
@@ -416,7 +420,7 @@ async function probeSample(
       output: {
         container,
         videoCodec,
-        audioCodec: muted ? "muted" : audioCodec,
+        audioCodec,
         width: outputMeta?.width ?? null,
         height: outputMeta?.height ?? null,
         fps: outputMeta?.fps ?? null,
@@ -496,9 +500,9 @@ export default function DevFormatMatrixPage() {
               status: "error",
               videoCodec: null,
               audioCodec: null,
-              message: error instanceof Error ? error.message : String(error),
+              message: getFriendlyWebRenderErrorMessage(error),
             },
-            error: error instanceof Error ? error.message : String(error),
+            error: getFriendlyWebRenderErrorMessage(error),
           });
         }
         setResults([...nextResults]);

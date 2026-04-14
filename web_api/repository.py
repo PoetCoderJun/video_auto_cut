@@ -24,7 +24,7 @@ from .constants import (
     JOB_STATUS_SUCCEEDED,
     JOB_STATUS_UPLOAD_READY,
 )
-from .db import get_conn
+from .db import get_conn, retry_turso_operation
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
 USER_STATUS_ACTIVE = "ACTIVE"
@@ -87,6 +87,7 @@ def _parse_iso(value: str | None) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+@retry_turso_operation("ensure user")
 def ensure_user(user_id: str, email: str | None) -> None:
     now = now_iso()
     normalized_email = (email or "").strip().lower() or None
@@ -118,6 +119,7 @@ def ensure_user(user_id: str, email: str | None) -> None:
             conn.commit()
 
 
+@retry_turso_operation("get user")
 def get_user(user_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = conn.execute(
@@ -180,6 +182,7 @@ def _create_coupon_in_tx(
     )
 
 
+@retry_turso_operation("claim public coupon code")
 def claim_public_coupon_code(
     ip_address: str,
     *,
@@ -310,6 +313,7 @@ def claim_public_coupon_code(
         }
 
 
+@retry_turso_operation("get credit balance")
 def get_credit_balance(user_id: str) -> int:
     with get_conn() as conn:
         row = conn.execute(
@@ -321,6 +325,7 @@ def get_credit_balance(user_id: str) -> int:
     return int(_row_get(row, "balance", 0) or 0)
 
 
+@retry_turso_operation("get recent credit ledger")
 def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
@@ -346,6 +351,7 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
     ]
 
 
+@retry_turso_operation("consume export credit")
 def consume_job_export_credit(user_id: str, job_id: str) -> dict[str, Any]:
     idempotency_key = f"job:{job_id}:export_success"
     now = now_iso()
@@ -412,6 +418,7 @@ def _assert_coupon_usable_in_tx(coupon: Any) -> None:
     _assert_not_expired_or_invalid(_row_get(coupon, "expires_at", 3))
 
 
+@retry_turso_operation("preview coupon code")
 def preview_coupon_code(code: str) -> dict[str, Any]:
     normalized = normalize_code(code)
     if not normalized:

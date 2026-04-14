@@ -65,12 +65,15 @@ export function shouldPollJobStatus(status: JobStatus): boolean {
 
 export function mergeJobSnapshot(
   localJob: JobSnapshot | null,
-  incomingJob: JobSnapshot
+  incomingJob: JobSnapshot,
 ): JobSnapshot {
   if (!localJob || localJob.job_id !== incomingJob.job_id) {
     return {
       ...incomingJob,
-      progress: Math.max(incomingJob.progress, getProgressFloor(incomingJob.status)),
+      progress: Math.max(
+        incomingJob.progress,
+        getProgressFloor(incomingJob.status),
+      ),
     };
   }
 
@@ -84,7 +87,7 @@ export function mergeJobSnapshot(
       progress: Math.max(
         localJob.progress,
         incomingJob.progress,
-        getProgressFloor(localJob.status)
+        getProgressFloor(localJob.status),
       ),
       stage: localJob.stage ?? incomingJob.stage,
       error: incomingJob.error ?? localJob.error,
@@ -96,14 +99,14 @@ export function mergeJobSnapshot(
     progress: Math.max(
       localJob.progress,
       incomingJob.progress,
-      getProgressFloor(incomingJob.status)
+      getProgressFloor(incomingJob.status),
     ),
   };
 }
 
 export function mergeJobStatus(
   localJob: JobSnapshot | null,
-  nextStatus: JobStatus
+  nextStatus: JobStatus,
 ): JobSnapshot | null {
   if (!localJob) return localJob;
 

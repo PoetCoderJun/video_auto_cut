@@ -1,4 +1,8 @@
 import { AudioExtractError } from "./audio-extract";
+import {
+  getFriendlyBrowserAudioPipelineErrorMessage,
+  isBrowserAudioPipelineCompatibilityError,
+} from "./browser-audio-pipeline-error.ts";
 import { UploadSourcePreflightError } from "./upload-source-preflight";
 
 const FLUSHING_ERROR_RE = /\bflushing error\b/i;
@@ -17,6 +21,9 @@ export function getFriendlyUploadErrorMessage(error: unknown): string {
     const message = error.message.trim();
     if (!message) {
       return "上传失败，请稍后重试。";
+    }
+    if (isBrowserAudioPipelineCompatibilityError(message)) {
+      return getFriendlyBrowserAudioPipelineErrorMessage("upload");
     }
     if (FLUSHING_ERROR_RE.test(message) || BROWSER_PIPELINE_ERROR_RE.test(message)) {
       return "浏览器本地视频编码器初始化失败。请刷新页面后重试；如果仍失败，请改用最新版 Chrome，或先转成 H.264/AAC 的 MP4 后再上传。";

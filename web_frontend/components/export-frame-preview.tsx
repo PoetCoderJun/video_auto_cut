@@ -21,6 +21,9 @@ import {
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
+  getSubtitleThemeFitWidth,
+  getSubtitleThemeRenderFontSize,
+  isTextSubtitleTheme,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "@/lib/remotion/typography";
@@ -320,6 +323,7 @@ export default function ExportFramePreview({
     });
     const subtitleBoxedTheme =
       subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
+    const subtitleThemeIsText = isTextSubtitleTheme(subtitleTheme);
     const subtitleBoxMaxWidth = Math.max(
       1,
       width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio
@@ -328,6 +332,12 @@ export default function ExportFramePreview({
       1,
       subtitleBoxMaxWidth - (subtitleBoxedTheme ? typography.subtitlePaddingX * 2 : 0)
     );
+    const subtitleFitMaxWidth = getSubtitleThemeFitWidth({
+      maxWidth: subtitleTextMaxWidth,
+      subtitleScale: safeSubtitleScale,
+      isTextTheme: subtitleThemeIsText,
+    });
+    const subtitleLayoutTypography = subtitleThemeIsText ? baseTypography : typography;
     const normalizedTopics = input.topics
       .filter((topic) => Number.isFinite(topic.start) && Number.isFinite(topic.end) && topic.end > topic.start)
       .slice()
@@ -449,16 +459,20 @@ export default function ExportFramePreview({
       showSubtitles: normalizedControls.showSubtitles,
       showProgress: normalizedControls.showProgress,
       showChapter: normalizedControls.showChapter,
+      subtitleSafeScale: safeSubtitleScale,
+      subtitleFitMaxWidth,
+      subtitleThemeIsText,
+      subtitleLayoutTypography,
     };
   }, [clampedPreviewTime, config, overlayControls, subtitleTheme, totalDuration]);
 
-  const subtitleInitialFontSize = previewModel?.typography.subtitleFontSize ?? 0;
+  const subtitleInitialFontSize = previewModel?.subtitleLayoutTypography.subtitleFontSize ?? 0;
   const subtitleRenderText = previewModel?.activeCaption?.displayText ?? "";
   const subtitleMinFontSize = previewModel
     ? Math.max(
         previewModel.composition.height > previewModel.composition.width ? 23 : 26,
         Math.floor(
-          previewModel.typography.subtitleFontSize *
+          previewModel.subtitleLayoutTypography.subtitleFontSize *
             (previewModel.composition.height > previewModel.composition.width ? 0.44 : 0.68)
         )
       )
@@ -468,7 +482,7 @@ export default function ExportFramePreview({
       fitUniformAdaptiveTextToBox({
         items: (previewModel?.wrappedCaptions ?? []).map((caption) => ({
           text: caption.displayText,
-          maxWidth: previewModel?.subtitleTextMaxWidth ?? 1,
+          maxWidth: previewModel?.subtitleFitMaxWidth ?? 1,
         })),
         baseFontSize: subtitleInitialFontSize,
         minFontSize: subtitleMinFontSize,
@@ -478,12 +492,23 @@ export default function ExportFramePreview({
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
       }),
-    [previewModel?.subtitleTextMaxWidth, previewModel?.wrappedCaptions, subtitleInitialFontSize, subtitleMinFontSize]
+    [previewModel?.subtitleFitMaxWidth, previewModel?.wrappedCaptions, subtitleInitialFontSize, subtitleMinFontSize]
   );
   const activeCaptionLayout =
     previewModel && previewModel.activeCaptionIndex >= 0
       ? resolvedSubtitleSet.labels[previewModel.activeCaptionIndex]
       : null;
+  const subtitleRenderFontSize = useMemo(
+    () =>
+      previewModel
+        ? getSubtitleThemeRenderFontSize({
+            fittedFontSize: resolvedSubtitleSet.fontSize,
+            subtitleScale: previewModel.subtitleSafeScale,
+            isTextTheme: previewModel.subtitleThemeIsText,
+          })
+        : 0,
+    [previewModel, resolvedSubtitleSet.fontSize]
+  );
 
   const subtitleStyleOverrides = useMemo(() => {
     if (!previewModel) return {};
@@ -657,7 +682,7 @@ export default function ExportFramePreview({
                 style={{
                   boxSizing: "border-box",
                   color: "#ffffff",
-                  fontSize: resolvedSubtitleSet.fontSize,
+                  fontSize: subtitleRenderFontSize,
                   fontWeight: 700,
                   fontFamily: OVERLAY_FONT_FAMILY,
                   lineHeight: previewModel.subtitleLineHeight,

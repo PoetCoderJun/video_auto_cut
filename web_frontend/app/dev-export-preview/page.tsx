@@ -352,7 +352,6 @@ function DevExportPreviewPageInner() {
         type WebRendererVideoCodec = "h264" | "vp8" | "vp9" | "h265" | "av1";
         let container: "mp4" | "webm" = "mp4";
         let videoCodec: WebRendererVideoCodec = "h264";
-        let muted = false;
 
         if (hasMp4Audio) {
           container = "mp4";
@@ -361,12 +360,14 @@ function DevExportPreviewPageInner() {
           container = "webm";
           videoCodec = "vp8";
         } else {
-          muted = true;
+          throw new Error(
+            "No audio codec can be encoded by this browser for container mp4 or webm.",
+          );
         }
 
         setMockExport((previous) => ({
           ...previous,
-          message: muted ? "开始渲染静音 mock 导出..." : "开始渲染 mock 导出...",
+          message: "开始渲染 mock 导出...",
         }));
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -377,7 +378,6 @@ function DevExportPreviewPageInner() {
           videoCodec,
           videoBitrate: "high",
           delayRenderTimeoutInMilliseconds: WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
-          ...(muted ? {muted: true} : {}),
           onProgress: (progress) => {
             const totalFrames = Math.max(1, Number(activeConfig.composition.durationInFrames) || 1);
             const doneFrames =
@@ -391,27 +391,11 @@ function DevExportPreviewPageInner() {
           },
         };
 
-        let result: Awaited<ReturnType<typeof renderMediaOnWeb>>;
-        try {
-          result = await renderMediaOnWeb(renderOptions);
-        } catch (renderErr) {
-          const message = renderErr instanceof Error ? renderErr.message : String(renderErr);
-          if (!muted && message.includes("No audio codec can be encoded")) {
-            setMockExport((previous) => ({
-              ...previous,
-              message: "音频编码不可用，切换为静音 mock 导出...",
-            }));
-            result = await renderMediaOnWeb({...renderOptions, muted: true});
-            muted = true;
-          } else {
-            throw renderErr;
-          }
-        }
+        const result = await renderMediaOnWeb(renderOptions);
 
         return {
           blob: await result.getBlob(),
           container,
-          muted,
         };
       })();
 
@@ -428,9 +412,7 @@ function DevExportPreviewPageInner() {
       );
       setMockExport({
         status: "succeeded",
-        message: rendered.muted
-          ? "mock 导出成功（当前环境未编码音频，结果为静音文件）"
-          : "mock 导出成功",
+        message: "mock 导出成功",
         outputUrl,
         outputName: activeConfig.output_name.replace(/\.mp4$/, `.${rendered.container}`),
         frames,

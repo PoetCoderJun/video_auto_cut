@@ -24,6 +24,7 @@ from ..errors import invalid_step_state
 from ..repository import list_step1_lines
 from ..schemas import (
     AudioOssReadyRequest,
+    ClientUploadIssueReportRequest,
     CouponRedeemRequest,
     Step1ConfirmRequest,
     Step2ConfirmRequest,
@@ -135,6 +136,29 @@ def create_job_endpoint(current_user: CurrentUser = Depends(require_current_user
 def get_me_endpoint(current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
     profile = get_user_profile(current_user.user_id, current_user.email)
     return _ok({"user": profile})
+
+
+@router.post("/client/upload-issues")
+def report_client_upload_issue_endpoint(
+    payload: ClientUploadIssueReportRequest,
+    request: Request,
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    logging.warning(
+        "[web_api] client upload issue user=%s stage=%s page=%s file=%s size=%s type=%s error_name=%s error=%s friendly=%s client=%s ua=%s",
+        current_user.user_id,
+        payload.stage,
+        payload.page,
+        payload.file_name,
+        payload.file_size_bytes,
+        payload.file_type,
+        payload.error_name,
+        payload.error_message,
+        payload.friendly_message,
+        _resolve_client_ip(request),
+        payload.user_agent,
+    )
+    return _ok({"accepted": True})
 
 
 @router.post("/auth/coupon/redeem")
