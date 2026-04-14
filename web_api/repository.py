@@ -34,6 +34,7 @@ JOB_FILE_FIELDS = (
     "video_path",
     "audio_path",
     "asr_oss_key",
+    "pending_asr_oss_key",
     "optimized_srt_oss_key",
     "optimized_srt_oss_signed_url",
     "srt_path",
@@ -642,7 +643,12 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"job_id": job_id}
     for field in JOB_FILE_FIELDS:
         raw = payload.get(field)
-        if field in {"asr_oss_key", "optimized_srt_oss_key", "optimized_srt_oss_signed_url"}:
+        if field in {
+            "asr_oss_key",
+            "pending_asr_oss_key",
+            "optimized_srt_oss_key",
+            "optimized_srt_oss_signed_url",
+        }:
             result[field] = raw if isinstance(raw, str) and raw.strip() else None
         elif isinstance(raw, str) and raw.strip() and Path(raw).exists():
             result[field] = raw
@@ -997,6 +1003,8 @@ def clear_step_data(job_id: str) -> None:
 
 def _has_artifacts(files: dict[str, Any]) -> bool:
     for field in JOB_FILE_FIELDS:
+        if field == "pending_asr_oss_key":
+            continue
         value = files.get(field)
         if isinstance(value, str) and value.strip():
             return True

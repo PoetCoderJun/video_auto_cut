@@ -66,6 +66,10 @@ class Settings:
     auth_audience: str | None
     auth_jwt_leeway_seconds: int
     public_invite_credits: int
+    public_rate_limit_window_seconds: int
+    public_invite_rate_limit: int
+    public_coupon_verify_rate_limit: int
+    max_json_body_bytes: int
     web_cors_allowed_origins: tuple[str, ...]
     web_cors_allow_credentials: bool
     web_cors_allowed_methods: tuple[str, ...]
@@ -218,6 +222,14 @@ def get_settings() -> Settings:
         auth_audience=auth_audience,
         auth_jwt_leeway_seconds=max(0, int(os.getenv("WEB_AUTH_JWT_LEEWAY_SECONDS", "10"))),
         public_invite_credits=max(1, int(os.getenv("PUBLIC_INVITE_CREDITS", "10"))),
+        public_rate_limit_window_seconds=max(
+            1, int(os.getenv("WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS", "60"))
+        ),
+        public_invite_rate_limit=max(1, int(os.getenv("WEB_PUBLIC_INVITE_RATE_LIMIT", "5"))),
+        public_coupon_verify_rate_limit=max(
+            1, int(os.getenv("WEB_PUBLIC_COUPON_VERIFY_RATE_LIMIT", "30"))
+        ),
+        max_json_body_bytes=max(1024, int(os.getenv("WEB_MAX_JSON_BODY_BYTES", "1048576"))),
         web_cors_allowed_origins=parse_csv(cors_origins_raw),
         web_cors_allow_credentials=os.getenv("WEB_CORS_ALLOW_CREDENTIALS", "1").strip().lower()
         in {"1", "true", "yes"},

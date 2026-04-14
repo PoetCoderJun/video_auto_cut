@@ -11,7 +11,7 @@ from fastapi import UploadFile
 from ..config import ensure_job_dirs, get_settings
 from ..constants import JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY, PROGRESS_UPLOAD_READY
 from ..errors import invalid_step_state, not_found, upload_too_large
-from ..repository import create_job, get_job, upsert_job_files, update_job
+from ..repository import create_job, get_job, get_job_files, upsert_job_files, update_job
 from ..utils.media import validate_audio_extension
 from .oss_presign import get_oss_uploader
 
@@ -93,7 +93,12 @@ async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
             logging.exception("[web_api] audio upload to OSS failed job=%s filename=%s", job_id, raw_name)
             raise invalid_step_state("音频上传失败，请稍后重试。") from exc
 
-        upsert_job_files(job_id, audio_path=None, asr_oss_key=uploaded.object_key)
+        upsert_job_files(
+            job_id,
+            audio_path=None,
+            asr_oss_key=uploaded.object_key,
+            pending_asr_oss_key=None,
+        )
         update_job(
             job_id,
             status=JOB_STATUS_UPLOAD_READY,
@@ -123,7 +128,23 @@ async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
 
 def mark_audio_oss_ready(job_id: str, object_key: str) -> dict:
     """Mark job as ready after client uploaded audio directly to OSS."""
-    upsert_job_files(job_id, asr_oss_key=object_key)
+    files = get_job_files(job_id) or {}
+    expected_object_key = str(files.get("pending_asr_oss_key") or "").strip()
+    normalized_object_key = str(object_key or "").strip()
+    if not expected_object_key:
+        raise invalid_step_state("请重新获取上传地址后，再确认上传完成")
+    if normalized_object_key != expected_object_key:
+        raise invalid_step_state("上传对象校验失败，请重新上传后重试")
+
+    upsert_job_files(
+        job_id,
+        asr_oss_key=normalized_object_key,
+        pending_asr_oss_key=None,
+    )
     update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
-    logging.info("[web_api] audio OSS upload ready job=%s object_key=%s", job_id, object_key)
-    return {"object_key": object_key}
+    logging.info(
+        "[web_api] audio OSS upload ready job=%s object_key=%s",
+        job_id,
+        normalized_object_key,
+    )
+    return {"object_key": normalized_object_key}

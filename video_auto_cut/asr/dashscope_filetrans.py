@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -478,6 +479,9 @@ class DashScopeFiletransClient:
 
     def _open_json_url(self, url: str, *, headers: dict[str, str]) -> dict[str, Any]:
         logging.info("[asr] dashscope open result url=%s", url)
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            raise RuntimeError("DashScope transcription result URL is invalid.")
         last_error: Exception | None = None
         for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
             req = urllib.request.Request(url=url, headers=headers, method="GET")

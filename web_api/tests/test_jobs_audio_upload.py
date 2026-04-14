@@ -69,6 +69,7 @@ class JobsAudioUploadTest(unittest.TestCase):
             {
                 "audio_path": None,
                 "asr_oss_key": "video-auto-cut/asr/job_123/audio.wav",
+                "pending_asr_oss_key": None,
             },
         )
         mock_update_job.assert_called_once_with(

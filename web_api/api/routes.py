@@ -21,7 +21,7 @@ from ..constants import (
     TASK_TYPE_STEP2,
 )
 from ..errors import invalid_step_state
-from ..repository import list_step1_lines
+from ..repository import list_step1_lines, upsert_job_files
 from ..schemas import (
     AudioOssReadyRequest,
     ClientUploadIssueReportRequest,
@@ -216,6 +216,7 @@ def get_oss_upload_url(
             detail="Direct OSS upload unavailable. Audio will be uploaded via API instead.",
         )
     put_url, object_key = get_presigned_put_url_for_job(job_id, suffix=suffix)
+    upsert_job_files(job_id, pending_asr_oss_key=object_key)
     return _ok({"put_url": put_url, "object_key": object_key})
 
 

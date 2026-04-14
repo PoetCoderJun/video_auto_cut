@@ -16,6 +16,7 @@
 
 ## Done
 - 2026-03-25: 初始化需求 todo 文档，并约定由代理持续维护。
+- 2026-04-14: 修复 OSS 直传确认绑定、公共端点限流、JSON 请求体大小约束和 DashScope 结果 URL scheme 校验，收敛对象串改、暴力刷接口与本地文件读取风险。相关路径：`web_api/api/routes.py`、`web_api/services/jobs.py`、`web_api/app.py`、`web_api/schemas.py`、`video_auto_cut/asr/dashscope_filetrans.py`
 - 2026-04-14: 修复 `claim_next_task()` 对 Turso 瞬时错误的函数内自动重试风险，避免队列领取在提交边界重复回放；保留 worker loop 外层重试。相关路径：`web_api/task_queue.py`、`web_api/tests/test_task_queue.py`
 - 2026-04-13: 补充 `README.md` 的 Quick Start，新增 `uv` / `pi` 安装方式与 `.env` 凭证加载说明，并注明当前仓库尚未切到 `uv sync` 项目结构。相关路径：`README.md`
 - 2026-04-13: 修复浏览器端 `AudioData.copyTo(...f32-planar)` 兼容异常导致的上传/导出报错，补充音频链路识别与友好提示；上传前能力校验改为逐项兜底。相关路径：`web_frontend/lib/browser-audio-pipeline-error.ts`、`web_frontend/lib/upload-render-validation.ts`、`web_frontend/lib/remotion/rendering.ts`、`web_frontend/components/job-workspace.tsx`

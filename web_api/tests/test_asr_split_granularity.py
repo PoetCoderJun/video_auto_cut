@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from video_auto_cut.asr.dashscope_filetrans import (
     DashScopeFiletransClient,
@@ -51,6 +52,14 @@ class AsrSplitGranularityTest(unittest.TestCase):
         self.assertEqual(len(pieces), 2)
         self.assertEqual(pieces[0].text, "打开网站，")
         self.assertEqual(pieces[1].text, "上传视频。")
+
+    def test_open_json_url_rejects_non_http_scheme(self) -> None:
+        client = _client()
+        with patch("video_auto_cut.asr.dashscope_filetrans.urllib.request.urlopen") as mock_urlopen:
+            with self.assertRaises(RuntimeError) as ctx:
+                client._open_json_url("file:///etc/passwd", headers={})
+        self.assertIn("invalid", str(ctx.exception).lower())
+        mock_urlopen.assert_not_called()
 
 
 if __name__ == "__main__":
