@@ -1,0 +1,1 @@
+"""Delete skill scripts."""

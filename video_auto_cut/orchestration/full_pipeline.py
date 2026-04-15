@@ -96,21 +96,8 @@ def _build_pipeline_options(
     return PipelineOptions(
         encoding=args.encoding,
         force=bool(args.force),
-        device=args.device,
         lang=args.lang,
         prompt=args.prompt,
-        qwen3_model=args.qwen3_model,
-        qwen3_aligner=args.qwen3_aligner,
-        qwen3_language=args.qwen3_language,
-        qwen3_use_modelscope=bool(args.qwen3_use_modelscope),
-        qwen3_offline=bool(args.qwen3_offline),
-        qwen3_gap=float(args.qwen3_gap),
-        qwen3_max_seg=float(args.qwen3_max_seg),
-        qwen3_max_chars=int(args.qwen3_max_chars),
-        qwen3_no_speech_gap=float(args.qwen3_no_speech_gap),
-        qwen3_use_punct=bool(args.qwen3_use_punct),
-        qwen3_correct=bool(args.qwen3_correct),
-        qwen3_correct_max_diff_ratio=float(args.qwen3_correct_max_diff_ratio),
         llm_base_url=_resolve_llm_base_url(args),
         llm_model=_resolve_llm_model(args),
         llm_api_key=_resolve_llm_api_key(args),
@@ -156,7 +143,6 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Force rerun even if intermediate/final outputs already exist",
     )
-    parser.add_argument("--device", type=str, default="cpu", choices=["cpu", "cuda", "mps"])
     parser.add_argument(
         "--lang",
         type=str,
@@ -164,50 +150,6 @@ def _parse_args() -> argparse.Namespace:
         help="ASR language, e.g. Chinese/English or zh/en alias (default: Chinese)",
     )
     parser.add_argument("--prompt", type=str, default="")
-
-    parser.add_argument("--qwen3-model", type=str, default="./model/Qwen3-ASR-0.6B")
-    parser.add_argument(
-        "--qwen3-aligner",
-        type=str,
-        default="./model/Qwen3-ForcedAligner-0.6B",
-    )
-    parser.add_argument(
-        "--qwen3-language",
-        type=str,
-        default=None,
-        help="Override ASR language; supports canonical names and zh/en aliases",
-    )
-    parser.add_argument(
-        "--qwen3-use-modelscope",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
-    parser.add_argument(
-        "--qwen3-offline",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument("--qwen3-gap", type=float, default=0.6)
-    parser.add_argument("--qwen3-max-seg", type=float, default=20.0)
-    parser.add_argument("--qwen3-max-chars", type=int, default=0)
-    parser.add_argument("--qwen3-no-speech-gap", type=float, default=1.0)
-    parser.add_argument(
-        "--qwen3-use-punct",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-    )
-    parser.add_argument(
-        "--qwen3-correct",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Use LLM to correct ASR subtitles right after transcription.",
-    )
-    parser.add_argument(
-        "--qwen3-correct-max-diff-ratio",
-        type=float,
-        default=0.3,
-        help="Reject corrected subtitle text if length deviates too much from original.",
-    )
 
     parser.add_argument("--llm-base-url", type=str, default=None)
     parser.add_argument("--llm-model", type=str, default=None)

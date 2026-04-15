@@ -1,4 +1,1 @@
-from .auto_edit import AutoEdit
-from .topic_segment import TopicSegmenter
-
-__all__ = ["AutoEdit", "TopicSegmenter"]
+"""Video auto cut editing package."""
