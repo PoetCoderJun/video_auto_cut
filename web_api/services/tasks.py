@@ -7,23 +7,18 @@ from ..constants import (
     JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_FAILED,
     JOB_STATUS_STEP1_RUNNING,
-    JOB_STATUS_STEP2_RUNNING,
     JOB_STATUS_UPLOAD_READY,
     PROGRESS_UPLOAD_READY,
-    PROGRESS_STEP2_RUNNING,
     PROGRESS_STEP1_RUNNING,
     TASK_TYPE_STEP1,
-    TASK_TYPE_STEP2,
 )
 from ..repository import update_job
 from ..task_queue import enqueue_task, get_queue_db_path, set_task_failed, set_task_succeeded
 from .step1 import run_step1
-from .step2 import run_step2
 
 
 TASK_DISPATCH = {
     TASK_TYPE_STEP1: run_step1,
-    TASK_TYPE_STEP2: run_step2,
 }
 
 
@@ -40,7 +35,6 @@ def _is_missing_job_file_error(exc: Exception) -> bool:
         "job files missing" in message
         or "job files not found" in message
         or "upload audio missing" in message
-        or "final_step1.srt missing" in message
     )
 
 
@@ -73,12 +67,7 @@ def queue_job_task(job_id: str, task_type: str) -> int:
         status = JOB_STATUS_STEP1_RUNNING
         progress = PROGRESS_STEP1_RUNNING
         stage_code = "STEP1_QUEUED"
-        stage_message = "上传完成，正在启动语音转写..."
-    elif task_type == TASK_TYPE_STEP2:
-        status = JOB_STATUS_STEP2_RUNNING
-        progress = PROGRESS_STEP2_RUNNING
-        stage_code = "STEP2_QUEUED"
-        stage_message = "字幕已确认，正在启动章节整理..."
+        stage_message = "上传完成，正在启动字幕和章节生成..."
     else:
         raise RuntimeError(f"unsupported task type: {task_type}")
 

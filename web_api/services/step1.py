@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import fcntl
 import logging
 from pathlib import Path
+from contextlib import contextmanager
+from typing import Any
 
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit, run_transcribe
 from video_auto_cut.asr.oss_uploader import OSSAudioUploader
+from video_auto_cut.editing.chapter_domain import (
+    build_document_revision,
+    canonicalize_step1_chapters,
+    kept_step1_lines,
+)
 
 from ..config import ensure_job_dirs, get_settings
 from ..constants import (
@@ -17,6 +25,9 @@ from ..constants import (
 )
 from ..repository import (
     get_job_owner_user_id,
+    list_step1_chapters,
+    list_step1_lines,
+    replace_step1_chapters,
     replace_step1_lines,
     update_job,
     upsert_job_files,
@@ -26,9 +37,11 @@ from ..utils.srt_utils import (
     build_step1_lines_from_json,
     write_final_step1_srt,
     write_step1_json,
+    write_topics_json,
 )
 from .billing import has_available_credits
 from .pipeline_options import build_pipeline_options
+from .step2 import generate_step1_chapters
 
 
 def run_step1(job_id: str) -> None:
@@ -131,30 +144,35 @@ def run_step1(job_id: str) -> None:
     if not lines:
         raise RuntimeError("step1 produced empty line list")
 
-    final_step1_srt = dirs["step1"] / "final_step1.srt"
-    final_step1_json = dirs["step1"] / "final_step1.json"
-    write_final_step1_srt(lines, final_step1_srt, DEFAULT_ENCODING)
-    write_step1_json(lines, final_step1_json)
-
     replace_step1_lines(job_id, lines)
     update_job(
         job_id,
         status=JOB_STATUS_STEP1_RUNNING,
         progress=34,
-        stage_code="PREPARING_STEP1_REVIEW",
-        stage_message="正在整理字幕结果...",
+        stage_code="GENERATING_CHAPTERS",
+        stage_message="正在生成章节结构...",
     )
+
+    kept_lines = kept_step1_lines(lines)
+    chapters_draft_path = dirs["step1"] / "chapters_draft.json"
+    chapters = generate_step1_chapters(
+        source_srt=optimized_srt_path,
+        output_path=chapters_draft_path,
+        kept_lines=kept_lines,
+    )
+    replace_step1_chapters(job_id, chapters)
+
     upsert_job_files(
         job_id,
         srt_path=str(srt_path),
         optimized_srt_path=str(optimized_srt_path),
+        chapters_draft_path=str(chapters_draft_path),
         optimized_srt_oss_key=(
             optimized_srt_upload.get("object_key") if optimized_srt_upload else None
         ),
         optimized_srt_oss_signed_url=(
             optimized_srt_upload.get("signed_url") if optimized_srt_upload else None
         ),
-        final_step1_srt_path=str(final_step1_srt),
     )
 
     update_job(
@@ -162,7 +180,7 @@ def run_step1(job_id: str) -> None:
         status=JOB_STATUS_STEP1_READY,
         progress=PROGRESS_STEP1_READY,
         stage_code="STEP1_READY",
-        stage_message="字幕已生成，请确认内容。",
+        stage_message="字幕和章节已生成，请确认内容。",
     )
 
 
@@ -229,30 +247,78 @@ def _upload_optimized_srt_to_oss(job_id: str, optimized_srt_path: Path) -> dict[
     }
 
 
-def confirm_step1(job_id: str, updates: list[dict[str, object]]) -> list[dict[str, object]]:
-    from ..repository import list_step1_lines
+def get_step1_document(job_id: str) -> dict[str, Any]:
+    lines = list_step1_lines(job_id)
+    chapters = list_step1_chapters(job_id)
+    return {
+        "lines": lines,
+        "chapters": chapters,
+        "document_revision": build_document_revision(lines, chapters),
+    }
 
-    existing = list_step1_lines(job_id)
-    if not existing:
-        raise RuntimeError("step1 lines not found")
 
-    by_id = {int(item["line_id"]): dict(item) for item in existing}
-    for item in updates:
-        line_id = int(item["line_id"])
-        if line_id not in by_id:
-            raise RuntimeError(f"invalid line_id: {line_id}")
-        by_id[line_id]["optimized_text"] = str(item.get("optimized_text", "")).strip()
-        by_id[line_id]["user_final_remove"] = bool(item.get("user_final_remove", False))
-
-    lines = [by_id[key] for key in sorted(by_id)]
-    replace_step1_lines(job_id, lines)
-
+def confirm_step1(
+    job_id: str,
+    updates: list[dict[str, object]],
+    chapters: list[dict[str, object]],
+    *,
+    expected_revision: str,
+) -> dict[str, Any]:
     dirs = ensure_job_dirs(job_id)
-    final_step1_srt = dirs["step1"] / "final_step1.srt"
-    final_step1_json = dirs["step1"] / "final_step1.json"
-    write_final_step1_srt(lines, final_step1_srt, DEFAULT_ENCODING)
-    write_step1_json(lines, final_step1_json)
+    with _step1_confirm_lock(dirs["step1"] / ".confirm.lock"):
+        existing = list_step1_lines(job_id)
+        if not existing:
+            raise RuntimeError("step1 lines not found")
+        existing_chapters = list_step1_chapters(job_id)
+        actual_revision = build_document_revision(existing, existing_chapters)
+        if str(expected_revision or "").strip() != actual_revision:
+            raise RuntimeError("step1 document revision conflict")
 
-    upsert_job_files(job_id, final_step1_srt_path=str(final_step1_srt))
-    update_job(job_id, status=JOB_STATUS_STEP1_CONFIRMED, progress=PROGRESS_STEP1_CONFIRMED)
-    return lines
+        by_id = {int(item["line_id"]): dict(item) for item in existing}
+        for item in updates:
+            line_id = int(item["line_id"])
+            if line_id not in by_id:
+                raise RuntimeError(f"invalid line_id: {line_id}")
+            by_id[line_id]["optimized_text"] = str(item.get("optimized_text", "")).strip()
+            by_id[line_id]["user_final_remove"] = bool(item.get("user_final_remove", False))
+
+        lines = [by_id[key] for key in sorted(by_id)]
+        kept_lines = kept_step1_lines(lines)
+        normalized_chapters = canonicalize_step1_chapters(chapters, kept_lines)
+
+        final_step1_srt = dirs["step1"] / "final_step1.srt"
+        final_step1_json = dirs["step1"] / "final_step1.json"
+        final_chapters = dirs["step1"] / "final_chapters.json"
+        write_final_step1_srt(lines, final_step1_srt, DEFAULT_ENCODING)
+        write_step1_json(lines, final_step1_json)
+        write_topics_json(normalized_chapters, final_chapters)
+
+        upsert_job_files(
+            job_id,
+            final_step1_json_path=str(final_step1_json),
+            final_step1_srt_path=str(final_step1_srt),
+            final_chapters_path=str(final_chapters),
+        )
+        update_job(
+            job_id,
+            status=JOB_STATUS_STEP1_CONFIRMED,
+            progress=PROGRESS_STEP1_CONFIRMED,
+            stage_code="EXPORT_READY",
+            stage_message="字幕和章节已确认，正在准备导出...",
+        )
+        return {
+            "lines": lines,
+            "chapters": normalized_chapters,
+            "document_revision": build_document_revision(lines, normalized_chapters),
+        }
+
+
+@contextmanager
+def _step1_confirm_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

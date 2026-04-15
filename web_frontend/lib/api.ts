@@ -4,9 +4,6 @@ export type JobStatus =
   | "STEP1_RUNNING"
   | "STEP1_READY"
   | "STEP1_CONFIRMED"
-  | "STEP2_RUNNING"
-  | "STEP2_READY"
-  | "STEP2_CONFIRMED"
   | "SUCCEEDED"
   | "FAILED";
 
@@ -35,6 +32,14 @@ export type Chapter = {
   end: number;
   block_range: string;
 };
+
+export type Step1Document = {
+  lines: Step1Line[];
+  chapters: Chapter[];
+  document_revision: string;
+};
+
+export type Step1ConfirmChapter = Pick<Chapter, "chapter_id" | "title" | "block_range">;
 
 export type RenderCaption = {
   index: number;
@@ -550,40 +555,34 @@ export async function runStep1(jobId: string): Promise<QueueAccepted> {
   return requestAuthed<QueueAccepted>(`/jobs/${jobId}/step1/run`, {method: "POST"});
 }
 
-export async function getStep1(jobId: string): Promise<Step1Line[]> {
-  const data = await requestAuthed<{lines: Step1Line[]}>(`/jobs/${jobId}/step1`);
-  return data.lines;
+export async function getStep1(jobId: string): Promise<Step1Document> {
+  return requestAuthed<Step1Document>(`/jobs/${jobId}/step1`);
 }
 
-export async function confirmStep1(jobId: string, lines: Step1Line[]): Promise<JobStatus> {
+export async function confirmStep1(
+  jobId: string,
+  payload: {
+    lines: Step1Line[];
+    chapters: Step1ConfirmChapter[];
+    expectedRevision: string;
+  }
+): Promise<JobStatus> {
   const data = await requestAuthed<{confirmed: boolean; status: JobStatus}>(`/jobs/${jobId}/step1/confirm`, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({
-      lines: lines.map((line) => ({
+      lines: payload.lines.map((line) => ({
         line_id: line.line_id,
         optimized_text: line.optimized_text,
         user_final_remove: line.user_final_remove,
       })),
+      chapters: payload.chapters.map((chapter) => ({
+        chapter_id: chapter.chapter_id,
+        title: chapter.title,
+        block_range: chapter.block_range,
+      })),
+      expected_revision: payload.expectedRevision,
     }),
-  });
-  return data.status;
-}
-
-export async function runStep2(jobId: string): Promise<QueueAccepted> {
-  return requestAuthed<QueueAccepted>(`/jobs/${jobId}/step2/run`, {method: "POST"});
-}
-
-export async function getStep2(jobId: string): Promise<Chapter[]> {
-  const data = await requestAuthed<{chapters: Chapter[]}>(`/jobs/${jobId}/step2`);
-  return data.chapters;
-}
-
-export async function confirmStep2(jobId: string, chapters: Chapter[]): Promise<JobStatus> {
-  const data = await requestAuthed<{confirmed: boolean; status: JobStatus}>(`/jobs/${jobId}/step2/confirm`, {
-    method: "PUT",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({chapters}),
   });
   return data.status;
 }

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from web_api.config import get_settings
-from web_api.constants import JOB_STATUS_STEP2_CONFIRMED, JOB_STATUS_SUCCEEDED
+from web_api.constants import JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_SUCCEEDED
 from web_api.db import get_conn, init_db
 from web_api.repository import create_job, get_job, now_iso, update_job
 from web_api.services.render_completion import mark_render_success
@@ -43,7 +43,9 @@ class RenderCompletionTests(unittest.TestCase):
         step1_dir.mkdir(parents=True, exist_ok=True)
         (step1_dir / "final_step1.json").write_text("[]", encoding="utf-8")
         (step1_dir / "final_step1.srt").write_text("", encoding="utf-8")
-        update_job(job_id, status=JOB_STATUS_STEP2_CONFIRMED)
+        (step1_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","start":0.0,"end":1.0,"block_range":"1"}]}', encoding="utf-8")
+        (step1_dir / ".confirmed").touch()
+        update_job(job_id, status=JOB_STATUS_STEP1_CONFIRMED)
 
         with get_conn() as conn:
             conn.execute(
@@ -93,7 +95,9 @@ class RenderCompletionTests(unittest.TestCase):
         step1_dir.mkdir(parents=True, exist_ok=True)
         (step1_dir / "final_step1.json").write_text("[]", encoding="utf-8")
         (step1_dir / "final_step1.srt").write_text("", encoding="utf-8")
-        update_job(job_id, status=JOB_STATUS_STEP2_CONFIRMED)
+        (step1_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","start":0.0,"end":1.0,"block_range":"1"}]}', encoding="utf-8")
+        (step1_dir / ".confirmed").touch()
+        update_job(job_id, status=JOB_STATUS_STEP1_CONFIRMED)
 
         with self.assertRaises(RuntimeError) as ctx:
             mark_render_success(job_id)
@@ -101,7 +105,7 @@ class RenderCompletionTests(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "额度不足，请先兑换邀请码后重试")
         job = get_job(job_id, owner_user_id=user_id)
         self.assertIsNotNone(job)
-        self.assertEqual(job["status"], JOB_STATUS_STEP2_CONFIRMED)
+        self.assertEqual(job["status"], JOB_STATUS_STEP1_CONFIRMED)
 
 
 if __name__ == "__main__":

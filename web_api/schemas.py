@@ -3,12 +3,13 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 MAX_STEP1_CONFIRM_LINES = 5000
-MAX_STEP2_CONFIRM_CHAPTERS = 1000
+MAX_STEP1_CONFIRM_CHAPTERS = 1000
 MAX_STEP_TEXT_LENGTH = 1000
 MAX_CHAPTER_TITLE_LENGTH = 120
 MAX_BLOCK_RANGE_LENGTH = 64
 MAX_CODE_LENGTH = 64
 MAX_OBJECT_KEY_LENGTH = 1024
+MAX_REVISION_LENGTH = 128
 
 
 class Step1ConfirmLine(BaseModel):
@@ -17,28 +18,24 @@ class Step1ConfirmLine(BaseModel):
     user_final_remove: bool
 
 
+class Step1ConfirmChapter(BaseModel):
+    chapter_id: int = Field(..., ge=1)
+    title: str = Field(default="", max_length=MAX_CHAPTER_TITLE_LENGTH)
+    block_range: str = Field(default="", min_length=1, max_length=MAX_BLOCK_RANGE_LENGTH)
+
+
 class Step1ConfirmRequest(BaseModel):
     lines: list[Step1ConfirmLine] = Field(
         ...,
         min_length=1,
         max_length=MAX_STEP1_CONFIRM_LINES,
     )
-
-
-class Step2ConfirmChapter(BaseModel):
-    chapter_id: int = Field(..., ge=1)
-    title: str = Field(default="", max_length=MAX_CHAPTER_TITLE_LENGTH)
-    start: float = Field(..., ge=0)
-    end: float = Field(..., ge=0)
-    block_range: str = Field(default="", min_length=1, max_length=MAX_BLOCK_RANGE_LENGTH)
-
-
-class Step2ConfirmRequest(BaseModel):
-    chapters: list[Step2ConfirmChapter] = Field(
+    chapters: list[Step1ConfirmChapter] = Field(
         ...,
         min_length=1,
-        max_length=MAX_STEP2_CONFIRM_CHAPTERS,
+        max_length=MAX_STEP1_CONFIRM_CHAPTERS,
     )
+    expected_revision: str = Field(..., min_length=1, max_length=MAX_REVISION_LENGTH)
 
 
 class CouponRedeemRequest(BaseModel):

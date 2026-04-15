@@ -256,7 +256,6 @@ def ensure_job_dirs(job_id: str) -> dict[str, Path]:
         "base": base,
         "input": base / "input",
         "step1": base / "step1",
-        "step2": base / "step2",
         "render": base / "render",
     }
     for path in paths.values():

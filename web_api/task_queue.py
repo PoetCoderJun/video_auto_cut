@@ -12,7 +12,6 @@ from .constants import (
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
     TASK_TYPE_STEP1,
-    TASK_TYPE_STEP2,
 )
 from .db import get_conn, retry_turso_operation
 
@@ -195,7 +194,7 @@ def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
 
 @retry_turso_operation("enqueue task")
 def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = None) -> int:
-    if task_type not in {TASK_TYPE_STEP1, TASK_TYPE_STEP2}:
+    if task_type != TASK_TYPE_STEP1:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
     now = _now_iso()

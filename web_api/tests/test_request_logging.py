@@ -25,7 +25,7 @@ class RequestLoggingTest(unittest.TestCase):
         self.assertTrue(_should_suppress_request_log("OPTIONS", "/api/v1/jobs/job_123"))
         self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123"))
         self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/step1"))
-        self.assertFalse(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/step2"))
+        self.assertFalse(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/render/config"))
         self.assertFalse(_should_suppress_request_log("POST", "/api/v1/jobs/job_123/step1/run"))
 
     def test_access_log_filter_drops_polling_access_logs(self) -> None:

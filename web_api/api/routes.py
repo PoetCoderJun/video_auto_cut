@@ -10,24 +10,19 @@ from ..constants import (
     JOB_STATUS_CREATED,
     JOB_STATUS_STEP1_CONFIRMED,
     JOB_STATUS_STEP1_READY,
-    JOB_STATUS_STEP2_CONFIRMED,
-    JOB_STATUS_STEP2_READY,
     JOB_STATUS_SUCCEEDED,
     JOB_STATUS_UPLOAD_READY,
     RENDER_GET_ALLOWED_STATUSES,
     STEP1_GET_ALLOWED_STATUSES,
-    STEP2_GET_ALLOWED_STATUSES,
     TASK_TYPE_STEP1,
-    TASK_TYPE_STEP2,
 )
 from ..errors import invalid_step_state
-from ..repository import list_step1_lines, upsert_job_files
+from ..repository import upsert_job_files
 from ..schemas import (
     AudioOssReadyRequest,
     ClientUploadIssueReportRequest,
     CouponRedeemRequest,
     Step1ConfirmRequest,
-    Step2ConfirmRequest,
 )
 from ..services.jobs import (
     create_new_job,
@@ -47,8 +42,7 @@ from ..services.billing import (
     require_active_user,
     redeem_coupon_for_user,
 )
-from ..services.step1 import confirm_step1
-from ..services.step2 import confirm_step2, get_step2
+from ..services.step1 import confirm_step1, get_step1_document
 from ..services.tasks import queue_job_task
 from ..services.render_completion import mark_render_success
 from ..services.render_web import build_web_render_config
@@ -286,14 +280,15 @@ def step1_run(job_id: str, current_user: CurrentUser = Depends(require_current_u
 def step1_get(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, STEP1_GET_ALLOWED_STATUSES)
-    lines = list_step1_lines(job_id)
+    document = get_step1_document(job_id)
     logging.debug(
-        "[web_api] route=step1_get user=%s job=%s line_count=%s",
+        "[web_api] route=step1_get user=%s job=%s line_count=%s chapter_count=%s",
         current_user.user_id,
         job_id,
-        len(lines),
+        len(document["lines"]),
+        len(document["chapters"]),
     )
-    return _ok({"lines": lines})
+    return _ok(document)
 
 
 @router.put("/jobs/{job_id}/step1/confirm")
@@ -301,59 +296,31 @@ def step1_confirm(
     job_id: str, request: Step1ConfirmRequest, current_user: CurrentUser = Depends(require_current_user)
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP1_READY, JOB_STATUS_STEP2_READY})
+    require_status(job, {JOB_STATUS_STEP1_READY})
     lines = [item.model_dump() for item in request.lines]
+    chapters = [item.model_dump() for item in request.chapters]
     if not lines:
         raise invalid_step_state("lines cannot be empty")
-    confirm_step1(job_id, lines)
+    if not chapters:
+        raise invalid_step_state("chapters cannot be empty")
+    try:
+        confirmed = confirm_step1(
+            job_id,
+            lines,
+            chapters,
+            expected_revision=request.expected_revision,
+        )
+    except RuntimeError as exc:
+        raise invalid_step_state(str(exc)) from exc
     job = load_job_or_404(job_id, current_user.user_id)
     logging.info(
-        "[web_api] route=step1_confirm user=%s job=%s line_count=%s",
+        "[web_api] route=step1_confirm user=%s job=%s line_count=%s chapter_count=%s",
         current_user.user_id,
         job_id,
         len(lines),
+        len(chapters),
     )
-    return _ok({"confirmed": True, "status": job["status"]})
-
-
-@router.post("/jobs/{job_id}/step2/run")
-def step2_run(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
-    job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP1_CONFIRMED})
-    try:
-        task_id = queue_job_task(job_id, TASK_TYPE_STEP2)
-    except RuntimeError as exc:
-        raise invalid_step_state(str(exc)) from exc
-    latest = load_job_or_404(job_id, current_user.user_id)
-    logging.info(
-        "[web_api] route=step2_run user=%s job=%s task_id=%s",
-        current_user.user_id,
-        job_id,
-        task_id,
-    )
-    return _ok({"accepted": True, "task_id": task_id, "job": latest})
-
-
-@router.get("/jobs/{job_id}/step2")
-def step2_get(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
-    job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, STEP2_GET_ALLOWED_STATUSES)
-    chapters = get_step2(job_id)
-    return _ok({"chapters": chapters})
-
-
-@router.put("/jobs/{job_id}/step2/confirm")
-def step2_confirm(
-    job_id: str, request: Step2ConfirmRequest, current_user: CurrentUser = Depends(require_current_user)
-) -> dict[str, Any]:
-    job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP2_READY})
-    chapters = [item.model_dump() for item in request.chapters]
-    if not chapters:
-        raise invalid_step_state("chapters cannot be empty")
-    confirm_step2(job_id, chapters)
-    job = load_job_or_404(job_id, current_user.user_id)
-    return _ok({"confirmed": True, "status": job["status"]})
+    return _ok({"confirmed": True, "status": job["status"], "document_revision": confirmed["document_revision"]})
 
 
 @router.get("/jobs/{job_id}/render/config")
@@ -389,7 +356,7 @@ def render_complete(
 ) -> dict[str, Any]:
     require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP2_CONFIRMED, JOB_STATUS_SUCCEEDED})
+    require_status(job, {JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_SUCCEEDED})
     try:
         billing = mark_render_success(job_id)
     except RuntimeError as exc:

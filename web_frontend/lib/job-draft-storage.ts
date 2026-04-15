@@ -2,7 +2,6 @@ import type {Chapter, Step1Line, SubtitleTheme} from "./api";
 import type {OverlayScaleControls, ProgressLabelMode} from "./remotion/overlay-controls";
 
 const STEP1_DRAFT_PREFIX = "video_auto_cut_step1_draft:";
-const STEP2_DRAFT_PREFIX = "video_auto_cut_step2_draft:";
 const EXPORT_PREFS_STORAGE_KEY = "video_auto_cut_export_preferences";
 const DRAFT_SCHEMA_VERSION = 1;
 const EXPORT_PREFS_SCHEMA_VERSION = 1;
@@ -40,12 +39,8 @@ type Step1DraftPayload = {
   version: number;
   updatedAt: number;
   lines: Step1Line[];
-};
-
-type Step2DraftPayload = {
-  version: number;
-  updatedAt: number;
   chapters: Chapter[];
+  documentRevision: string;
 };
 
 type ExportPreferencesPayload = {
@@ -58,6 +53,12 @@ type ExportPreferencesPayload = {
 export type ExportPreferences = {
   subtitleTheme: SubtitleTheme;
   overlayControls: Required<OverlayScaleControls>;
+};
+
+export type Step1DraftDocument = {
+  lines: Step1Line[];
+  chapters: Chapter[];
+  documentRevision: string;
 };
 
 function getStorage(): Storage | null {
@@ -219,52 +220,33 @@ function step1Key(jobId: string): string {
   return `${STEP1_DRAFT_PREFIX}${jobId}`;
 }
 
-function step2Key(jobId: string): string {
-  return `${STEP2_DRAFT_PREFIX}${jobId}`;
-}
-
-export function saveStep1Draft(jobId: string, lines: Step1Line[]): void {
-  if (!jobId || lines.length === 0) return;
+export function saveStep1Draft(jobId: string, document: Step1DraftDocument): void {
+  if (!jobId || document.lines.length === 0) return;
   writeJson(step1Key(jobId), {
     version: DRAFT_SCHEMA_VERSION,
     updatedAt: Date.now(),
-    lines,
+    lines: document.lines,
+    chapters: document.chapters,
+    documentRevision: String(document.documentRevision || ""),
   } satisfies Step1DraftPayload);
 }
 
-export function loadStep1Draft(jobId: string): Step1Line[] | null {
+export function loadStep1Draft(jobId: string): Step1DraftDocument | null {
   if (!jobId) return null;
   const payload = readJson<Step1DraftPayload>(step1Key(jobId));
   if (!payload || payload.version !== DRAFT_SCHEMA_VERSION) return null;
   const lines = normalizeStep1Lines(payload.lines);
-  return lines.length > 0 ? lines : null;
+  if (lines.length === 0) return null;
+  return {
+    lines,
+    chapters: normalizeChapters(payload.chapters),
+    documentRevision: String(payload.documentRevision || ""),
+  };
 }
 
 export function clearStep1Draft(jobId: string): void {
   if (!jobId) return;
   removeKey(step1Key(jobId));
-}
-
-export function saveStep2Draft(jobId: string, chapters: Chapter[]): void {
-  if (!jobId || chapters.length === 0) return;
-  writeJson(step2Key(jobId), {
-    version: DRAFT_SCHEMA_VERSION,
-    updatedAt: Date.now(),
-    chapters,
-  } satisfies Step2DraftPayload);
-}
-
-export function loadStep2Draft(jobId: string): Chapter[] | null {
-  if (!jobId) return null;
-  const payload = readJson<Step2DraftPayload>(step2Key(jobId));
-  if (!payload || payload.version !== DRAFT_SCHEMA_VERSION) return null;
-  const chapters = normalizeChapters(payload.chapters);
-  return chapters.length > 0 ? chapters : null;
-}
-
-export function clearStep2Draft(jobId: string): void {
-  if (!jobId) return;
-  removeKey(step2Key(jobId));
 }
 
 export function saveExportPreferences(
@@ -296,11 +278,14 @@ export function clearExportPreferences(): void {
   removeKey(exportPrefsKey());
 }
 
-export function mergeStep1Draft(serverLines: Step1Line[], draftLines: Step1Line[] | null): Step1Line[] {
-  if (!draftLines || draftLines.length === 0) return serverLines;
-  const byId = new Map(draftLines.map((line) => [line.line_id, line] as const));
-  let changed = false;
-  const merged = serverLines.map((line) => {
+export function mergeStep1Draft(
+  serverDocument: Step1DraftDocument,
+  draftDocument: Step1DraftDocument | null
+): Step1DraftDocument {
+  if (!draftDocument || draftDocument.lines.length === 0) return serverDocument;
+  const byId = new Map(draftDocument.lines.map((line) => [line.line_id, line] as const));
+  let linesChanged = false;
+  const mergedLines = serverDocument.lines.map((line) => {
     const draft = byId.get(line.line_id);
     if (!draft) return line;
     if (
@@ -309,32 +294,40 @@ export function mergeStep1Draft(serverLines: Step1Line[], draftLines: Step1Line[
     ) {
       return line;
     }
-    changed = true;
+    linesChanged = true;
     return {
       ...line,
       optimized_text: draft.optimized_text,
       user_final_remove: draft.user_final_remove,
     };
   });
-  return changed ? merged : serverLines;
-}
-
-export function mergeStep2Draft(serverChapters: Chapter[], draftChapters: Chapter[] | null): Chapter[] {
-  if (!draftChapters || draftChapters.length === 0) return serverChapters;
-  const byId = new Map(draftChapters.map((chapter) => [chapter.chapter_id, chapter] as const));
-  let changed = false;
-  const merged = serverChapters.map((chapter) => {
-    const draft = byId.get(chapter.chapter_id);
+  const draftChapters = normalizeChapters(draftDocument.chapters);
+  const byChapterId = new Map(draftChapters.map((chapter) => [chapter.chapter_id, chapter] as const));
+  let chaptersChanged = false;
+  const mergedChapters = serverDocument.chapters.map((chapter) => {
+    const draft = byChapterId.get(chapter.chapter_id);
     if (!draft) return chapter;
     if (draft.title === chapter.title && draft.block_range === chapter.block_range) {
       return chapter;
     }
-    changed = true;
+    chaptersChanged = true;
     return {
       ...chapter,
       title: draft.title,
       block_range: draft.block_range,
     };
   });
-  return changed ? merged : serverChapters;
+  if (
+    !linesChanged &&
+    !chaptersChanged &&
+    draftDocument.documentRevision === serverDocument.documentRevision
+  ) {
+    return serverDocument;
+  }
+  return {
+    lines: linesChanged ? mergedLines : serverDocument.lines,
+    chapters: chaptersChanged ? mergedChapters : serverDocument.chapters,
+    documentRevision:
+      draftDocument.documentRevision || serverDocument.documentRevision,
+  };
 }

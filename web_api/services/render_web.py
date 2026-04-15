@@ -15,7 +15,7 @@ from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
 
 from ..config import ensure_job_dirs, get_settings
 from ..constants import DEFAULT_ENCODING
-from ..repository import get_job_files, list_step2_chapters
+from ..repository import get_job_files, list_final_step1_chapters
 
 REFERENCE_WIDTH = 1920.0
 REFERENCE_HEIGHT = 1080.0
@@ -630,7 +630,7 @@ def build_web_render_config(
     if not segments:
         raise RuntimeError("render segments missing")
 
-    topics = [_normalize_topic(item) for item in list_step2_chapters(job_id)]
+    topics = [_normalize_topic(item) for item in list_final_step1_chapters(job_id)]
     topics = [item for item in topics if item is not None]
     topics = _remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))

@@ -21,9 +21,10 @@ ARTIFACT_FIELDS = (
     "audio_path",
     "srt_path",
     "optimized_srt_path",
+    "chapters_draft_path",
+    "final_step1_json_path",
     "final_step1_srt_path",
-    "topics_path",
-    "final_topics_path",
+    "final_chapters_path",
     "final_video_path",
 )
 
@@ -160,9 +161,10 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
         optimized_srt_oss_signed_url=None,
         srt_path=None,
         optimized_srt_path=None,
+        chapters_draft_path=None,
+        final_step1_json_path=None,
         final_step1_srt_path=None,
-        topics_path=None,
-        final_topics_path=None,
+        final_chapters_path=None,
         final_video_path=None,
     )
     logging.info("[web_api] cleaned artifacts job=%s reason=%s removed_paths=%s", job_id, reason, removed)

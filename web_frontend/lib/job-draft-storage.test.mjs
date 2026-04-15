@@ -3,16 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   clearStep1Draft,
-  clearStep2Draft,
   clearExportPreferences,
   loadExportPreferences,
   loadStep1Draft,
-  loadStep2Draft,
   mergeStep1Draft,
-  mergeStep2Draft,
   saveExportPreferences,
   saveStep1Draft,
-  saveStep2Draft,
 } from "./job-draft-storage.ts";
 
 function createMockStorage() {
@@ -50,62 +46,56 @@ function withMockWindowStorage(storage = createMockStorage()) {
 test("step1 drafts save load and clear by job id", () => {
   const restoreWindow = withMockWindowStorage();
   try {
-    saveStep1Draft("job-step1", [
-      {
-        line_id: 1,
-        start: 0,
-        end: 1.2,
-        original_text: "原文",
-        optimized_text: "已修改",
-        ai_suggest_remove: false,
-        user_final_remove: true,
-      },
-    ]);
+    saveStep1Draft("job-step1", {
+      lines: [
+        {
+          line_id: 1,
+          start: 0,
+          end: 1.2,
+          original_text: "原文",
+          optimized_text: "已修改",
+          ai_suggest_remove: false,
+          user_final_remove: true,
+        },
+      ],
+      chapters: [
+        {
+          chapter_id: 1,
+          title: "开场",
+          start: 0,
+          end: 1.2,
+          block_range: "1",
+        },
+      ],
+      documentRevision: "rev-1",
+    });
 
-    assert.deepEqual(loadStep1Draft("job-step1"), [
-      {
-        line_id: 1,
-        start: 0,
-        end: 1.2,
-        original_text: "原文",
-        optimized_text: "已修改",
-        ai_suggest_remove: false,
-        user_final_remove: true,
-      },
-    ]);
+    assert.deepEqual(loadStep1Draft("job-step1"), {
+      lines: [
+        {
+          line_id: 1,
+          start: 0,
+          end: 1.2,
+          original_text: "原文",
+          optimized_text: "已修改",
+          ai_suggest_remove: false,
+          user_final_remove: true,
+        },
+      ],
+      chapters: [
+        {
+          chapter_id: 1,
+          title: "开场",
+          start: 0,
+          end: 1.2,
+          block_range: "1",
+        },
+      ],
+      documentRevision: "rev-1",
+    });
 
     clearStep1Draft("job-step1");
     assert.equal(loadStep1Draft("job-step1"), null);
-  } finally {
-    restoreWindow();
-  }
-});
-
-test("step2 drafts save load and clear by job id", () => {
-  const restoreWindow = withMockWindowStorage();
-  try {
-    saveStep2Draft("job-step2", [
-      {
-        chapter_id: 1,
-        title: "新标题",
-        start: 0,
-        end: 10,
-        block_range: "1-3",
-      },
-    ]);
-
-    assert.deepEqual(loadStep2Draft("job-step2"), [
-      {
-        chapter_id: 1,
-        title: "新标题",
-        start: 0,
-        end: 10,
-        block_range: "1-3",
-      },
-    ]);
-
-    clearStep2Draft("job-step2");
-    assert.equal(loadStep2Draft("job-step2"), null);
   } finally {
     restoreWindow();
   }
@@ -189,66 +179,67 @@ test("export preferences save load and normalize invalid cached values", () => {
 
 test("mergeStep1Draft overlays local edits onto server lines", () => {
   const merged = mergeStep1Draft(
-    [
-      {
-        line_id: 1,
-        start: 0,
-        end: 1,
-        original_text: "原文",
-        optimized_text: "服务端",
-        ai_suggest_remove: false,
-        user_final_remove: false,
-      },
-      {
-        line_id: 2,
-        start: 1,
-        end: 2,
-        original_text: "第二句",
-        optimized_text: "第二句",
-        ai_suggest_remove: false,
-        user_final_remove: false,
-      },
-    ],
-    [
-      {
-        line_id: 1,
-        start: 0,
-        end: 1,
-        original_text: "原文",
-        optimized_text: "本地改过",
-        ai_suggest_remove: false,
-        user_final_remove: true,
-      },
-    ]
+    {
+      lines: [
+        {
+          line_id: 1,
+          start: 0,
+          end: 1,
+          original_text: "原文",
+          optimized_text: "服务端",
+          ai_suggest_remove: false,
+          user_final_remove: false,
+        },
+        {
+          line_id: 2,
+          start: 1,
+          end: 2,
+          original_text: "第二句",
+          optimized_text: "第二句",
+          ai_suggest_remove: false,
+          user_final_remove: false,
+        },
+      ],
+      chapters: [
+        {
+          chapter_id: 1,
+          title: "服务端标题",
+          start: 0,
+          end: 2,
+          block_range: "1-2",
+        },
+      ],
+      documentRevision: "server-rev",
+    },
+    {
+      lines: [
+        {
+          line_id: 1,
+          start: 0,
+          end: 1,
+          original_text: "原文",
+          optimized_text: "本地改过",
+          ai_suggest_remove: false,
+          user_final_remove: true,
+        },
+      ],
+      chapters: [
+        {
+          chapter_id: 1,
+          title: "本地标题",
+          start: 0,
+          end: 2,
+          block_range: "1",
+        },
+      ],
+      documentRevision: "draft-rev",
+    }
   );
 
-  assert.equal(merged[0].optimized_text, "本地改过");
-  assert.equal(merged[0].user_final_remove, true);
-  assert.equal(merged[1].optimized_text, "第二句");
-});
-
-test("mergeStep2Draft overlays local chapter title and range edits", () => {
-  const merged = mergeStep2Draft(
-    [
-      {
-        chapter_id: 1,
-        title: "服务端标题",
-        start: 0,
-        end: 10,
-        block_range: "1-2",
-      },
-    ],
-    [
-      {
-        chapter_id: 1,
-        title: "本地标题",
-        start: 0,
-        end: 10,
-        block_range: "1-3",
-      },
-    ]
-  );
-
-  assert.equal(merged[0].title, "本地标题");
-  assert.equal(merged[0].block_range, "1-3");
+  assert.equal(merged.lines[0].optimized_text, "本地改过");
+  assert.equal(merged.lines[0].user_final_remove, true);
+  assert.equal(merged.lines[1].optimized_text, "第二句");
+  assert.equal(merged.chapters[0].title, "本地标题");
+  assert.equal(merged.chapters[0].block_range, "1");
+  assert.equal(merged.documentRevision, "draft-rev");
 });

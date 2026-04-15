@@ -4,9 +4,6 @@ type JobStatus =
   | "STEP1_RUNNING"
   | "STEP1_READY"
   | "STEP1_CONFIRMED"
-  | "STEP2_RUNNING"
-  | "STEP2_READY"
-  | "STEP2_CONFIRMED"
   | "SUCCEEDED"
   | "FAILED";
 
@@ -24,9 +21,6 @@ const STATUS_ORDER: JobStatus[] = [
   "STEP1_RUNNING",
   "STEP1_READY",
   "STEP1_CONFIRMED",
-  "STEP2_RUNNING",
-  "STEP2_READY",
-  "STEP2_CONFIRMED",
   "SUCCEEDED",
   "FAILED",
 ];
@@ -35,11 +29,8 @@ const STATUS_PROGRESS_FLOOR: Record<JobStatus, number> = {
   CREATED: 0,
   UPLOAD_READY: 10,
   STEP1_RUNNING: 30,
-  STEP1_READY: 35,
-  STEP1_CONFIRMED: 45,
-  STEP2_RUNNING: 60,
-  STEP2_READY: 75,
-  STEP2_CONFIRMED: 80,
+  STEP1_READY: 60,
+  STEP1_CONFIRMED: 80,
   SUCCEEDED: 100,
   FAILED: 0,
 };
@@ -56,10 +47,7 @@ function getProgressFloor(status: JobStatus): number {
 export function shouldPollJobStatus(status: JobStatus): boolean {
   return (
     status === "UPLOAD_READY" ||
-    status === "STEP1_RUNNING" ||
-    status === "STEP1_CONFIRMED" ||
-    status === "STEP2_RUNNING" ||
-    status === "STEP2_READY"
+    status === "STEP1_RUNNING"
   );
 }
 

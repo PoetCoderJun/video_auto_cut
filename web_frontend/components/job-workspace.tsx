@@ -16,13 +16,12 @@ import {
   createJob,
   Job,
   RenderMeta,
+  Step1ConfirmChapter,
   Step1Line,
   WebRenderConfig,
   confirmStep1,
-  confirmStep2,
   getJob,
   getStep1,
-  getStep2,
   getWebRenderConfigWithMeta,
   getRenderCompletionPending,
   clearRenderCompletionPending,
@@ -30,7 +29,6 @@ import {
   markRenderSucceeded,
   reportClientUploadIssue,
   runStep1,
-  runStep2,
   uploadAudioDirectToOss,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
@@ -136,9 +134,8 @@ function triggerFileDownload(url: string, fileName: string) {
 
 const STEPS = [
   { id: 1, label: "上传视频" },
-  { id: 2, label: "剪辑字幕" },
-  { id: 3, label: "确认章节" },
-  { id: 4, label: "导出视频" },
+  { id: 2, label: "编辑字幕" },
+  { id: 3, label: "导出视频" },
 ];
 
 const CHAPTER_COLORS = [
@@ -287,6 +284,7 @@ const STEP1_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
   MERGING_SHORT_LINES: 72,
   POLISHING_EXPRESSION: 84,
   PREPARING_STEP1_REVIEW: 92,
+  GENERATING_CHAPTERS: 96,
   STEP1_READY: 100,
 };
 
@@ -299,12 +297,8 @@ function getActiveStep(status: Job["status"]): number {
     case STATUS.STEP1_READY:
       return 2;
     case STATUS.STEP1_CONFIRMED:
-    case STATUS.STEP2_RUNNING:
-    case STATUS.STEP2_READY:
-      return 3;
-    case STATUS.STEP2_CONFIRMED:
     case STATUS.SUCCEEDED:
-      return 4;
+      return 3;
     default:
       return 1;
   }
@@ -764,6 +758,132 @@ function moveAdjacentChapterRange(
   return { chapters: next, error: null };
 }
 
+function buildChapterSizes(
+  totalBlocks: number,
+  chapterCount: number,
+  weights: number[],
+): number[] {
+  if (totalBlocks <= 0 || chapterCount <= 0) return [];
+  if (chapterCount === 1) return [totalBlocks];
+
+  const safeCount = Math.min(chapterCount, totalBlocks);
+  const normalizedWeights =
+    weights.length === safeCount && weights.some((weight) => weight > 0)
+      ? weights.map((weight) => Math.max(0, weight))
+      : Array.from({ length: safeCount }, () => 1);
+
+  const base = Array.from({ length: safeCount }, () => 1);
+  let remaining = totalBlocks - safeCount;
+  if (remaining <= 0) return base;
+
+  const weightSum = normalizedWeights.reduce((sum, weight) => sum + weight, 0) || safeCount;
+  const fractions = normalizedWeights.map((weight, index) => {
+    const raw = (weight / weightSum) * remaining;
+    const extra = Math.floor(raw);
+    base[index] += extra;
+    remaining -= extra;
+    return { index, fraction: raw - extra };
+  });
+
+  fractions
+    .sort((left, right) => right.fraction - left.fraction)
+    .slice(0, remaining)
+    .forEach(({ index }) => {
+      base[index] += 1;
+    });
+
+  return base;
+}
+
+function normalizeChapterTitle(title: string, index: number): string {
+  const trimmed = String(title || "").trim();
+  return trimmed || `章节${index + 1}`;
+}
+
+function materializeChapterRanges(
+  chapters: Chapter[],
+  keptLines: Step1Line[],
+): Chapter[] {
+  if (keptLines.length === 0) return [];
+  return chapters
+    .map((chapter, index) => {
+      const parsed = parseBlockRange(chapter.block_range);
+      if (!parsed) return null;
+      const chapterLines = keptLines.slice(parsed.start - 1, parsed.end);
+      if (chapterLines.length === 0) return null;
+      return {
+        chapter_id: index + 1,
+        title: normalizeChapterTitle(chapter.title, index),
+        start: chapterLines[0].start,
+        end: chapterLines[chapterLines.length - 1].end,
+        block_range: formatBlockRange(parsed.start, parsed.end),
+      } satisfies Chapter;
+    })
+    .filter((chapter): chapter is Chapter => Boolean(chapter));
+}
+
+function syncChaptersWithKeptLines(
+  chapters: Chapter[],
+  keptLines: Step1Line[],
+): Chapter[] {
+  const keptCount = keptLines.length;
+  if (keptCount === 0) return [];
+
+  const nextCount = Math.min(Math.max(chapters.length, 1), keptCount);
+  const weights = chapters
+    .slice(0, nextCount)
+    .map((chapter) => {
+      const parsed = parseBlockRange(chapter.block_range);
+      if (!parsed) return 1;
+      return Math.max(1, parsed.end - parsed.start + 1);
+    });
+  const sizes = buildChapterSizes(keptCount, nextCount, weights);
+
+  let cursor = 1;
+  const next = sizes.map((size, index) => {
+    const start = cursor;
+    const end = cursor + size - 1;
+    cursor = end + 1;
+    const chapterLines = keptLines.slice(start - 1, end);
+    return {
+      chapter_id: index + 1,
+      title: normalizeChapterTitle(chapters[index]?.title || "", index),
+      start: chapterLines[0].start,
+      end: chapterLines[chapterLines.length - 1].end,
+      block_range: formatBlockRange(start, end),
+    } satisfies Chapter;
+  });
+
+  return next;
+}
+
+function deleteChapterAndRebalance(
+  chapters: Chapter[],
+  chapterId: number,
+  keptLines: Step1Line[],
+): Chapter[] {
+  if (chapters.length <= 1) {
+    return syncChaptersWithKeptLines(chapters.slice(0, 1), keptLines);
+  }
+  const remaining = chapters.filter((chapter) => chapter.chapter_id !== chapterId);
+  return syncChaptersWithKeptLines(remaining, keptLines);
+}
+
+function buildStep1ConfirmChapters(
+  chapters: Chapter[],
+  keptLines: Step1Line[],
+): Step1ConfirmChapter[] {
+  const normalizedChapters = materializeChapterRanges(chapters, keptLines);
+  if (normalizedChapters.length === 0) {
+    throw new Error("当前没有可用章节，请至少保留一句字幕。");
+  }
+  return normalizedChapters.map((chapter, index) => ({
+    chapter_id: index + 1,
+    title: normalizeChapterTitle(chapter.title, index),
+    block_range: chapter.block_range,
+  }));
+}
+
 function getStep1VisualProgress(job: Job): number {
   if (job.status === STATUS.STEP1_READY) {
     return 100;
@@ -798,6 +918,7 @@ function shouldShowStep1SubtitlePreview(
     case "MERGING_SHORT_LINES":
     case "POLISHING_EXPRESSION":
     case "PREPARING_STEP1_REVIEW":
+    case "GENERATING_CHAPTERS":
     case "STEP1_READY":
       return true;
     default:
@@ -820,8 +941,10 @@ function getStep1ProcessingNote(stageCode: string | null | undefined): string {
       return "正在按上下文润色字幕，让表达更自然。";
     case "PREPARING_STEP1_REVIEW":
       return "正在整理成可编辑字幕。";
+    case "GENERATING_CHAPTERS":
+      return "正在把章节整理成时间线分隔符。";
     case "STEP1_READY":
-      return "字幕已经整理完成，正在进入确认页面。";
+      return "字幕和章节已经整理完成，正在进入编辑页面。";
     default:
       return "任务已启动，正在进入字幕处理流程。";
   }
@@ -846,8 +969,10 @@ function getStep1ProcessingTitle(
       return "正在润色字幕";
     case "PREPARING_STEP1_REVIEW":
       return "正在整理字幕结果";
+    case "GENERATING_CHAPTERS":
+      return "正在生成章节分隔";
     case "STEP1_READY":
-      return "正在进入字幕确认";
+      return "正在进入编辑页";
     default:
       return trimmedMessage || "正在提取字幕";
   }
@@ -997,8 +1122,7 @@ export default function JobWorkspace({
   const [jobLoadError, setJobLoadError] = useState("");
   const [isLoadingJob, setIsLoadingJob] = useState(true);
   const [step1DraftError, setStep1DraftError] = useState("");
-  const [step2DraftError, setStep2DraftError] = useState("");
-  const [step2DraftLoaded, setStep2DraftLoaded] = useState(false);
+  const [documentRevision, setDocumentRevision] = useState("");
   const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] =
     useState("");
   const [busy, setBusy] = useState(false);
@@ -1032,10 +1156,8 @@ export default function JobWorkspace({
   const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
   const [uploadStageMessage, setUploadStageMessage] = useState("");
   const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
-  const [autoStep2Triggered, setAutoStep2Triggered] = useState(false);
   const [step1ReadyHandoffActive, setStep1ReadyHandoffActive] = useState(false);
   const [step1ReadyLinesLoaded, setStep1ReadyLinesLoaded] = useState(false);
-  const [step2ReadyLinesLoaded, setStep2ReadyLinesLoaded] = useState(false);
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
   const renderSourceInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
@@ -1281,6 +1403,7 @@ export default function JobWorkspace({
       setStep1ReadyHandoffActive(false);
       setStep1ReadyLinesLoaded(false);
       setStep1DraftError("");
+      setDocumentRevision("");
       return;
     }
     if (step1ReadyLinesLoaded) {
@@ -1289,27 +1412,29 @@ export default function JobWorkspace({
 
     setStep1ReadyHandoffActive(true);
     let cancelled = false;
-    const pollStep1Lines = () => {
+    const pollStep1Document = () => {
       getStep1(jobId)
-        .then((nextLines) => {
+        .then((document) => {
           if (cancelled) return;
           setStep1DraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
+            areStep1LinesEqual(previous, document.lines) ? previous : document.lines,
           );
-          setStep1ReadyLinesLoaded(nextLines.length > 0);
+          setChapters(document.chapters);
+          setDocumentRevision(document.document_revision || "");
+          setStep1ReadyLinesLoaded(document.lines.length > 0);
         })
         .catch((err) => {
           if (cancelled) return;
           setStep1DraftError(
-            `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
+            `编辑文档加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
-    pollStep1Lines();
+    pollStep1Document();
     const intervalId = window.setInterval(
-      pollStep1Lines,
+      pollStep1Document,
       STEP_DRAFT_RETRY_DELAY_MS,
     );
     return () => {
@@ -1324,15 +1449,19 @@ export default function JobWorkspace({
     }
 
     let cancelled = false;
-    const pollStep1Lines = () => {
+    const pollStep1Document = () => {
       getStep1(jobId)
-        .then((nextLines) => {
+        .then((document) => {
           if (cancelled) return;
-          if (nextLines.length === 0) return;
+          if (document.lines.length === 0) return;
           setStep1DraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
+            areStep1LinesEqual(previous, document.lines) ? previous : document.lines,
           );
+          if (document.chapters.length > 0) {
+            setChapters(document.chapters);
+          }
+          setDocumentRevision(document.document_revision || "");
         })
         .catch((err) => {
           if (cancelled) return;
@@ -1342,9 +1471,9 @@ export default function JobWorkspace({
         });
     };
 
-    pollStep1Lines();
+    pollStep1Document();
     const intervalId = window.setInterval(
-      pollStep1Lines,
+      pollStep1Document,
       STEP_DRAFT_RETRY_DELAY_MS,
     );
     return () => {
@@ -1371,98 +1500,10 @@ export default function JobWorkspace({
     };
   }, [job?.status, step1ReadyHandoffActive, step1ReadyLinesLoaded]);
 
-  useEffect(() => {
-    if (!job || job.status !== STATUS.STEP2_READY) {
-      setStep2ReadyLinesLoaded(false);
-      setStep2DraftLoaded(false);
-      setStep2DraftError("");
-      return;
-    }
-    if (step2DraftLoaded) {
-      return;
-    }
-
-    let cancelled = false;
-    const pollChapters = () => {
-      getStep2(jobId)
-        .then((nextChapters) => {
-          if (cancelled) return;
-          if (!nextChapters || nextChapters.length === 0) return;
-          setStep2DraftError("");
-          setChapters((previous) =>
-            previous.length ? previous : nextChapters,
-          );
-          setStep2DraftLoaded(true);
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setStep2DraftError(
-            `章节草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
-          );
-        });
-    };
-
-    pollChapters();
-    const intervalId = window.setInterval(
-      pollChapters,
-      STEP_DRAFT_RETRY_DELAY_MS,
-    );
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [job?.status, jobId, step2DraftLoaded]);
-
-  useEffect(() => {
-    if (!job || job.status !== STATUS.STEP2_READY) {
-      return;
-    }
-    if (step2ReadyLinesLoaded) {
-      return;
-    }
-
-    let cancelled = false;
-    const pollStep2Lines = () => {
-      getStep1(jobId)
-        .then((nextLines) => {
-          if (cancelled) return;
-          if (nextLines.length === 0) return;
-          setStep2DraftError("");
-          setLines((previous) =>
-            areStep1LinesEqual(previous, nextLines) ? previous : nextLines,
-          );
-          setStep2ReadyLinesLoaded(true);
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setStep2DraftError(
-            `章节页字幕加载失败：${getFriendlyError(err)}，已自动重试。`,
-          );
-        });
-    };
-
-    pollStep2Lines();
-    const intervalId = window.setInterval(
-      pollStep2Lines,
-      STEP_DRAFT_RETRY_DELAY_MS,
-    );
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [job?.status, jobId, step2ReadyLinesLoaded]);
-
   const handleRetryStep1DraftLoad = useCallback(() => {
     if (!job || job.status !== STATUS.STEP1_READY) return;
     setStep1DraftError("");
     setStep1ReadyLinesLoaded(false);
-  }, [job?.status]);
-
-  const handleRetryStep2DraftLoad = useCallback(() => {
-    if (!job || job.status !== STATUS.STEP2_READY) return;
-    setStep2ReadyLinesLoaded(false);
-    setStep2DraftLoaded(false);
-    setStep2DraftError("");
   }, [job?.status]);
 
   useEffect(() => {
@@ -1484,15 +1525,12 @@ export default function JobWorkspace({
     setJob(null);
     setLines([]);
     setChapters([]);
-    setStep2DraftLoaded(false);
+    setDocumentRevision("");
     setStep1ReadyLinesLoaded(false);
-    setStep2ReadyLinesLoaded(false);
     setStep1DraftError("");
-    setStep2DraftError("");
     setError("");
     setRenderNote("");
     setAutoStep1Triggered(false);
-    setAutoStep2Triggered(false);
     setDraggedLineId(null);
     setRenderDownloadUrl((previous) => {
       if (previous) URL.revokeObjectURL(previous);
@@ -1594,7 +1632,6 @@ export default function JobWorkspace({
       setRenderSetupError("");
       setRenderCompletionMarkerMessage("");
       setStep1DraftError("");
-      setStep2DraftError("");
       if (
         selectedFile?.name !== file.name ||
         selectedFile?.size !== file.size
@@ -1614,7 +1651,7 @@ export default function JobWorkspace({
       clearRenderCompletionPending(jobId);
       return;
     }
-    if (job.status !== STATUS.STEP2_CONFIRMED) {
+    if (job.status !== STATUS.STEP1_CONFIRMED) {
       return;
     }
 
@@ -1664,7 +1701,7 @@ export default function JobWorkspace({
 
   useEffect(() => {
     const exportReady =
-      job?.status === STATUS.STEP2_CONFIRMED ||
+      job?.status === STATUS.STEP1_CONFIRMED ||
       job?.status === STATUS.SUCCEEDED;
     if (!exportReady) return;
     if (renderConfig) return;
@@ -1827,43 +1864,6 @@ export default function JobWorkspace({
   }, [job, busy]);
 
   useEffect(() => {
-    if (
-      !job ||
-      job.status !== STATUS.STEP1_CONFIRMED ||
-      autoStep2Triggered ||
-      busy
-    )
-      return;
-
-    let cancelled = false;
-    setAutoStep2Triggered(true);
-    setError("");
-    setBusy(true);
-    runStep2(jobId)
-      .then((step2Result) => {
-        if (cancelled) return;
-        setJob((previous) => mergeJobSnapshot(previous, step2Result.job));
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "章节生成失败，请重试。");
-      })
-      .finally(() => {
-        setBusy(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [job, autoStep2Triggered, jobId, busy]);
-
-  const handleRetryStep2AutoRun = useCallback(() => {
-    if (!job || job.status !== STATUS.STEP1_CONFIRMED || busy) return;
-    setError("");
-    setAutoStep2Triggered(false);
-  }, [job, busy]);
-
-  useEffect(() => {
     if (!job) return;
     if (!shouldPollJobStatus(job.status)) return;
 
@@ -1889,13 +1889,19 @@ export default function JobWorkspace({
   };
 
   const handleConfirmStep1 = async () => {
+    if (keptLines.length === 0) {
+      setError("请至少保留一句字幕后再进入导出。");
+      return;
+    }
     setError("");
     setBusy(true);
     try {
-      const status = await confirmStep1(jobId, lines);
+      const status = await confirmStep1(jobId, {
+        lines,
+        chapters: buildStep1ConfirmChapters(chapters, keptLines),
+        expectedRevision: documentRevision,
+      });
       setJob((previous) => mergeJobStatus(previous, status));
-      const step2Result = await runStep2(jobId);
-      setJob((previous) => mergeJobSnapshot(previous, step2Result.job));
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败，请重试。");
     } finally {
@@ -1903,44 +1909,12 @@ export default function JobWorkspace({
     }
   };
 
-  const handleConfirmStep2 = useCallback(async () => {
-    if (chapters.length === 0) return;
-    setError("");
-    setBusy(true);
-    try {
-      await confirmStep1(jobId, lines);
-      const normalizedChapters = chapters.map((chapter, index) => {
-        const parsed = parseBlockRange(chapter.block_range);
-        if (!parsed) {
-          throw new Error(`第 ${index + 1} 章范围无效，请重新调整。`);
-        }
-        const chapterLines = keptLines.slice(parsed.start - 1, parsed.end);
-
-        if (chapterLines.length === 0) {
-          throw new Error(`第 ${index + 1} 章为空，请先拖入至少一句字幕。`);
-        }
-        return {
-          chapter_id: index + 1,
-          title: String(chapter.title || "").trim() || `章节${index + 1}`,
-          start: chapterLines[0].start,
-          end: chapterLines[chapterLines.length - 1].end,
-          block_range: formatBlockRange(parsed.start, parsed.end),
-        };
-      });
-
-      const status = await confirmStep2(jobId, normalizedChapters);
-      setJob((previous) => mergeJobStatus(previous, status));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "章节保存失败，请重试。");
-    } finally {
-      setBusy(false);
-    }
-  }, [chapters, jobId, keptLines, lines]);
-
   const updateChapter = useCallback((chapterId: number, patch: Partial<Chapter>) => {
     setChapters((previous) =>
       previous.map((chapter) =>
-        chapter.chapter_id === chapterId ? { ...chapter, ...patch } : chapter
+        chapter.chapter_id === chapterId
+          ? { ...chapter, ...patch }
+          : chapter
       )
     );
   }, []);
@@ -1976,10 +1950,10 @@ export default function JobWorkspace({
           setError(moved.error);
           return previous;
         }
-        return moved.chapters;
+        return syncChaptersWithKeptLines(moved.chapters, keptLines);
       });
     },
-    [keptLinePositionById]
+    [keptLinePositionById, keptLines]
   );
 
   const transcodeRenderSourceFile = useCallback(
@@ -2269,11 +2243,17 @@ export default function JobWorkspace({
   ]);
 
   const updateLine = (lineId: number, patch: Partial<Step1Line>) => {
-    setLines((prev) =>
-      prev.map((line) =>
+    setLines((prev) => {
+      const nextLines = prev.map((line) =>
         line.line_id === lineId ? { ...line, ...patch } : line,
-      ),
-    );
+      );
+      if (Object.prototype.hasOwnProperty.call(patch, "user_final_remove")) {
+        setChapters((previous) =>
+          syncChaptersWithKeptLines(previous, getKeptStep1Lines(nextLines)),
+        );
+      }
+      return nextLines;
+    });
   };
 
   const { originalDuration, estimatedDuration } = useMemo(() => {
@@ -2282,6 +2262,22 @@ export default function JobWorkspace({
       estimatedDuration: getEstimatedDurationFromLines(lines),
     };
   }, [lines]);
+
+  const displayChapters = useMemo(
+    () => materializeChapterRanges(chapters, keptLines),
+    [chapters, keptLines],
+  );
+
+  const chapterByStartPosition = useMemo(() => {
+    const mapping = new Map<number, Chapter>();
+    displayChapters.forEach((chapter) => {
+      const parsed = parseBlockRange(chapter.block_range);
+      if (parsed) {
+        mapping.set(parsed.start, chapter);
+      }
+    });
+    return mapping;
+  }, [displayChapters]);
 
   if (!job) {
     return (
@@ -2337,7 +2333,7 @@ export default function JobWorkspace({
             {STEPS.map((step, idx) => {
               const isCompleted =
                 step.id < activeStep ||
-                (step.id === 4 && job.status === STATUS.SUCCEEDED);
+                (step.id === 3 && job.status === STATUS.SUCCEEDED);
               const isActive =
                 step.id === activeStep && job.status !== STATUS.SUCCEEDED;
               return (
@@ -2487,38 +2483,15 @@ export default function JobWorkspace({
           />
         )}
 
-      {(job.status === STATUS.STEP1_CONFIRMED ||
-        job.status === STATUS.STEP2_RUNNING) && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <Loader2 className="mb-4 h-12 w-12 animate-spin text-primary" />
-          <h2 className="text-xl font-semibold">
-            {job.stage?.message || "正在生成章节"}
-          </h2>
-          <p className="text-muted-foreground">
-            AI 正在整理章节标题和边界，完成后会进入可编辑的章节确认页。
-          </p>
-          {job.status === STATUS.STEP1_CONFIRMED && !busy && autoStep2Triggered && (
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-4"
-              onClick={handleRetryStep2AutoRun}
-            >
-              重新尝试启动章节任务
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Step 2: Edit Subtitles */}
+      {/* Editor */}
       {job.status === STATUS.STEP1_READY && !step1ReadyHandoffActive && (
         <div className="space-y-8">
           {lines.length === 0 ? (
             <div className="space-y-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
               <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-              <p className="font-medium text-slate-900">正在载入字幕草稿...</p>
+              <p className="font-medium text-slate-900">正在载入编辑文档...</p>
               <p className="text-sm text-slate-500">
-                字幕整理完成后，这里会显示可编辑内容。
+                字幕和章节整理完成后，这里会显示可编辑内容。
               </p>
               {step1DraftError && (
                 <p className="mx-auto max-w-md text-sm text-red-600">
@@ -2543,12 +2516,12 @@ export default function JobWorkspace({
                 <div>
                   <h2 className="text-2xl font-bold tracking-tight">用字幕编辑视频</h2>
                   <p className="text-muted-foreground">
-                    直接修改字幕，点击句尾“×”可剔除该句。
+                    直接修改字幕，章节会作为分隔符嵌在同一时间线里。
                   </p>
                 </div>
                 <div className="hidden md:block">
                   <Badge variant="outline" className="text-sm">
-                    共 {lines.length} 行字幕
+                    共 {lines.length} 行字幕 / {displayChapters.length || 0} 个章节
                   </Badge>
                 </div>
               </div>
@@ -2560,58 +2533,159 @@ export default function JobWorkspace({
                     const isNoSpeech =
                       !line.optimized_text || line.optimized_text.trim() === "";
                     const lineTime = formatDuration(Number(line.start) || 0);
+                    const linePosition = keptLinePositionById.get(line.line_id);
+                    const chapter = linePosition ? chapterByStartPosition.get(linePosition) : null;
+                    const chapterIndex =
+                      chapter && linePosition
+                        ? displayChapters.findIndex(
+                            (item) => item.chapter_id === chapter.chapter_id,
+                          )
+                        : -1;
+                    const chapterLineCount =
+                      chapter && chapterIndex >= 0
+                        ? getChapterLinesFromRange(chapter, keptLines).length
+                        : 0;
+                    const badgeColorClass =
+                      chapterIndex >= 0
+                        ? CHAPTER_BADGE_COLORS[
+                            chapterIndex % CHAPTER_BADGE_COLORS.length
+                          ]
+                        : CHAPTER_BADGE_COLORS[0];
 
                     return (
-                      <div
-                        key={line.line_id}
-                        className="group relative flex items-start gap-3"
-                      >
-                        <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
-                          {lineTime}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          {isRemoved ? (
-                            <button
-                              type="button"
-                              className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
-                              onClick={() =>
-                                updateLine(line.line_id, {
-                                  user_final_remove: false,
-                                })
-                              }
-                              title="点击恢复此行"
-                            >
-                              {isNoSpeech ? "<No Speech>" : line.optimized_text}
-                            </button>
-                          ) : (
-                            <Textarea
-                              value={line.optimized_text}
-                              onChange={(e) =>
-                                updateLine(line.line_id, {
-                                  optimized_text: e.target.value,
-                                })
-                              }
-                              rows={1}
-                              onInput={(e) =>
-                                autoResize(e.target as HTMLTextAreaElement)
-                              }
-                              ref={(el) => {
-                                if (el) autoResize(el);
-                              }}
-                              className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
-                              placeholder={isNoSpeech ? "<No Speech>" : ""}
-                            />
-                          )}
-                        </div>
-                        {!isRemoved && (
+                      <div key={line.line_id} className="space-y-[6px]">
+                        {chapter && !isRemoved && (
                           <div
-                            className="opacity-0 group-hover:opacity-100 shrink-0 ml-2 text-[#cbd5e1] hover:text-[#ef4444] cursor-pointer flex items-center h-6 px-1 transition-opacity"
-                            onClick={() => updateLine(line.line_id, { user_final_remove: true })}
-                            title="剔除此行"
+                            className="group flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                            onDragOver={(event) => {
+                              event.preventDefault();
+                              event.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(event) => {
+                              event.preventDefault();
+                              setDraggedLineId(null);
+                              const lineId = parseInt(
+                                event.dataTransfer.getData("text/plain"),
+                                10,
+                              );
+                              if (Number.isNaN(lineId)) return;
+                              const draggedPosition = keptLinePositionById.get(lineId);
+                              if (!draggedPosition) return;
+                              setChapters((previous) => {
+                                const moved = moveAdjacentChapterRange(
+                                  previous,
+                                  draggedPosition,
+                                  chapter.chapter_id,
+                                );
+                                if (moved.error) {
+                                  setError(moved.error);
+                                  return previous;
+                                }
+                                return syncChaptersWithKeptLines(moved.chapters, keptLines);
+                              });
+                            }}
                           >
-                            <X className="h-4 w-4" />
+                            <Badge
+                              className={cn(
+                                "h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-white",
+                                badgeColorClass,
+                              )}
+                            >
+                              {chapterIndex + 1}
+                            </Badge>
+                            <input
+                              type="text"
+                              value={chapter.title}
+                              placeholder="章节标题"
+                              onChange={(event) =>
+                                updateChapter(chapter.chapter_id, {
+                                  title: event.target.value,
+                                })
+                              }
+                              className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                            />
+                            <Badge variant="outline" className="hidden sm:inline-flex">
+                              {chapterLineCount} 句
+                            </Badge>
+                            {displayChapters.length > 1 && (
+                              <button
+                                type="button"
+                                className="rounded p-1 text-slate-400 transition hover:bg-white hover:text-red-500"
+                                onClick={() =>
+                                  setChapters((previous) =>
+                                    deleteChapterAndRebalance(previous, chapter.chapter_id, keptLines),
+                                  )
+                                }
+                                title="删除分隔符并并入相邻章节"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            )}
                           </div>
                         )}
+
+                        <div className="group relative flex items-start gap-3">
+                          <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
+                            {lineTime}
+                          </span>
+                          {!isRemoved && displayChapters.length > 1 && (
+                            <div
+                              draggable
+                              onDragStart={(event) => handleDragStart(event, line.line_id)}
+                              onDragEnd={handleDragEnd}
+                              className={cn(
+                                "mt-1 flex cursor-grab select-none items-center text-slate-300 transition hover:text-slate-500 active:cursor-grabbing",
+                                draggedLineId === line.line_id && "opacity-40",
+                              )}
+                              title="拖拽到相邻章节分隔符以调整边界"
+                            >
+                              <GripVertical className="h-4 w-4" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            {isRemoved ? (
+                              <button
+                                type="button"
+                                className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
+                                onClick={() =>
+                                  updateLine(line.line_id, {
+                                    user_final_remove: false,
+                                  })
+                                }
+                                title="点击恢复此行"
+                              >
+                                {isNoSpeech ? "<No Speech>" : line.optimized_text}
+                              </button>
+                            ) : (
+                              <Textarea
+                                value={line.optimized_text}
+                                onChange={(e) =>
+                                  updateLine(line.line_id, {
+                                    optimized_text: e.target.value,
+                                  })
+                                }
+                                rows={1}
+                                onInput={(e) =>
+                                  autoResize(e.target as HTMLTextAreaElement)
+                                }
+                                ref={(el) => {
+                                  if (el) autoResize(el);
+                                }}
+                                className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] text-[#334155] leading-[1.7] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                                placeholder={isNoSpeech ? "<No Speech>" : ""}
+                              />
+                            )}
+                          </div>
+                          {!isRemoved && (
+                            <div
+                              className="opacity-0 group-hover:opacity-100 shrink-0 ml-2 text-[#cbd5e1] hover:text-[#ef4444] cursor-pointer flex items-center h-6 px-1 transition-opacity"
+                              onClick={() => updateLine(line.line_id, { user_final_remove: true })}
+                              title="剔除此行"
+                            >
+                              <X className="h-4 w-4" />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -2643,15 +2717,15 @@ export default function JobWorkspace({
                     <Button
                       size="lg"
                       onClick={handleConfirmStep1}
-                      disabled={lines.length === 0 || busy}
+                      disabled={lines.length === 0 || keptLines.length === 0 || displayChapters.length === 0 || busy}
                     >
                       {busy ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          正在保存字幕...
+                          正在保存编辑结果...
                         </>
                       ) : (
-                        "确认字幕，生成章节"
+                        "保存并进入导出"
                       )}
                     </Button>
                   </CardContent>
@@ -2662,210 +2736,8 @@ export default function JobWorkspace({
         </div>
       )}
 
-      {/* Step 3: Review Chapters */}
-      {job.status === STATUS.STEP2_READY && (
-        <div className="space-y-8">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight">确认视频章节</h2>
-            <p className="text-muted-foreground">
-              拖拽字幕行到相邻章节可调整连续边界，点击标题可编辑，字幕文字也可以在这里继续微调。
-            </p>
-          </div>
-
-          {(chapters.length === 0 || keptLines.length === 0) && (
-            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <div>
-                <p className="font-medium text-slate-900">
-                  正在载入章节草稿...
-                </p>
-                <p className="text-sm text-slate-500">
-                  章节和字幕准备好后，这里会自动显示可编辑内容。
-                </p>
-              </div>
-              {step2DraftError && (
-                <p className="max-w-md text-sm text-red-600">
-                  {step2DraftError}
-                </p>
-              )}
-              {step2DraftError && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetryStep2DraftLoad}
-                >
-                  重新加载章节草稿
-                </Button>
-              )}
-            </div>
-          )}
-
-          {chapters.length > 0 && keptLines.length > 0 && (
-            <div className="space-y-6">
-              {chapters.map((chapter, chapterIdx) => {
-                const badgeColorClass =
-                  CHAPTER_BADGE_COLORS[
-                    chapterIdx % CHAPTER_BADGE_COLORS.length
-                  ];
-                const borderClass =
-                  CHAPTER_COLORS[chapterIdx % CHAPTER_COLORS.length];
-                const chapterLines = getChapterLinesFromRange(
-                  chapter,
-                  keptLines,
-                );
-
-                return (
-                  <div
-                    key={chapter.chapter_id}
-                    className={cn(
-                      "relative overflow-hidden rounded-lg border bg-card text-card-foreground shadow-sm transition-all",
-                      borderClass
-                    )}
-                  >
-                    <div className="flex items-center gap-4 border-b bg-muted/30 p-4">
-                      <Badge
-                        className={cn(
-                          "h-6 w-6 shrink-0 items-center justify-center rounded-full p-0 text-white hover:bg-opacity-90",
-                          badgeColorClass
-                        )}
-                      >
-                        {chapterIdx + 1}
-                      </Badge>
-                      <input
-                        type="text"
-                        value={chapter.title}
-                        placeholder="章节标题"
-                        onChange={(event) =>
-                          updateChapter(chapter.chapter_id, {
-                            title: event.target.value,
-                          })
-                        }
-                        className="flex-1 bg-transparent text-lg font-semibold outline-none placeholder:text-muted-foreground"
-                      />
-                      <Badge variant="outline" className="ml-auto">
-                        {chapterLines.length} 句
-                      </Badge>
-                    </div>
-
-                    <div
-                      className="min-h-[60px] divide-y divide-border/50"
-                      onDragOver={(event) => {
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = "move";
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        setDraggedLineId(null);
-                        const lineId = parseInt(
-                          event.dataTransfer.getData("text/plain"),
-                          10
-                        );
-                        if (Number.isNaN(lineId)) return;
-                        const draggedPosition = keptLinePositionById.get(lineId);
-                        if (!draggedPosition) return;
-                        setChapters((previous) => {
-                          const moved = moveAdjacentChapterRange(
-                            previous,
-                            draggedPosition,
-                            chapter.chapter_id
-                          );
-                          if (moved.error) {
-                            setError(moved.error);
-                            return previous;
-                          }
-                          return moved.chapters;
-                        });
-                      }}
-                    >
-                      {chapterLines.map((line) => {
-                        const isDragged = draggedLineId === line.line_id;
-                        return (
-                          <div
-                            key={line.line_id}
-                            onDragOver={(event) => {
-                              event.preventDefault();
-                              event.dataTransfer.dropEffect = "move";
-                            }}
-                            onDrop={(event) =>
-                              handleDropOnLine(
-                                event,
-                                chapter.chapter_id
-                              )
-                            }
-                            className={cn(
-                              "flex items-start gap-3 p-3 text-sm transition-colors",
-                              isDragged
-                                ? "bg-muted opacity-40"
-                                : "hover:bg-muted/40"
-                            )}
-                          >
-                            <div
-                              draggable
-                              onDragStart={(event) => handleDragStart(event, line.line_id)}
-                              onDragEnd={handleDragEnd}
-                              className="mt-1 flex cursor-grab select-none items-center text-muted-foreground active:cursor-grabbing"
-                              title="拖拽到其他章节"
-                            >
-                              <GripVertical className="h-4 w-4" />
-                            </div>
-                            <span className="mt-2 select-none font-mono text-xs text-muted-foreground">
-                              {formatDuration(line.start)}
-                            </span>
-                            <Textarea
-                              value={line.optimized_text}
-                              onChange={(event) =>
-                                updateLine(line.line_id, {
-                                  optimized_text: event.target.value,
-                                })
-                              }
-                              rows={1}
-                              onInput={(event) =>
-                                autoResize(event.target as HTMLTextAreaElement)
-                              }
-                              ref={(element) => {
-                                if (element) autoResize(element);
-                              }}
-                              className="min-h-0 flex-1 resize-none border-0 bg-transparent p-0 leading-relaxed shadow-none focus-visible:ring-0"
-                              placeholder="<No Speech>"
-                            />
-                          </div>
-                        );
-                      })}
-                      {chapterLines.length === 0 && (
-                        <div className="m-4 flex h-20 items-center justify-center rounded-md border-2 border-dashed border-muted text-sm text-muted-foreground">
-                          拖拽字幕行到此章节
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="flex justify-center pt-8">
-            <Button
-              size="lg"
-              className="w-full max-w-sm"
-              onClick={() => void handleConfirmStep2()}
-              disabled={chapters.length === 0 || busy}
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在保存...
-                </>
-              ) : (
-                "确认章节，进入导出"
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Step 4: Export */}
-      {(job.status === STATUS.STEP2_CONFIRMED ||
+      {/* Export */}
+      {(job.status === STATUS.STEP1_CONFIRMED ||
         job.status === STATUS.SUCCEEDED) && (
         <div className="space-y-4">
           <div className="mx-auto grid max-w-[1400px] gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(420px,0.92fr)] xl:items-start 2xl:max-w-[1520px] 2xl:grid-cols-[minmax(0,1.72fr)_minmax(456px,0.94fr)]">

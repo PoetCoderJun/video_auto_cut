@@ -18,9 +18,6 @@ from .constants import (
     JOB_STATUS_STEP1_CONFIRMED,
     JOB_STATUS_STEP1_RUNNING,
     JOB_STATUS_STEP1_READY,
-    JOB_STATUS_STEP2_CONFIRMED,
-    JOB_STATUS_STEP2_RUNNING,
-    JOB_STATUS_STEP2_READY,
     JOB_STATUS_SUCCEEDED,
     JOB_STATUS_UPLOAD_READY,
 )
@@ -39,9 +36,10 @@ JOB_FILE_FIELDS = (
     "optimized_srt_oss_signed_url",
     "srt_path",
     "optimized_srt_path",
+    "chapters_draft_path",
+    "final_step1_json_path",
     "final_step1_srt_path",
-    "topics_path",
-    "final_topics_path",
+    "final_chapters_path",
     "final_video_path",
 )
 
@@ -51,11 +49,8 @@ _STATUS_RANK = {
     JOB_STATUS_STEP1_RUNNING: 2,
     JOB_STATUS_STEP1_READY: 3,
     JOB_STATUS_STEP1_CONFIRMED: 4,
-    JOB_STATUS_STEP2_RUNNING: 5,
-    JOB_STATUS_STEP2_READY: 6,
-    JOB_STATUS_STEP2_CONFIRMED: 7,
-    JOB_STATUS_SUCCEEDED: 8,
-    JOB_STATUS_FAILED: 9,
+    JOB_STATUS_SUCCEEDED: 5,
+    JOB_STATUS_FAILED: 6,
 }
 
 
@@ -564,20 +559,24 @@ def _step1_confirmed_path(job_id: str) -> Path:
     return job_dir(job_id) / "step1" / ".confirmed"
 
 
-def _step2_confirmed_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step2" / ".confirmed"
-
-
 def _render_succeeded_path(job_id: str) -> Path:
     return job_dir(job_id) / "render" / ".succeeded"
 
 
-def _step1_lines_path(job_id: str) -> Path:
+def _step1_lines_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step1" / "lines_draft.json"
+
+
+def _step1_chapters_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step1" / "chapters_draft.json"
+
+
+def _step1_final_lines_path(job_id: str) -> Path:
     return job_dir(job_id) / "step1" / "final_step1.json"
 
 
-def _step2_topics_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step2" / "final_topics.json"
+def _step1_final_chapters_path(job_id: str) -> Path:
+    return job_dir(job_id) / "step1" / "final_chapters.json"
 
 
 def _read_json(path: Path) -> Any:
@@ -665,19 +664,45 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if step1_srt.exists():
         result["final_step1_srt_path"] = str(step1_srt)
 
-    topics_path = job_dir(job_id) / "step2" / "topics.json"
-    if topics_path.exists():
-        result["topics_path"] = str(topics_path)
+    chapters_draft = _step1_chapters_draft_path(job_id)
+    if chapters_draft.exists():
+        result["chapters_draft_path"] = str(chapters_draft)
 
-    final_topics = _step2_topics_path(job_id)
-    if final_topics.exists():
-        result["final_topics_path"] = str(final_topics)
+    final_step1_json = _step1_final_lines_path(job_id)
+    if final_step1_json.exists():
+        result["final_step1_json_path"] = str(final_step1_json)
+
+    final_chapters = _step1_final_chapters_path(job_id)
+    if final_chapters.exists():
+        result["final_chapters_path"] = str(final_chapters)
 
     final_video = job_dir(job_id) / "render" / "output.mp4"
     if final_video.exists():
         result["final_video_path"] = str(final_video)
 
     return result
+
+
+def _has_legacy_step2_state(job_id: str, meta: dict[str, Any]) -> bool:
+    raw_status = str(meta.get("status") or "").strip().upper()
+    if raw_status in {"STEP2_RUNNING", "STEP2_READY", "STEP2_CONFIRMED"}:
+        return True
+
+    step2_dir = job_dir(job_id) / "step2"
+    legacy_paths = (
+        step2_dir / "topics.json",
+        step2_dir / "final_topics.json",
+        step2_dir / ".confirmed",
+    )
+    if any(path.exists() for path in legacy_paths):
+        return True
+
+    payload = _read_files_manifest(job_id)
+    for field in ("topics_path", "final_topics_path"):
+        value = payload.get(field)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
 
 
 def _infer_job_status(job_id: str) -> str:
@@ -688,13 +713,14 @@ def _infer_job_status(job_id: str) -> str:
         return JOB_STATUS_SUCCEEDED
     if files.get("final_video_path"):
         return JOB_STATUS_SUCCEEDED
-    if _step2_confirmed_path(job_id).exists():
-        return JOB_STATUS_STEP2_CONFIRMED
-    if files.get("final_topics_path"):
-        return JOB_STATUS_STEP2_READY
-    if _step1_confirmed_path(job_id).exists():
+    if (
+        _step1_confirmed_path(job_id).exists()
+        and files.get("final_step1_json_path")
+        and files.get("final_step1_srt_path")
+        and files.get("final_chapters_path")
+    ):
         return JOB_STATUS_STEP1_CONFIRMED
-    if _step1_lines_path(job_id).exists():
+    if _step1_lines_draft_path(job_id).exists() and _step1_chapters_draft_path(job_id).exists():
         return JOB_STATUS_STEP1_READY
     if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
@@ -708,9 +734,6 @@ def _progress_for_status(status: str) -> int:
         JOB_STATUS_STEP1_RUNNING: 30,
         JOB_STATUS_STEP1_READY: 35,
         JOB_STATUS_STEP1_CONFIRMED: 45,
-        JOB_STATUS_STEP2_RUNNING: 60,
-        JOB_STATUS_STEP2_READY: 75,
-        JOB_STATUS_STEP2_CONFIRMED: 80,
         JOB_STATUS_SUCCEEDED: 100,
         JOB_STATUS_FAILED: 0,
     }
@@ -727,9 +750,6 @@ def _normalize_meta_status(value: object) -> str | None:
         JOB_STATUS_STEP1_RUNNING,
         JOB_STATUS_STEP1_READY,
         JOB_STATUS_STEP1_CONFIRMED,
-        JOB_STATUS_STEP2_RUNNING,
-        JOB_STATUS_STEP2_READY,
-        JOB_STATUS_STEP2_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
     }
@@ -743,11 +763,6 @@ def _effective_status(meta_status: str | None, inferred_status: str) -> str:
         JOB_STATUS_STEP1_READY,
     }:
         return JOB_STATUS_STEP1_RUNNING
-    if meta_status == JOB_STATUS_STEP2_RUNNING and inferred_status in {
-        JOB_STATUS_STEP1_CONFIRMED,
-        JOB_STATUS_STEP2_READY,
-    }:
-        return JOB_STATUS_STEP2_RUNNING
     if meta_status == JOB_STATUS_FAILED:
         return JOB_STATUS_FAILED
     if (
@@ -771,23 +786,20 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
         }
 
     if status == JOB_STATUS_STEP1_READY:
-        if _step1_lines_path(job_id).exists():
+        if _step1_lines_draft_path(job_id).exists() and _step1_chapters_draft_path(job_id).exists():
             return None
         return {
             "code": JOB_ERROR_CODE_FILES_MISSING,
             "message": JOB_ERROR_MESSAGE_FILES_MISSING,
         }
 
-    if status in {JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_STEP2_RUNNING}:
-        if _step1_lines_path(job_id).exists() and files.get("final_step1_srt_path"):
-            return None
-        return {
-            "code": JOB_ERROR_CODE_FILES_MISSING,
-            "message": JOB_ERROR_MESSAGE_FILES_MISSING,
-        }
-
-    if status in {JOB_STATUS_STEP2_READY, JOB_STATUS_STEP2_CONFIRMED}:
-        if _step1_lines_path(job_id).exists() and files.get("final_step1_srt_path"):
+    if status == JOB_STATUS_STEP1_CONFIRMED:
+        if (
+            files.get("final_step1_json_path")
+            and files.get("final_step1_srt_path")
+            and files.get("final_chapters_path")
+            and _step1_confirmed_path(job_id).exists()
+        ):
             return None
         return {
             "code": JOB_ERROR_CODE_FILES_MISSING,
@@ -820,7 +832,6 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
     _write_files_manifest(job_id, {})
     _error_path(job_id).unlink(missing_ok=True)
     _step1_confirmed_path(job_id).unlink(missing_ok=True)
-    _step2_confirmed_path(job_id).unlink(missing_ok=True)
     _render_succeeded_path(job_id).unlink(missing_ok=True)
     return get_job(job_id, owner_user_id=owner_user_id) or {
         "job_id": job_id,
@@ -837,6 +848,22 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
         return None
     if owner_user_id and str(meta.get("owner_user_id") or "") != owner_user_id:
         return None
+
+    if _has_legacy_step2_state(job_id, meta):
+        files = _normalize_files(job_id, _read_files_manifest(job_id))
+        if files.get("final_video_path") or _render_succeeded_path(job_id).exists():
+            pass
+        else:
+            return {
+                "job_id": job_id,
+                "status": JOB_STATUS_FAILED,
+                "progress": int(meta.get("progress") or 0) if str(meta.get("progress") or "").strip() else 0,
+                "stage": None,
+                "error": {
+                    "code": "INVALID_STEP_STATE",
+                    "message": "任务流程已升级，请重新上传并重新生成字幕与章节。",
+                },
+            }
 
     files = _normalize_files(job_id, _read_files_manifest(job_id))
     inferred_status = _infer_job_status(job_id)
@@ -926,9 +953,6 @@ def update_job(
     if normalized_status == JOB_STATUS_STEP1_CONFIRMED:
         _step1_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
         _step1_confirmed_path(job_id).touch()
-    elif normalized_status == JOB_STATUS_STEP2_CONFIRMED:
-        _step2_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
-        _step2_confirmed_path(job_id).touch()
     elif normalized_status == JOB_STATUS_SUCCEEDED:
         _render_succeeded_path(job_id).parent.mkdir(parents=True, exist_ok=True)
         _render_succeeded_path(job_id).touch()
@@ -946,9 +970,6 @@ def update_job(
         JOB_STATUS_STEP1_RUNNING,
         JOB_STATUS_STEP1_READY,
         JOB_STATUS_STEP1_CONFIRMED,
-        JOB_STATUS_STEP2_RUNNING,
-        JOB_STATUS_STEP2_READY,
-        JOB_STATUS_STEP2_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
     }:
         _error_path(job_id).unlink(missing_ok=True)
@@ -957,8 +978,6 @@ def update_job(
         JOB_STATUS_CREATED,
         JOB_STATUS_STEP1_READY,
         JOB_STATUS_STEP1_CONFIRMED,
-        JOB_STATUS_STEP2_READY,
-        JOB_STATUS_STEP2_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
     } and stage_code is _STAGE_UNSET and stage_message is _STAGE_UNSET:
@@ -997,8 +1016,11 @@ def upsert_job_files(job_id: str, **kwargs: Any) -> None:
 
 
 def clear_step_data(job_id: str) -> None:
-    _step1_lines_path(job_id).unlink(missing_ok=True)
-    _step2_topics_path(job_id).unlink(missing_ok=True)
+    _step1_lines_draft_path(job_id).unlink(missing_ok=True)
+    _step1_chapters_draft_path(job_id).unlink(missing_ok=True)
+    _step1_final_lines_path(job_id).unlink(missing_ok=True)
+    _step1_final_chapters_path(job_id).unlink(missing_ok=True)
+    _step1_confirmed_path(job_id).unlink(missing_ok=True)
 
 
 def _has_artifacts(files: dict[str, Any]) -> bool:
@@ -1072,11 +1094,17 @@ def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
 
 
 def replace_step1_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
-    _write_json(_step1_lines_path(job_id), {"lines": lines})
+    _write_json(_step1_lines_draft_path(job_id), {"lines": lines})
 
 
 def list_step1_lines(job_id: str) -> list[dict[str, Any]]:
-    payload = _read_json(_step1_lines_path(job_id))
+    payload = None
+    if _step1_confirmed_path(job_id).exists() and _step1_final_lines_path(job_id).exists():
+        payload = _read_json(_step1_final_lines_path(job_id))
+    if payload is None:
+        payload = _read_json(_step1_lines_draft_path(job_id))
+    if payload is None:
+        payload = _read_json(_step1_final_lines_path(job_id))
     if isinstance(payload, dict) and isinstance(payload.get("lines"), list):
         lines = payload["lines"]
     elif isinstance(payload, list):
@@ -1106,12 +1134,12 @@ def list_step1_lines(job_id: str) -> list[dict[str, Any]]:
     return normalized
 
 
-def replace_step2_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
-    _write_json(_step2_topics_path(job_id), {"topics": chapters})
+def replace_step1_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
+    _write_json(_step1_chapters_draft_path(job_id), {"topics": chapters})
 
 
-def list_step2_chapters(job_id: str) -> list[dict[str, Any]]:
-    payload = _read_json(_step2_topics_path(job_id))
+def _list_chapters_from_path(path: Path) -> list[dict[str, Any]]:
+    payload = _read_json(path)
     if isinstance(payload, dict) and isinstance(payload.get("topics"), list):
         topics = payload["topics"]
     elif isinstance(payload, list):
@@ -1150,3 +1178,16 @@ def list_step2_chapters(job_id: str) -> list[dict[str, Any]]:
         )
     result.sort(key=lambda item: int(item["chapter_id"]))
     return result
+
+
+def list_step1_chapters(job_id: str) -> list[dict[str, Any]]:
+    if _step1_confirmed_path(job_id).exists() and _step1_final_chapters_path(job_id).exists():
+        return list_final_step1_chapters(job_id)
+    draft_path = _step1_chapters_draft_path(job_id)
+    if draft_path.exists():
+        return _list_chapters_from_path(draft_path)
+    return list_final_step1_chapters(job_id)
+
+
+def list_final_step1_chapters(job_id: str) -> list[dict[str, Any]]:
+    return _list_chapters_from_path(_step1_final_chapters_path(job_id))
