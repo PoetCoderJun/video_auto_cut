@@ -132,10 +132,22 @@ export const getChapterCardTitleMaxWidth = ({
 }): number =>
   Math.max(1, cardMaxWidth - titleFontSize * CHAPTER_CARD_PADDING_X_EM * 2);
 
+const chapterColors = [
+  "rgba(8, 12, 20, 0.74)",
+  "rgba(20, 8, 8, 0.74)",
+  "rgba(8, 20, 8, 0.74)",
+  "rgba(8, 8, 20, 0.74)",
+  "rgba(20, 20, 8, 0.74)",
+  "rgba(8, 20, 20, 0.74)",
+  "rgba(20, 8, 20, 0.74)",
+];
+
 export const getChapterCardStyle = ({
   cardMaxWidth,
+  activeTopicIndex = 0,
 }: {
   cardMaxWidth: number;
+  activeTopicIndex?: number;
 }): CSSProperties => ({
   display: "inline-flex",
   flexDirection: "column",
@@ -144,7 +156,7 @@ export const getChapterCardStyle = ({
   maxWidth: cardMaxWidth,
   padding: `${CHAPTER_CARD_PADDING_Y_EM}em ${CHAPTER_CARD_PADDING_X_EM}em`,
   borderRadius: `${CHAPTER_CARD_RADIUS_EM}em`,
-  backgroundColor: "rgba(8, 12, 20, 0.74)",
+  backgroundColor: chapterColors[activeTopicIndex % chapterColors.length] ?? "rgba(8, 12, 20, 0.74)",
   border: "1px solid rgba(255, 255, 255, 0.2)",
   boxSizing: "border-box",
 });

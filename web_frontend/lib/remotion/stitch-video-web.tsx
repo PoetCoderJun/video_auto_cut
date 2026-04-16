@@ -185,124 +185,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     Math.max(1, Math.round((typography.progressHeight * 0.034 + Number.EPSILON) * 4) / 4)
   );
 
-  const scaledStyles = useMemo(() => {
-    return {
-      subtitleWrap: {
-        position: "absolute" as const,
-        left: 0,
-        right: 0,
-        top: `${clamp(subtitleYPercent, 0, 100)}%`,
-        transform: "translateY(-50%)",
-        display: "flex" as const,
-        justifyContent: "center" as const,
-        pointerEvents: "none" as const,
-        paddingLeft: typography.subtitleSidePadding,
-        paddingRight: typography.subtitleSidePadding,
-      },
-      subtitleBox: {
-        boxSizing: "border-box" as const,
-        color: "#ffffff",
-        fontSize: typography.subtitleFontSize,
-        fontWeight: 700,
-        fontFamily: OVERLAY_FONT_FAMILY,
-        lineHeight: subtitleLineHeight,
-        lineBreak: "auto" as const,
-        fontKerning: "none" as const,
-        fontVariantLigatures: "none" as const,
-        textAlign: "center" as const,
-        textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
-        whiteSpace: "normal" as const,
-        wordBreak: "normal" as const,
-        overflowWrap: "anywhere" as const,
-        overflow: "hidden" as const,
-      },
-      chapterWrap: {
-        position: "absolute" as const,
-        top: typography.chapterTop,
-        left: typography.chapterInsetX,
-        right: typography.chapterInsetX,
-        pointerEvents: "none" as const,
-      },
-      chapterCard: {
-        ...getChapterCardStyle({
-          cardMaxWidth: chapterCardMetrics.cardMaxWidth,
-        }),
-      },
-      chapterMeta: {
-        fontSize: typography.chapterMetaFontSize,
-        fontWeight: 700,
-        fontFamily: OVERLAY_FONT_FAMILY,
-        color: "#8ee0ff",
-      },
-      chapterTitle: {
-        fontSize: typography.chapterTitleFontSize,
-        lineHeight: CHAPTER_TITLE_LINE_HEIGHT,
-        fontWeight: 800,
-        fontFamily: OVERLAY_FONT_FAMILY,
-        color: "#ffffff",
-        whiteSpace: "pre-line" as const,
-        wordBreak: "normal" as const,
-        overflowWrap: "anywhere" as const,
-      },
-      progressWrap: {
-        position: "absolute" as const,
-        left: typography.progressInsetX,
-        right: typography.progressInsetX,
-        top: `${clamp(progressYPercent, 0, 100)}%`,
-        transform: "translateY(-50%)",
-        height: typography.progressHeight,
-        pointerEvents: "none" as const,
-      },
-      progressTrack: {
-        position: "relative" as const,
-        width: "100%",
-        height: "100%",
-        borderRadius: typography.progressRadius,
-        overflow: "hidden" as const,
-        backgroundColor: "rgba(16, 22, 30, 0.42)",
-        border: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.22)`,
-      },
-      progressFill: {
-        position: "absolute" as const,
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: "0%",
-        background: "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
-      },
-      progressSegment: {
-        position: "absolute" as const,
-        top: 0,
-        bottom: 0,
-        display: "flex" as const,
-        alignItems: "center" as const,
-        justifyContent: "center" as const,
-        overflow: "hidden" as const,
-        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.2)`,
-      },
-      progressSegmentLabel: {
-        maxWidth: "100%",
-        padding: `0 ${PROGRESS_LABEL_PADDING_X_EM}em`,
-        fontSize: typography.progressLabelFontSize,
-        fontWeight: 700,
-        fontFamily: OVERLAY_FONT_FAMILY,
-        lineHeight: progressLabelLineHeight,
-        whiteSpace: allowWrappedProgressLabels ? "pre-line" as const : "nowrap" as const,
-        overflow: "hidden" as const,
-        textOverflow: "ellipsis" as const,
-        textAlign: "center" as const,
-        color: "rgba(238, 244, 255, 0.9)",
-      },
-    };
-  }, [
-    allowWrappedProgressLabels,
-    chapterCardMetrics.cardMaxWidth,
-    progressLabelLineHeight,
-    progressStrokeWidth,
-    subtitleLineHeight,
-    typography,
-  ]);
-
   const wrappedCaptions = useMemo(
     () =>
       captions.map((caption) => ({
@@ -401,9 +283,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       .sort((a, b) => a.start - b.start);
   }, [topics]);
 
-  const activeTopicIndex = findActiveTopicIndexByStart(normalizedTopics, t);
-  const activeTopic = activeTopicIndex >= 0 ? normalizedTopics[activeTopicIndex] : null;
-  const activeTopicLabel = activeTopic ? `${activeTopicIndex + 1}/${normalizedTopics.length}` : "";
+  const currentActiveTopicIndex = findActiveTopicIndexByStart(normalizedTopics, t);
+  const activeTopic = currentActiveTopicIndex >= 0 ? normalizedTopics[currentActiveTopicIndex] : null;
+  const activeTopicLabel = activeTopic ? `${currentActiveTopicIndex + 1}/${normalizedTopics.length}` : "";
   const topicTitleLayouts = useMemo(
     () =>
       normalizedTopics.map((topic) =>
@@ -415,7 +297,134 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       ),
     [chapterCardMetrics.titleMaxWidth, normalizedTopics, typography.chapterTitleFontSize]
   );
-  const activeTopicLayout = activeTopicIndex >= 0 ? topicTitleLayouts[activeTopicIndex] : null;
+  const activeTopicLayout = currentActiveTopicIndex >= 0 ? topicTitleLayouts[currentActiveTopicIndex] : null;
+
+  const scaledStyles = useMemo(() => {
+    const chapterWrapExtra: React.CSSProperties = {};
+    if (currentActiveTopicIndex === 0) {
+      chapterWrapExtra.display = "flex";
+      chapterWrapExtra.justifyContent = "flex-end";
+    }
+
+    return {
+      subtitleWrap: {
+        position: "absolute" as const,
+        left: 0,
+        right: 0,
+        top: `${clamp(subtitleYPercent, 0, 100)}%`,
+        transform: "translateY(-50%)",
+        display: "flex" as const,
+        justifyContent: "center" as const,
+        pointerEvents: "none" as const,
+        paddingLeft: typography.subtitleSidePadding,
+        paddingRight: typography.subtitleSidePadding,
+      },
+      subtitleBox: {
+        boxSizing: "border-box" as const,
+        color: "#ffffff",
+        fontSize: typography.subtitleFontSize,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        lineHeight: subtitleLineHeight,
+        lineBreak: "auto" as const,
+        fontKerning: "none" as const,
+        fontVariantLigatures: "none" as const,
+        textAlign: "center" as const,
+        textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
+        whiteSpace: "normal" as const,
+        wordBreak: "normal" as const,
+        overflowWrap: "anywhere" as const,
+        overflow: "hidden" as const,
+      },
+      chapterWrap: {
+        position: "absolute" as const,
+        top: typography.chapterTop,
+        left: typography.chapterInsetX,
+        right: typography.chapterInsetX,
+        pointerEvents: "none" as const,
+        ...chapterWrapExtra,
+      },
+      chapterCard: {
+        ...getChapterCardStyle({
+          cardMaxWidth: chapterCardMetrics.cardMaxWidth,
+          activeTopicIndex: currentActiveTopicIndex,
+        }),
+      },
+      chapterMeta: {
+        fontSize: typography.chapterMetaFontSize,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        color: "#8ee0ff",
+      },
+      chapterTitle: {
+        fontSize: typography.chapterTitleFontSize,
+        lineHeight: CHAPTER_TITLE_LINE_HEIGHT,
+        fontWeight: 800,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        color: "#ffffff",
+        whiteSpace: "pre-line" as const,
+        wordBreak: "normal" as const,
+        overflowWrap: "anywhere" as const,
+      },
+      progressWrap: {
+        position: "absolute" as const,
+        left: typography.progressInsetX,
+        right: typography.progressInsetX,
+        top: `${clamp(progressYPercent, 0, 100)}%`,
+        transform: "translateY(-50%)",
+        height: typography.progressHeight,
+        pointerEvents: "none" as const,
+      },
+      progressTrack: {
+        position: "relative" as const,
+        width: "100%",
+        height: "100%",
+        borderRadius: typography.progressRadius,
+        overflow: "hidden" as const,
+        backgroundColor: "rgba(16, 22, 30, 0.42)",
+        border: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.22)`,
+      },
+      progressFill: {
+        position: "absolute" as const,
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: "0%",
+        background: "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+      },
+      progressSegment: {
+        position: "absolute" as const,
+        top: 0,
+        bottom: 0,
+        display: "flex" as const,
+        alignItems: "center" as const,
+        justifyContent: "center" as const,
+        overflow: "hidden" as const,
+        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.2)`,
+      },
+      progressSegmentLabel: {
+        maxWidth: "100%",
+        padding: `0 ${PROGRESS_LABEL_PADDING_X_EM}em`,
+        fontSize: typography.progressLabelFontSize,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        lineHeight: progressLabelLineHeight,
+        whiteSpace: allowWrappedProgressLabels ? "pre-line" as const : "nowrap" as const,
+        overflow: "hidden" as const,
+        textOverflow: "ellipsis" as const,
+        textAlign: "center" as const,
+        color: "rgba(238, 244, 255, 0.9)",
+      },
+    };
+  }, [
+    allowWrappedProgressLabels,
+    currentActiveTopicIndex,
+    chapterCardMetrics.cardMaxWidth,
+    progressLabelLineHeight,
+    progressStrokeWidth,
+    subtitleLineHeight,
+    typography,
+  ]);
 
   const topicDurationEnd = normalizedTopics.reduce((max, item) => Math.max(max, item.end), 0);
   const captionDurationEnd = captions.reduce((max, item) => Math.max(max, item.end), 0);
@@ -591,14 +600,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
                   left: `${segment.startRatio * 100}%`,
                   width: `${(segment.endRatio - segment.startRatio) * 100}%`,
                   backgroundColor:
-                    segment.index === activeTopicIndex ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.02)",
+                    segment.index === currentActiveTopicIndex ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.02)",
                 }}
               >
                 <div
                   style={{
                     ...scaledStyles.progressSegmentLabel,
                     fontSize: segment.labelFit.fontSize,
-                    color: segment.index === activeTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
+                    color: segment.index === currentActiveTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.84)",
                   }}
                 >
                   {segment.labelFit.visible ? segment.labelFit.text : ""}
