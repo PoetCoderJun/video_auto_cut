@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import srt
-
 from video_auto_cut.orchestration.pipeline_service import (
     ASRProgressCallback,
     PipelineOptions,
     run_transcribe,
 )
+from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
+from web_api.utils.srt_utils import build_test_lines_from_srt, write_test_text
 
 
 @dataclass(frozen=True)
@@ -23,31 +23,7 @@ class ASRTranscriptionArtifacts:
     test_lines: list[dict[str, Any]]
     test_text_path: Path | None = None
 
-
-def build_test_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str, Any]]:
-    subtitles = list(srt.parse(source_srt.read_text(encoding=encoding)))
-    lines: list[dict[str, Any]] = []
-    for idx, subtitle in enumerate(subtitles, start=1):
-        line_id = int(subtitle.index) if int(subtitle.index) > 0 else idx
-        text = str(subtitle.content or "").strip()
-        lines.append(
-            {
-                "line_id": line_id,
-                "start": float(subtitle.start.total_seconds()),
-                "end": float(subtitle.end.total_seconds()),
-                "original_text": text,
-                "optimized_text": text,
-                "ai_suggest_remove": False,
-                "user_final_remove": False,
-            }
-        )
-    lines.sort(key=lambda item: int(item["line_id"]))
-    return lines
-
-
 def write_test_lines_text(lines: list[dict[str, Any]], output_path: Path) -> None:
-    from web_api.utils.srt_utils import write_test_text
-
     write_test_text(lines, output_path)
 
 
@@ -120,13 +96,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from web_api.services.pipeline_options import build_pipeline_options
-
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="[asr-transcribe] %(message)s")
 
     media_path = Path(args.input).expanduser().resolve()
-    options = build_pipeline_options(
+    options = build_pipeline_options_from_env(
         force=bool(args.force),
         lang=(args.lang or None),
         prompt=str(args.prompt or ""),

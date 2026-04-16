@@ -12,9 +12,8 @@ import srt
 
 from ..shared import media
 from .dashscope_filetrans import DashScopeFiletransClient, DashScopeFiletransConfig
-from .dashscope_temp_uploader import upload_to_dashscope_temp
 from .filetrans_like import FiletransSegment, FiletransTask, segments_to_tokens
-from .oss_uploader import OSSAudioUploader
+from .oss_uploader import OSSAudioUploader, create_oss_uploader_from_config
 
 
 class Transcribe:
@@ -32,7 +31,6 @@ class Transcribe:
 
         self.filetrans_client: DashScopeFiletransClient | None = None
         self.oss_uploader: OSSAudioUploader | None = None
-        self._use_temp_oss: bool = False
         self._init_dashscope_filetrans()
 
     def _init_dashscope_filetrans(self) -> None:
@@ -48,9 +46,15 @@ class Transcribe:
             timeout_seconds=max(
                 30.0, float(getattr(self.args, "asr_dashscope_timeout_seconds", 3600.0))
             ),
+            language=(getattr(self.args, "asr_dashscope_language", "") or "").strip() or None,
             language_hints=tuple(getattr(self.args, "asr_dashscope_language_hints", []) or []),
-            context=(getattr(self.args, "asr_dashscope_context", "") or "").strip(),
+            text=(getattr(self.args, "asr_dashscope_context", "") or "").strip(),
+            enable_itn=bool(getattr(self.args, "asr_dashscope_enable_itn", False)),
             enable_words=bool(getattr(self.args, "asr_dashscope_enable_words", False)),
+            channel_ids=tuple(
+                int(max(0, int(item)))
+                for item in (getattr(self.args, "asr_dashscope_channel_ids", [0]) or [0])
+            ),
             word_split_enabled=bool(getattr(self.args, "asr_dashscope_word_split_enabled", True)),
             word_split_on_comma=bool(getattr(self.args, "asr_dashscope_word_split_on_comma", True)),
             word_split_comma_pause_s=float(
@@ -71,24 +75,11 @@ class Transcribe:
             and (getattr(self.args, "asr_oss_access_key_id", "") or "").strip()
             and (getattr(self.args, "asr_oss_access_key_secret", "") or "").strip()
         )
-        use_temp = bool(getattr(self.args, "use_dashscope_temp_oss", False))
-        if oss_ok and not use_temp:
-            self.oss_uploader = OSSAudioUploader(
-                endpoint=(getattr(self.args, "asr_oss_endpoint", "") or "").strip(),
-                bucket_name=(getattr(self.args, "asr_oss_bucket", "") or "").strip(),
-                access_key_id=(getattr(self.args, "asr_oss_access_key_id", "") or "").strip(),
-                access_key_secret=(getattr(self.args, "asr_oss_access_key_secret", "") or "").strip(),
-                prefix=(getattr(self.args, "asr_oss_prefix", "video-auto-cut/asr") or "").strip(),
-                signed_url_ttl_seconds=int(
-                    max(60, int(getattr(self.args, "asr_oss_signed_url_ttl_seconds", 86400)))
-                ),
-            )
+        if oss_ok:
+            self.oss_uploader = create_oss_uploader_from_config(self.args)
             logging.info("[asr] using own OSS bucket for upload")
         else:
-            self._use_temp_oss = True
-            logging.info(
-                "[asr] using DashScope temporary OSS (no own OSS or USE_DASHSCOPE_TEMP_OSS=1)"
-            )
+            logging.info("[asr] own OSS upload is unavailable because OSS config is incomplete")
         logging.info(
             "Init DashScope Filetrans backend with model=%s task=%s enable_words=%s word_split=%s",
             config.model,
@@ -145,7 +136,6 @@ class Transcribe:
 
         self._emit_progress(progress_callback, 0.0)
         file_url: str
-        use_oss_resolve = False
         if self.oss_uploader is not None and oss_object_key:
             logging.info("[asr] using existing OSS object: %s (skip upload)", oss_object_key)
             file_url = self.oss_uploader.get_signed_get_url(oss_object_key)
@@ -161,30 +151,17 @@ class Transcribe:
             )
             file_url = uploaded.signed_url
         else:
-            media_p = Path(media_path)
-            if not media_p.exists() or not media_p.is_file():
-                raise RuntimeError(
-                    "DashScope temp OSS mode requires local audio file. "
-                    "Use API upload (not direct OSS) when OSS is not configured."
-                )
-            logging.info("[asr] dashscope temp upload start: %s", media_p)
-            api_key = (getattr(self.args, "asr_dashscope_api_key", "") or "").strip()
-            if not api_key:
-                raise RuntimeError("DashScope API key required for temp OSS mode")
-            file_url = upload_to_dashscope_temp(
-                api_key=api_key,
-                base_url=(getattr(self.args, "asr_dashscope_base_url", "") or "").strip(),
-                model_name=(getattr(self.args, "asr_dashscope_model", "") or "").strip(),
-                file_path=media_p,
+            raise RuntimeError(
+                "OSS config missing for DashScope Filetrans upload. "
+                "Configure OSS_ENDPOINT / OSS_BUCKET / OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET "
+                "or pass an existing OSS object key."
             )
-            use_oss_resolve = True
         self._emit_progress(progress_callback, 0.08)
 
         submit = self.filetrans_client.submit(
             file_url=file_url,
             lang=lang,
             prompt=prompt,
-            use_oss_resource_resolve=use_oss_resolve,
         )
         logging.info("[asr] filetrans task submitted: %s", submit.task_id)
 

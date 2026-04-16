@@ -15,13 +15,15 @@ from .constants import (
     JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_CREATED,
     JOB_STATUS_FAILED,
-    JOB_STATUS_STEP1_CONFIRMED,
-    JOB_STATUS_STEP1_RUNNING,
-    JOB_STATUS_STEP1_READY,
     JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_TEST_CONFIRMED,
+    JOB_STATUS_TEST_RUNNING,
+    JOB_STATUS_TEST_READY,
     JOB_STATUS_UPLOAD_READY,
 )
 from .db import get_conn, retry_turso_operation
+from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch, row_get
+from .utils.srt_utils import build_test_chapters_from_text, build_test_lines_from_text, write_chapters_text, write_test_text
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
 USER_STATUS_ACTIVE = "ACTIVE"
@@ -37,8 +39,8 @@ JOB_FILE_FIELDS = (
     "srt_path",
     "optimized_srt_path",
     "chapters_draft_path",
-    "final_step1_json_path",
-    "final_step1_srt_path",
+    "final_test_text_path",
+    "final_test_srt_path",
     "final_chapters_path",
     "final_video_path",
 )
@@ -46,41 +48,14 @@ JOB_FILE_FIELDS = (
 _STATUS_RANK = {
     JOB_STATUS_CREATED: 0,
     JOB_STATUS_UPLOAD_READY: 1,
-    JOB_STATUS_STEP1_RUNNING: 2,
-    JOB_STATUS_STEP1_READY: 3,
-    JOB_STATUS_STEP1_CONFIRMED: 4,
+    JOB_STATUS_TEST_RUNNING: 2,
+    JOB_STATUS_TEST_READY: 3,
+    JOB_STATUS_TEST_CONFIRMED: 4,
     JOB_STATUS_SUCCEEDED: 5,
     JOB_STATUS_FAILED: 6,
 }
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _row_get(row: Any, key: str, index: int) -> Any:
-    if row is None:
-        return None
-    if isinstance(row, (tuple, list)):
-        if 0 <= index < len(row):
-            return row[index]
-        return None
-    try:
-        return row[key]
-    except Exception:
-        return None
-
-
 def _parse_iso(value: str | None) -> datetime:
-    if not value:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except Exception:
-        return datetime.fromtimestamp(0, tz=timezone.utc)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+    return parse_iso_datetime_or_epoch(value)
 
 
 @retry_turso_operation("ensure user")
@@ -106,7 +81,7 @@ def ensure_user(user_id: str, email: str | None) -> None:
         if normalized_email is None:
             return
 
-        previous_email = _row_get(row, "email", 1)
+        previous_email = row_get(row, "email", 1)
         if previous_email != normalized_email:
             conn.execute(
                 "UPDATE users SET email = ?, updated_at = ? WHERE user_id = ?",
@@ -125,10 +100,10 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     if not row:
         return None
     return {
-        "user_id": str(_row_get(row, "user_id", 0)),
-        "email": _row_get(row, "email", 1),
-        "status": _row_get(row, "status", 2) or USER_STATUS_PENDING_COUPON,
-        "activated_at": _row_get(row, "activated_at", 3),
+        "user_id": str(row_get(row, "user_id", 0)),
+        "email": row_get(row, "email", 1),
+        "status": row_get(row, "status", 2) or USER_STATUS_PENDING_COUPON,
+        "activated_at": row_get(row, "activated_at", 3),
     }
 
 
@@ -209,7 +184,7 @@ def claim_public_coupon_code(
             """,
             (ip_hash,),
         ).fetchone()
-        existing_code = str(_row_get(claim, "code", 0) or "").strip()
+        existing_code = str(row_get(claim, "code", 0) or "").strip()
         has_existing_claim = bool(existing_code)
         if existing_code:
             coupon = conn.execute(
@@ -233,8 +208,8 @@ def claim_public_coupon_code(
                     )
                     conn.commit()
                     return {
-                        "code": str(_row_get(coupon, "code", 0)),
-                        "credits": int(_row_get(coupon, "credits", 1) or normalized_credits),
+                        "code": str(row_get(coupon, "code", 0)),
+                        "credits": int(row_get(coupon, "credits", 1) or normalized_credits),
                         "already_claimed": True,
                     }
 
@@ -247,11 +222,11 @@ def claim_public_coupon_code(
                 LIMIT 1
                 """
             ).fetchone()
-            max_claims = int(_row_get(settings_row, "max_claims", 0) or 0)
+            max_claims = int(row_get(settings_row, "max_claims", 0) or 0)
             claim_count_row = conn.execute(
                 "SELECT COUNT(*) AS total FROM public_invite_claims"
             ).fetchone()
-            claim_count = int(_row_get(claim_count_row, "total", 0) or 0)
+            claim_count = int(row_get(claim_count_row, "total", 0) or 0)
             if max_claims > 0 and claim_count >= max_claims:
                 conn.rollback()
                 raise LookupError("PUBLIC_INVITE_EXHAUSTED")
@@ -318,7 +293,7 @@ def get_credit_balance(user_id: str) -> int:
         ).fetchone()
     if not row:
         return 0
-    return int(_row_get(row, "balance", 0) or 0)
+    return int(row_get(row, "balance", 0) or 0)
 
 
 @retry_turso_operation("get recent credit ledger")
@@ -336,12 +311,12 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
         ).fetchall()
     return [
         {
-            "entry_id": int(_row_get(row, "entry_id", 0)),
-            "delta": int(_row_get(row, "delta", 1)),
-            "reason": str(_row_get(row, "reason", 2)),
-            "job_id": _row_get(row, "job_id", 3),
-            "idempotency_key": str(_row_get(row, "idempotency_key", 4)),
-            "created_at": str(_row_get(row, "created_at", 5)),
+            "entry_id": int(row_get(row, "entry_id", 0)),
+            "delta": int(row_get(row, "delta", 1)),
+            "reason": str(row_get(row, "reason", 2)),
+            "job_id": row_get(row, "job_id", 3),
+            "idempotency_key": str(row_get(row, "idempotency_key", 4)),
+            "created_at": str(row_get(row, "created_at", 5)),
         }
         for row in rows
     ]
@@ -403,15 +378,15 @@ def _assert_not_expired_or_invalid(expires_at: Any) -> None:
 
 
 def _assert_coupon_usable_in_tx(coupon: Any) -> None:
-    used_count = int(_row_get(coupon, "used_count", 2) or 0)
+    used_count = int(row_get(coupon, "used_count", 2) or 0)
     if used_count >= 1:
         raise LookupError("COUPON_CODE_EXHAUSTED")
 
-    status = str(_row_get(coupon, "status", 4) or "").upper()
+    status = str(row_get(coupon, "status", 4) or "").upper()
     if status != "ACTIVE":
         raise LookupError("COUPON_CODE_INVALID")
 
-    _assert_not_expired_or_invalid(_row_get(coupon, "expires_at", 3))
+    _assert_not_expired_or_invalid(row_get(coupon, "expires_at", 3))
 
 
 @retry_turso_operation("preview coupon code")
@@ -433,7 +408,7 @@ def preview_coupon_code(code: str) -> dict[str, Any]:
         raise LookupError("COUPON_CODE_INVALID")
 
     _assert_coupon_usable_in_tx(coupon)
-    credits = int(_row_get(coupon, "credits", 1) or 0)
+    credits = int(row_get(coupon, "credits", 1) or 0)
     if credits <= 0:
         raise LookupError("COUPON_CODE_INVALID")
     return {"code": normalized, "credits": credits}
@@ -475,8 +450,8 @@ def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
             )
             already_activated = False
         else:
-            user_status = str(_row_get(user, "status", 1) or "").upper()
-            already_activated = user_status == USER_STATUS_ACTIVE or bool(_row_get(user, "activated_at", 2))
+            user_status = str(row_get(user, "status", 1) or "").upper()
+            already_activated = user_status == USER_STATUS_ACTIVE or bool(row_get(user, "activated_at", 2))
 
         coupon = conn.execute(
             """
@@ -496,7 +471,7 @@ def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
             conn.rollback()
             raise
 
-        credits = int(_row_get(coupon, "credits", 1) or 0)
+        credits = int(row_get(coupon, "credits", 1) or 0)
         if credits <= 0:
             conn.rollback()
             raise LookupError("COUPON_CODE_INVALID")
@@ -540,7 +515,7 @@ def _get_balance_in_tx(conn: Any, user_id: str) -> int:
         "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
         (user_id,),
     ).fetchone()
-    return int(_row_get(row, "balance", 0) or 0)
+    return int(row_get(row, "balance", 0) or 0)
 
 
 def _meta_path(job_id: str) -> Path:
@@ -555,28 +530,28 @@ def _error_path(job_id: str) -> Path:
     return job_dir(job_id) / "job.error.json"
 
 
-def _step1_confirmed_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step1" / ".confirmed"
+def _test_confirmed_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / ".confirmed"
 
 
 def _render_succeeded_path(job_id: str) -> Path:
     return job_dir(job_id) / "render" / ".succeeded"
 
 
-def _step1_lines_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step1" / "lines_draft.json"
+def _test_lines_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "lines_draft.txt"
 
 
-def _step1_chapters_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step1" / "chapters_draft.json"
+def _test_chapters_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "chapters_draft.txt"
 
 
-def _step1_final_lines_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step1" / "final_step1.json"
+def _test_final_lines_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "final_test.txt"
 
 
-def _step1_final_chapters_path(job_id: str) -> Path:
-    return job_dir(job_id) / "step1" / "final_chapters.json"
+def _test_final_chapters_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "final_chapters.txt"
 
 
 def _read_json(path: Path) -> Any:
@@ -660,19 +635,19 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not result["audio_path"]:
         result["audio_path"] = _existing_audio_path(job_id)
 
-    step1_srt = job_dir(job_id) / "step1" / "final_step1.srt"
-    if step1_srt.exists():
-        result["final_step1_srt_path"] = str(step1_srt)
+    test_srt = job_dir(job_id) / "test" / "final_test.srt"
+    if test_srt.exists():
+        result["final_test_srt_path"] = str(test_srt)
 
-    chapters_draft = _step1_chapters_draft_path(job_id)
+    chapters_draft = _test_chapters_draft_path(job_id)
     if chapters_draft.exists():
         result["chapters_draft_path"] = str(chapters_draft)
 
-    final_step1_json = _step1_final_lines_path(job_id)
-    if final_step1_json.exists():
-        result["final_step1_json_path"] = str(final_step1_json)
+    final_test_text = _test_final_lines_path(job_id)
+    if final_test_text.exists():
+        result["final_test_text_path"] = str(final_test_text)
 
-    final_chapters = _step1_final_chapters_path(job_id)
+    final_chapters = _test_final_chapters_path(job_id)
     if final_chapters.exists():
         result["final_chapters_path"] = str(final_chapters)
 
@@ -714,14 +689,14 @@ def _infer_job_status(job_id: str) -> str:
     if files.get("final_video_path"):
         return JOB_STATUS_SUCCEEDED
     if (
-        _step1_confirmed_path(job_id).exists()
-        and files.get("final_step1_json_path")
-        and files.get("final_step1_srt_path")
+        _test_confirmed_path(job_id).exists()
+        and files.get("final_test_text_path")
+        and files.get("final_test_srt_path")
         and files.get("final_chapters_path")
     ):
-        return JOB_STATUS_STEP1_CONFIRMED
-    if _step1_lines_draft_path(job_id).exists() and _step1_chapters_draft_path(job_id).exists():
-        return JOB_STATUS_STEP1_READY
+        return JOB_STATUS_TEST_CONFIRMED
+    if _test_lines_draft_path(job_id).exists() and _test_chapters_draft_path(job_id).exists():
+        return JOB_STATUS_TEST_READY
     if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
     return JOB_STATUS_CREATED
@@ -731,9 +706,9 @@ def _progress_for_status(status: str) -> int:
     mapping = {
         JOB_STATUS_CREATED: 0,
         JOB_STATUS_UPLOAD_READY: 10,
-        JOB_STATUS_STEP1_RUNNING: 30,
-        JOB_STATUS_STEP1_READY: 35,
-        JOB_STATUS_STEP1_CONFIRMED: 45,
+        JOB_STATUS_TEST_RUNNING: 30,
+        JOB_STATUS_TEST_READY: 35,
+        JOB_STATUS_TEST_CONFIRMED: 45,
         JOB_STATUS_SUCCEEDED: 100,
         JOB_STATUS_FAILED: 0,
     }
@@ -747,9 +722,9 @@ def _normalize_meta_status(value: object) -> str | None:
     allowed = {
         JOB_STATUS_CREATED,
         JOB_STATUS_UPLOAD_READY,
-        JOB_STATUS_STEP1_RUNNING,
-        JOB_STATUS_STEP1_READY,
-        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_TEST_RUNNING,
+        JOB_STATUS_TEST_READY,
+        JOB_STATUS_TEST_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
     }
@@ -757,12 +732,12 @@ def _normalize_meta_status(value: object) -> str | None:
 
 
 def _effective_status(meta_status: str | None, inferred_status: str) -> str:
-    if meta_status == JOB_STATUS_STEP1_RUNNING and inferred_status in {
+    if meta_status == JOB_STATUS_TEST_RUNNING and inferred_status in {
         JOB_STATUS_CREATED,
         JOB_STATUS_UPLOAD_READY,
-        JOB_STATUS_STEP1_READY,
+        JOB_STATUS_TEST_READY,
     }:
-        return JOB_STATUS_STEP1_RUNNING
+        return JOB_STATUS_TEST_RUNNING
     if meta_status == JOB_STATUS_FAILED:
         return JOB_STATUS_FAILED
     if (
@@ -777,7 +752,7 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
     if status in {JOB_STATUS_CREATED, JOB_STATUS_FAILED}:
         return None
 
-    if status in {JOB_STATUS_UPLOAD_READY, JOB_STATUS_STEP1_RUNNING}:
+    if status in {JOB_STATUS_UPLOAD_READY, JOB_STATUS_TEST_RUNNING}:
         if files.get("audio_path") or files.get("asr_oss_key"):
             return None
         return {
@@ -785,20 +760,20 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
             "message": JOB_ERROR_MESSAGE_FILES_MISSING,
         }
 
-    if status == JOB_STATUS_STEP1_READY:
-        if _step1_lines_draft_path(job_id).exists() and _step1_chapters_draft_path(job_id).exists():
+    if status == JOB_STATUS_TEST_READY:
+        if _test_lines_draft_path(job_id).exists() and _test_chapters_draft_path(job_id).exists():
             return None
         return {
             "code": JOB_ERROR_CODE_FILES_MISSING,
             "message": JOB_ERROR_MESSAGE_FILES_MISSING,
         }
 
-    if status == JOB_STATUS_STEP1_CONFIRMED:
+    if status == JOB_STATUS_TEST_CONFIRMED:
         if (
-            files.get("final_step1_json_path")
-            and files.get("final_step1_srt_path")
+            files.get("final_test_text_path")
+            and files.get("final_test_srt_path")
             and files.get("final_chapters_path")
-            and _step1_confirmed_path(job_id).exists()
+            and _test_confirmed_path(job_id).exists()
         ):
             return None
         return {
@@ -831,7 +806,7 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
     )
     _write_files_manifest(job_id, {})
     _error_path(job_id).unlink(missing_ok=True)
-    _step1_confirmed_path(job_id).unlink(missing_ok=True)
+    _test_confirmed_path(job_id).unlink(missing_ok=True)
     _render_succeeded_path(job_id).unlink(missing_ok=True)
     return get_job(job_id, owner_user_id=owner_user_id) or {
         "job_id": job_id,
@@ -950,9 +925,9 @@ def update_job(
     meta["updated_at"] = now_iso()
     _write_json(_meta_path(job_id), meta)
 
-    if normalized_status == JOB_STATUS_STEP1_CONFIRMED:
-        _step1_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
-        _step1_confirmed_path(job_id).touch()
+    if normalized_status == JOB_STATUS_TEST_CONFIRMED:
+        _test_confirmed_path(job_id).parent.mkdir(parents=True, exist_ok=True)
+        _test_confirmed_path(job_id).touch()
     elif normalized_status == JOB_STATUS_SUCCEEDED:
         _render_succeeded_path(job_id).parent.mkdir(parents=True, exist_ok=True)
         _render_succeeded_path(job_id).touch()
@@ -967,17 +942,17 @@ def update_job(
     elif normalized_status in {
         JOB_STATUS_CREATED,
         JOB_STATUS_UPLOAD_READY,
-        JOB_STATUS_STEP1_RUNNING,
-        JOB_STATUS_STEP1_READY,
-        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_TEST_RUNNING,
+        JOB_STATUS_TEST_READY,
+        JOB_STATUS_TEST_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
     }:
         _error_path(job_id).unlink(missing_ok=True)
 
     if normalized_status in {
         JOB_STATUS_CREATED,
-        JOB_STATUS_STEP1_READY,
-        JOB_STATUS_STEP1_CONFIRMED,
+        JOB_STATUS_TEST_READY,
+        JOB_STATUS_TEST_CONFIRMED,
         JOB_STATUS_SUCCEEDED,
         JOB_STATUS_FAILED,
     } and stage_code is _STAGE_UNSET and stage_message is _STAGE_UNSET:
@@ -1016,11 +991,11 @@ def upsert_job_files(job_id: str, **kwargs: Any) -> None:
 
 
 def clear_step_data(job_id: str) -> None:
-    _step1_lines_draft_path(job_id).unlink(missing_ok=True)
-    _step1_chapters_draft_path(job_id).unlink(missing_ok=True)
-    _step1_final_lines_path(job_id).unlink(missing_ok=True)
-    _step1_final_chapters_path(job_id).unlink(missing_ok=True)
-    _step1_confirmed_path(job_id).unlink(missing_ok=True)
+    _test_lines_draft_path(job_id).unlink(missing_ok=True)
+    _test_chapters_draft_path(job_id).unlink(missing_ok=True)
+    _test_final_lines_path(job_id).unlink(missing_ok=True)
+    _test_final_chapters_path(job_id).unlink(missing_ok=True)
+    _test_confirmed_path(job_id).unlink(missing_ok=True)
 
 
 def _has_artifacts(files: dict[str, Any]) -> bool:
@@ -1037,13 +1012,17 @@ def _is_cleanup_candidate_status(status: str | None) -> bool:
     return status == JOB_STATUS_SUCCEEDED
 
 
-def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:
+def _list_succeeded_jobs_with_artifacts(
+    *,
+    limit: int,
+    cutoff_updated_at: str | None = None,
+) -> list[str]:
     settings = get_settings()
     jobs_root = settings.work_dir / "jobs"
     if not jobs_root.exists():
         return []
 
-    cutoff = _parse_iso(cutoff_updated_at)
+    cutoff = _parse_iso(cutoff_updated_at) if cutoff_updated_at is not None else None
     pairs: list[tuple[datetime, str]] = []
     for item in jobs_root.iterdir():
         if not item.is_dir():
@@ -1059,135 +1038,63 @@ def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[s
         if not _has_artifacts(files):
             continue
         updated_at = _parse_iso(str(meta.get("updated_at") or meta.get("created_at") or ""))
-        if updated_at <= cutoff:
-            pairs.append((updated_at, job_id))
-
-    pairs.sort(key=lambda pair: pair[0])
-    return [job_id for _, job_id in pairs[: int(max(1, limit))]]
-
-
-def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
-    settings = get_settings()
-    jobs_root = settings.work_dir / "jobs"
-    if not jobs_root.exists():
-        return []
-
-    pairs: list[tuple[datetime, str]] = []
-    for item in jobs_root.iterdir():
-        if not item.is_dir():
+        if cutoff is not None and updated_at > cutoff:
             continue
-        job_id = item.name
-        meta = _read_meta(job_id)
-        if not meta:
-            continue
-        status = _normalize_meta_status(meta.get("status"))
-        if not _is_cleanup_candidate_status(status):
-            continue
-        files = get_job_files(job_id) or {}
-        if not _has_artifacts(files):
-            continue
-        updated_at = _parse_iso(str(meta.get("updated_at") or meta.get("created_at") or ""))
         pairs.append((updated_at, job_id))
 
     pairs.sort(key=lambda pair: pair[0])
     return [job_id for _, job_id in pairs[: int(max(1, limit))]]
 
 
-def replace_step1_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
-    _write_json(_step1_lines_draft_path(job_id), {"lines": lines})
+def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:
+    return _list_succeeded_jobs_with_artifacts(limit=limit, cutoff_updated_at=cutoff_updated_at)
 
 
-def list_step1_lines(job_id: str) -> list[dict[str, Any]]:
-    payload = None
-    if _step1_confirmed_path(job_id).exists() and _step1_final_lines_path(job_id).exists():
-        payload = _read_json(_step1_final_lines_path(job_id))
-    if payload is None:
-        payload = _read_json(_step1_lines_draft_path(job_id))
-    if payload is None:
-        payload = _read_json(_step1_final_lines_path(job_id))
-    if isinstance(payload, dict) and isinstance(payload.get("lines"), list):
-        lines = payload["lines"]
-    elif isinstance(payload, list):
-        lines = payload
-    else:
-        lines = []
-
-    normalized: list[dict[str, Any]] = []
-    for row in lines:
-        if not isinstance(row, dict):
-            continue
-        try:
-            normalized.append(
-                {
-                    "line_id": int(row["line_id"]),
-                    "start": float(row["start"]),
-                    "end": float(row["end"]),
-                    "original_text": str(row.get("original_text") or ""),
-                    "optimized_text": str(row.get("optimized_text") or ""),
-                    "ai_suggest_remove": bool(row.get("ai_suggest_remove", False)),
-                    "user_final_remove": bool(row.get("user_final_remove", False)),
-                }
-            )
-        except Exception:
-            continue
-    normalized.sort(key=lambda item: int(item["line_id"]))
-    return normalized
+def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
+    return _list_succeeded_jobs_with_artifacts(limit=limit)
 
 
-def replace_step1_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
-    _write_json(_step1_chapters_draft_path(job_id), {"topics": chapters})
+def replace_test_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
+    write_test_text(lines, _test_lines_draft_path(job_id))
+
+
+def list_test_lines(job_id: str) -> list[dict[str, Any]]:
+    path = None
+    if _test_confirmed_path(job_id).exists() and _test_final_lines_path(job_id).exists():
+        path = _test_final_lines_path(job_id)
+    if path is None or not path.exists():
+        draft = _test_lines_draft_path(job_id)
+        if draft.exists():
+            path = draft
+    if path is None or not path.exists():
+        final = _test_final_lines_path(job_id)
+        if final.exists():
+            path = final
+    if path is None or not path.exists():
+        return []
+    return build_test_lines_from_text(path)
+
+
+def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
+    write_chapters_text(chapters, _test_chapters_draft_path(job_id))
 
 
 def _list_chapters_from_path(path: Path) -> list[dict[str, Any]]:
-    payload = _read_json(path)
-    if isinstance(payload, dict) and isinstance(payload.get("topics"), list):
-        topics = payload["topics"]
-    elif isinstance(payload, list):
-        topics = payload
-    else:
-        topics = []
-
-    result: list[dict[str, Any]] = []
-    for row in topics:
-        if not isinstance(row, dict):
-            continue
-        try:
-            chapter_id = int(row.get("chapter_id", len(result) + 1))
-            start = float(row.get("start", 0.0))
-            end = float(row.get("end", 0.0))
-            if end <= start:
-                continue
-        except Exception:
-            continue
-
-        line_ids_raw = row.get("line_ids")
-        line_ids = (
-            [int(item) for item in line_ids_raw if isinstance(item, (int, float))]
-            if isinstance(line_ids_raw, list)
-            else []
-        )
-        result.append(
-            {
-                "chapter_id": chapter_id,
-                "title": str(row.get("title") or f"章节{chapter_id}"),
-                "start": start,
-                "end": end,
-                "block_range": str(row.get("block_range") or row.get("segment_range") or "").strip(),
-                "line_ids": line_ids,
-            }
-        )
-    result.sort(key=lambda item: int(item["chapter_id"]))
-    return result
+    if not path.exists():
+        return []
+    lines = list_test_lines(path.parents[1].name)
+    kept_lines = [line for line in lines if not bool(line.get("user_final_remove", False))]
+    return build_test_chapters_from_text(path, kept_lines=kept_lines)
 
 
-def list_step1_chapters(job_id: str) -> list[dict[str, Any]]:
-    if _step1_confirmed_path(job_id).exists() and _step1_final_chapters_path(job_id).exists():
-        return list_final_step1_chapters(job_id)
-    draft_path = _step1_chapters_draft_path(job_id)
+def list_test_chapters(job_id: str) -> list[dict[str, Any]]:
+    if _test_confirmed_path(job_id).exists() and _test_final_chapters_path(job_id).exists():
+        return list_final_test_chapters(job_id)
+    draft_path = _test_chapters_draft_path(job_id)
     if draft_path.exists():
         return _list_chapters_from_path(draft_path)
-    return list_final_step1_chapters(job_id)
+    return list_final_test_chapters(job_id)
 
 
-def list_final_step1_chapters(job_id: str) -> list[dict[str, Any]]:
-    return _list_chapters_from_path(_step1_final_chapters_path(job_id))
+def list_final_test_chapters(job_id: str) -> list[dict[str, Any]]:
+    return _list_chapters_from_path(_test_final_chapters_path(job_id))

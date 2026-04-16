@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Optional, Tuple
 import srt
 
 from . import llm_client as llm_utils
+from video_auto_cut.rendering.cut import parse_decision_and_text
 
 
-DECISION_HEADER_PATTERN = re.compile(r"^\[(KEEP|REMOVE)\b[^\]]*\]\s*$", re.IGNORECASE)
-REMOVE_TOKEN = "<<REMOVE>>"
+REMOVE_TOKEN = "<remove>"
 SPACE_PATTERN = re.compile(r"\s+")
 ID_RANGE_PATTERN = re.compile(r"^\s*(\d+)\s*(?:[-~—–到至]\s*(\d+)\s*)?$")
 TOPIC_TITLE_MAX_CHARS_DEFAULT = 6
@@ -218,7 +218,7 @@ class PiAgentTopicLoop:
         try:
             return (
                 self._validate_payload(
-                    _json_loads(raw_payload),
+                    llm_utils.extract_json(raw_payload),
                     blocks=blocks,
                     segments=segments,
                     min_topics=min_topics,
@@ -328,40 +328,8 @@ class PiAgentTopicLoop:
         )
 
 
-def _strip_code_fence(text: str) -> str:
-    if "```" not in text:
-        return text.strip()
-    parts = text.split("```")
-    if len(parts) >= 3:
-        return parts[1].strip()
-    return text.strip()
-
-
 def _clean_text(text: str) -> str:
     return SPACE_PATTERN.sub(" ", (text or "").strip())
-
-
-def _json_loads(text: str) -> dict[str, Any]:
-    raw = _strip_code_fence(text)
-    if raw.startswith("json"):
-        raw = raw[4:].strip()
-    data = llm_utils.extract_json(raw)
-    if not isinstance(data, dict):
-        raise RuntimeError("LLM output must be a JSON object.")
-    return data
-
-
-def _parse_decision_and_text(content: str) -> Tuple[Optional[str], str]:
-    lines = [line.strip() for line in (content or "").splitlines() if line.strip()]
-    if not lines:
-        return None, ""
-    first = lines[0]
-    match = DECISION_HEADER_PATTERN.match(first)
-    if not match:
-        return None, "\n".join(lines).strip()
-    decision = match.group(1).upper()
-    text = "\n".join(lines[1:]).strip()
-    return decision, text
 
 
 def _load_kept_segments(srt_path: str, encoding: str) -> List[TopicSegment]:
@@ -370,7 +338,7 @@ def _load_kept_segments(srt_path: str, encoding: str) -> List[TopicSegment]:
 
     segments: List[TopicSegment] = []
     for sub in subs:
-        decision, text = _parse_decision_and_text(sub.content or "")
+        decision, text = parse_decision_and_text(sub.content or "")
         if decision == "REMOVE":
             continue
         if not text:
@@ -798,7 +766,7 @@ def _build_fallback_topic_title(
 
 
 def _parse_segment_plan(text: str) -> List[List[int]]:
-    plan, _ = _parse_topic_plan_payload(_json_loads(text))
+    plan, _ = _parse_topic_plan_payload(llm_utils.extract_json(text))
     return plan
 
 

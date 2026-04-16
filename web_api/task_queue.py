@@ -11,25 +11,10 @@ from .constants import (
     TASK_STATUS_QUEUED,
     TASK_STATUS_RUNNING,
     TASK_STATUS_SUCCEEDED,
-    TASK_TYPE_STEP1,
+    TASK_TYPE_TEST,
 )
 from .db import get_conn, retry_turso_operation
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _parse_iso_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except Exception:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+from .utils.persistence_helpers import now_iso, parse_iso_datetime, row_get
 
 
 def get_queue_db_path() -> str:
@@ -74,23 +59,8 @@ def init_task_queue_db() -> None:
             """
         )
         conn.commit()
-
-
-def _row_get(row: Any, key: str, index: int) -> Any:
-    if row is None:
-        return None
-    if isinstance(row, (tuple, list)):
-        if 0 <= index < len(row):
-            return row[index]
-        return None
-    try:
-        return row[key]
-    except Exception:
-        return None
-
-
 def _task_row_to_dict(row: Any) -> dict[str, Any]:
-    payload_json = _row_get(row, "payload_json", 4)
+    payload_json = row_get(row, "payload_json", 4)
     try:
         payload = json.loads(str(payload_json or "{}"))
     except Exception:
@@ -99,17 +69,17 @@ def _task_row_to_dict(row: Any) -> dict[str, Any]:
         payload = {}
 
     return {
-        "task_id": int(_row_get(row, "task_id", 0)),
-        "job_id": str(_row_get(row, "job_id", 1)),
-        "task_type": str(_row_get(row, "task_type", 2)),
-        "status": str(_row_get(row, "status", 3)),
+        "task_id": int(row_get(row, "task_id", 0)),
+        "job_id": str(row_get(row, "job_id", 1)),
+        "task_type": str(row_get(row, "task_type", 2)),
+        "status": str(row_get(row, "status", 3)),
         "payload": payload,
-        "error_message": _row_get(row, "error_message", 5),
-        "worker_id": _row_get(row, "worker_id", 6),
-        "created_at": _row_get(row, "created_at", 7),
-        "updated_at": _row_get(row, "updated_at", 8),
-        "started_at": _row_get(row, "started_at", 9),
-        "finished_at": _row_get(row, "finished_at", 10),
+        "error_message": row_get(row, "error_message", 5),
+        "worker_id": row_get(row, "worker_id", 6),
+        "created_at": row_get(row, "created_at", 7),
+        "updated_at": row_get(row, "updated_at", 8),
+        "started_at": row_get(row, "started_at", 9),
+        "finished_at": row_get(row, "finished_at", 10),
     }
 
 
@@ -139,8 +109,8 @@ def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
 
         stale_task_ids: list[int] = []
         for row in stale_rows:
-            task_id = int(_row_get(row, "task_id", 0) or 0)
-            updated_at = _parse_iso_datetime(_row_get(row, "updated_at", 8))
+            task_id = int(row_get(row, "task_id", 0) or 0)
+            updated_at = parse_iso_datetime(row_get(row, "updated_at", 8))
             if task_id <= 0:
                 continue
             if updated_at is None or updated_at < cutoff:
@@ -160,7 +130,7 @@ def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
                     updated_at = ?
                 WHERE task_id = ? AND status = ?
                 """,
-                (TASK_STATUS_QUEUED, _now_iso(), task_id, TASK_STATUS_RUNNING),
+                (TASK_STATUS_QUEUED, now_iso(), task_id, TASK_STATUS_RUNNING),
             )
             if int(getattr(updated, "rowcount", 0) or 0) > 0:
                 reclaimed += 1
@@ -171,7 +141,7 @@ def reclaim_stale_running_tasks(*, now: datetime | None = None) -> int:
 
 @retry_turso_operation("heartbeat task")
 def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
-    now = _now_iso()
+    now = now_iso()
     with get_conn() as conn:
         updated = conn.execute(
             """
@@ -194,10 +164,10 @@ def heartbeat_task(task_id: int, *, worker_id: str) -> bool:
 
 @retry_turso_operation("enqueue task")
 def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = None) -> int:
-    if task_type != TASK_TYPE_STEP1:
+    if task_type != TASK_TYPE_TEST:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
-    now = _now_iso()
+    now = now_iso()
     payload_json = json.dumps(payload or {}, ensure_ascii=False)
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -214,7 +184,7 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
             (job_id, task_type, TASK_STATUS_QUEUED, TASK_STATUS_RUNNING),
         ).fetchone()
         if existing:
-            task_id = int(_row_get(existing, "task_id", 0) or 0)
+            task_id = int(row_get(existing, "task_id", 0) or 0)
             conn.commit()
             if task_id > 0:
                 return task_id
@@ -250,7 +220,7 @@ def enqueue_task(job_id: str, task_type: str, payload: dict[str, Any] | None = N
                 """,
                 (job_id, task_type),
             ).fetchone()
-            task_id = int(_row_get(fallback, "task_id", 0) or 0)
+            task_id = int(row_get(fallback, "task_id", 0) or 0)
         conn.commit()
 
     if task_id <= 0:
@@ -262,7 +232,7 @@ def claim_next_task() -> dict[str, Any] | None:
     # Claiming changes task ownership. Let the worker loop retry on failure
     # instead of replaying the claim inside this function.
     worker_id = f"pid-{os.getpid()}"
-    now = _now_iso()
+    now = now_iso()
     reclaim_stale_running_tasks(now=datetime.fromisoformat(now.replace("Z", "+00:00")).astimezone(timezone.utc))
     with get_conn() as conn:
         for _ in range(3):
@@ -292,7 +262,7 @@ def claim_next_task() -> dict[str, Any] | None:
                 conn.commit()
                 return None
 
-            task_id = int(_row_get(row, "task_id", 0) or 0)
+            task_id = int(row_get(row, "task_id", 0) or 0)
             if task_id <= 0:
                 conn.rollback()
                 continue
@@ -335,14 +305,14 @@ def claim_next_task() -> dict[str, Any] | None:
                 (task_id,),
             ).fetchone()
             conn.commit()
-            if claimed and str(_row_get(claimed, "status", 3)) == TASK_STATUS_RUNNING:
+            if claimed and str(row_get(claimed, "status", 3)) == TASK_STATUS_RUNNING:
                 return _task_row_to_dict(claimed)
     return None
 
 
 @retry_turso_operation("mark task succeeded")
 def set_task_succeeded(task_id: int) -> None:
-    now = _now_iso()
+    now = now_iso()
     with get_conn() as conn:
         conn.execute(
             """
@@ -360,7 +330,7 @@ def set_task_succeeded(task_id: int) -> None:
 
 @retry_turso_operation("mark task failed")
 def set_task_failed(task_id: int, error_message: str) -> None:
-    now = _now_iso()
+    now = now_iso()
     with get_conn() as conn:
         conn.execute(
             """

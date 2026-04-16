@@ -9,9 +9,10 @@ from typing import Any, Callable
 import srt
 
 from . import llm_client as llm_utils
-from video_auto_cut.pi_agent_runner import Step1PiRequest, build_edl_from_lines, build_subtitles_from_lines, run_step1_pi
+from video_auto_cut.pi_agent_runner import TestPiRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_pi
+from web_api.utils.srt_utils import write_test_text
 
-REMOVE_TOKEN = "<<REMOVE>>"
+REMOVE_TOKEN = "<remove>"
 
 
 @dataclass
@@ -90,6 +91,7 @@ def _maybe_skip(path: str, force: bool) -> bool:
 class AutoEdit:
     def __init__(self, args: Any):
         self.args = args
+        self.last_result: dict[str, Any] | None = None
         self.stage_callback: Callable[[str, str], None] | None = getattr(args, "auto_edit_stage_callback", None)
         self.preview_callback: Callable[[list[dict[str, Any]]], None] | None = getattr(args, "auto_edit_preview_callback", None)
         self.cfg = AutoEditConfig(
@@ -121,8 +123,8 @@ class AutoEdit:
 
     def _auto_edit_segments(self, segments: list[dict[str, Any]], total_length: float | None) -> dict[str, Any]:
         self._emit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
-        delete_artifacts = run_step1_pi(
-            Step1PiRequest(
+        delete_artifacts = run_test_pi(
+            TestPiRequest(
                 task="delete",
                 llm_config=self.llm_config,
                 segments=segments,
@@ -134,8 +136,8 @@ class AutoEdit:
         self._emit_preview(delete_artifacts.lines)
 
         self._emit_stage("POLISHING_EXPRESSION", "正在润色表达...")
-        polish_artifacts = run_step1_pi(
-            Step1PiRequest(
+        polish_artifacts = run_test_pi(
+            TestPiRequest(
                 task="polish",
                 llm_config=self.llm_config,
                 lines=delete_artifacts.lines,
@@ -153,7 +155,7 @@ class AutoEdit:
             "optimized_subs": optimized_subs,
             "raw_optimized_subs": list(optimized_subs),
             "edl": edl,
-            "step1_lines": polish_artifacts.lines,
+            "test_lines": polish_artifacts.lines,
             "debug": {
                 "pi_agent": True,
                 "canonical_runner": True,
@@ -188,5 +190,13 @@ class AutoEdit:
             _write_optimized_srt(optimized_raw_srt, result["raw_optimized_subs"], self.args.encoding)
             _write_json(edl_json, result["edl"])
             _write_json(debug_json, result["debug"])
-            step1_json = str(Path(optimized_srt).with_suffix(".step1.json"))
-            _write_json(step1_json, {"lines": result["step1_lines"]})
+            test_text = Path(optimized_srt).with_suffix(".test.txt")
+            write_test_text(result["test_lines"], test_text)
+            self.last_result = {
+                **result,
+                "optimized_srt_path": optimized_srt,
+                "optimized_raw_srt_path": optimized_raw_srt,
+                "edl_path": edl_json,
+                "debug_json_path": debug_json,
+                "test_text_path": str(test_text),
+            }

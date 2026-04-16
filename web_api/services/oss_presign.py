@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from video_auto_cut.asr.oss_uploader import OSSAudioUploader
+from video_auto_cut.asr.oss_uploader import OSSAudioUploader, create_oss_uploader_from_config
 
 from ..config import get_settings
 
@@ -13,14 +13,7 @@ def get_oss_uploader() -> OSSAudioUploader:
         raise RuntimeError("OSS not configured: ASR_OSS_ENDPOINT and ASR_OSS_BUCKET required")
     if not settings.asr_oss_access_key_id or not settings.asr_oss_access_key_secret:
         raise RuntimeError("OSS credentials missing: ASR_OSS_ACCESS_KEY_ID and ASR_OSS_ACCESS_KEY_SECRET required")
-    return OSSAudioUploader(
-        endpoint=settings.asr_oss_endpoint,
-        bucket_name=settings.asr_oss_bucket,
-        access_key_id=settings.asr_oss_access_key_id,
-        access_key_secret=settings.asr_oss_access_key_secret,
-        prefix=(settings.asr_oss_prefix or "video-auto-cut/asr").strip().strip("/") or "video-auto-cut/asr",
-        signed_url_ttl_seconds=int(settings.asr_oss_signed_url_ttl_seconds),
-    )
+    return create_oss_uploader_from_config(settings)
 
 
 def get_presigned_put_url_for_job(

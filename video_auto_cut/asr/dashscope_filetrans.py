@@ -33,9 +33,12 @@ class DashScopeFiletransConfig:
     task: str | None
     poll_seconds: float
     timeout_seconds: float
+    language: str | None
     language_hints: tuple[str, ...]
-    context: str
+    text: str
+    enable_itn: bool
     enable_words: bool
+    channel_ids: tuple[int, ...]
     word_split_enabled: bool
     word_split_on_comma: bool
     word_split_comma_pause_s: float
@@ -64,48 +67,44 @@ class DashScopeFiletransClient:
         file_url: str,
         lang: str | None,
         prompt: str,
-        use_oss_resource_resolve: bool = False,
     ) -> FiletransSubmitResponse:
-        """Submit ASR task. Set use_oss_resource_resolve=True when file_url is oss://."""
-        language_hints = self._build_language_hints(lang)
-        context = (prompt or self._config.context or "").strip()
+        language = self._resolve_language(lang)
+        legacy_language_hints = self._build_legacy_language_hints(lang)
+        text = (prompt or self._config.text or "").strip()
         payload = self._build_submit_payload(
             file_url=file_url,
-            language_hints=language_hints,
-            context=context,
+            language=language,
+            legacy_language_hints=legacy_language_hints,
+            text=text,
             use_file_urls=False,
         )
         logging.info(
-            "[asr] dashscope submit start model=%s file_url_prefix=%s lang_hints=%s use_oss_resolve=%s",
+            "[asr] dashscope submit start model=%s file_url_prefix=%s language=%s channel_ids=%s",
             self._config.model,
             str(file_url)[:80],
-            language_hints,
-            use_oss_resource_resolve,
+            language or legacy_language_hints,
+            self._config.channel_ids,
         )
-        extra_headers = {}
-        if use_oss_resource_resolve:
-            extra_headers["X-DashScope-OssResourceResolve"] = "enable"
         try:
             data = self._post_json(
                 "/api/v1/services/audio/asr/transcription",
                 payload,
-                extra_headers=extra_headers,
             )
         except RuntimeError as exc:
-            text = str(exc)
+            error_text = str(exc)
             # Compatibility fallback for API variants expecting input.file_urls.
-            if "InvalidParameter" not in text or "url" not in text.lower():
+            if "InvalidParameter" not in error_text or "url" not in error_text.lower():
                 raise
             fallback_payload = self._build_submit_payload(
                 file_url=file_url,
-                language_hints=language_hints,
-                context=context,
+                language=language,
+                legacy_language_hints=legacy_language_hints,
+                text=text,
                 use_file_urls=True,
             )
             data = self._post_json(
                 "/api/v1/services/audio/asr/transcription",
                 fallback_payload,
-                extra_headers=extra_headers,
             )
         output = data.get("output")
         if not isinstance(output, dict):
@@ -119,8 +118,9 @@ class DashScopeFiletransClient:
         self,
         *,
         file_url: str,
-        language_hints: list[str],
-        context: str,
+        language: str | None,
+        legacy_language_hints: list[str],
+        text: str,
         use_file_urls: bool,
     ) -> dict[str, Any]:
         input_payload: dict[str, Any]
@@ -137,11 +137,17 @@ class DashScopeFiletransClient:
         task = (self._config.task or "").strip()
         if task:
             payload["task"] = task
-        if language_hints:
-            payload["parameters"]["language_hints"] = language_hints
-        if context:
-            payload["parameters"]["context"] = context
+        if language:
+            payload["parameters"]["language"] = language
+        elif legacy_language_hints:
+            # Backward compatibility for legacy env names; the documented field is `language`.
+            payload["parameters"]["language_hints"] = legacy_language_hints
+        if text:
+            payload["parameters"]["text"] = text
+        payload["parameters"]["enable_itn"] = bool(self._config.enable_itn)
         payload["parameters"]["enable_words"] = bool(self._config.enable_words)
+        if self._config.channel_ids:
+            payload["parameters"]["channel_id"] = [int(item) for item in self._config.channel_ids]
         if not payload["parameters"]:
             payload.pop("parameters")
         return payload
@@ -217,29 +223,7 @@ class DashScopeFiletransClient:
         return [FiletransSegment(start=float(start), end=float(end), text=text)]
 
     def _split_by_words(self, words: list[dict[str, Any]]) -> list[FiletransSegment]:
-        normalized: list[dict[str, Any]] = []
-        for item in words:
-            if not isinstance(item, dict):
-                continue
-            try:
-                begin = float(item.get("begin_time"))
-                end = float(item.get("end_time"))
-            except Exception:
-                continue
-            text = str(item.get("text") or "")
-            punctuation = str(item.get("punctuation") or "")
-            if end <= begin:
-                continue
-            if not text and not punctuation:
-                continue
-            normalized.append(
-                {
-                    "begin": begin,
-                    "end": end,
-                    "text": text,
-                    "punct": punctuation,
-                }
-            )
+        normalized = self._normalize_word_items(words)
         if not normalized:
             return []
 
@@ -257,15 +241,6 @@ class DashScopeFiletransClient:
 
         out: list[FiletransSegment] = []
         current: list[dict[str, Any]] = []
-
-        def _punct_count(items: list[dict[str, Any]]) -> int:
-            count = 0
-            for item in items:
-                punct = str(item.get("punct") or "")
-                for ch in punct:
-                    if ch in SEGMENT_PUNCT_CHARS:
-                        count += 1
-            return count
 
         def _flush() -> None:
             if not current:
@@ -290,49 +265,132 @@ class DashScopeFiletransClient:
         for idx, item in enumerate(normalized):
             # Hard guardrail: one subtitle should not carry too many punctuation marks.
             # Flush before adding current token if it would exceed punctuation cap.
-            if current:
-                next_punct = str(item.get("punct") or "")
-                next_punct_count = sum(1 for ch in next_punct if ch in SEGMENT_PUNCT_CHARS)
-                if _punct_count(current) + next_punct_count > SEGMENT_PUNCT_LIMIT:
-                    _flush()
+            if self._should_flush_before_append(current, item):
+                _flush()
             current.append(item)
 
             seg_chars = sum(len(str(x["text"])) + len(str(x["punct"])) for x in current)
             seg_ms = current[-1]["end"] - current[0]["begin"]
-            seg_punct_count = _punct_count(current)
+            seg_punct_count = self._punct_count(current)
             punct = str(item["punct"] or "")
             next_item = normalized[idx + 1] if idx + 1 < len(normalized) else None
             gap_ms = (
                 float(next_item["begin"] - item["end"]) if next_item is not None else 0.0
             )
 
-            split = False
-            has_strong_punc = any(ch in strong_punc for ch in punct)
-            has_comma_punc = any(ch in comma_punc for ch in punct)
-            if has_strong_punc:
-                split = True
-            elif (
-                bool(self._config.word_split_on_comma)
-                and has_comma_punc
-                and (
-                    seg_ms >= min_seg_ms_for_comma
-                    or seg_chars >= min_chars_for_comma
-                    or gap_ms >= comma_pause_ms
-                )
+            if self._should_split_segment(
+                punct=punct,
+                gap_ms=gap_ms,
+                seg_chars=seg_chars,
+                seg_ms=seg_ms,
+                seg_punct_count=seg_punct_count,
+                strong_punc=strong_punc,
+                comma_punc=comma_punc,
+                min_chars=min_chars,
+                min_chars_for_comma=min_chars_for_comma,
+                min_seg_ms_for_comma=min_seg_ms_for_comma,
+                min_seg_ms_for_vad=min_seg_ms_for_vad,
+                vad_gap_ms=vad_gap_ms,
+                comma_pause_ms=comma_pause_ms,
+                max_seg_ms=max_seg_ms,
             ):
-                split = True
-            elif gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad:
-                split = True
-            elif seg_ms >= max_seg_ms and punct in strong_punc:
-                split = True
-            elif seg_punct_count >= SEGMENT_PUNCT_LIMIT and punct in comma_punc.union(strong_punc):
-                split = True
-
-            if split:
                 _flush()
 
         _flush()
         return self._merge_fragments(out)
+
+    @staticmethod
+    def _normalize_word_items(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
+        for item in words:
+            if not isinstance(item, dict):
+                continue
+            try:
+                begin = float(item.get("begin_time"))
+                end = float(item.get("end_time"))
+            except Exception:
+                continue
+            text = str(item.get("text") or "")
+            punctuation = str(item.get("punctuation") or "")
+            if end <= begin:
+                continue
+            if not text and not punctuation:
+                continue
+            normalized.append(
+                {
+                    "begin": begin,
+                    "end": end,
+                    "text": text,
+                    "punct": punctuation,
+                }
+            )
+        return normalized
+
+    @staticmethod
+    def _punct_count(items: list[dict[str, Any]]) -> int:
+        count = 0
+        for item in items:
+            punct = str(item.get("punct") or "")
+            for ch in punct:
+                if ch in SEGMENT_PUNCT_CHARS:
+                    count += 1
+        return count
+
+    def _should_flush_before_append(
+        self,
+        current: list[dict[str, Any]],
+        next_item: dict[str, Any],
+    ) -> bool:
+        if not current:
+            return False
+        next_punct = str(next_item.get("punct") or "")
+        next_punct_count = sum(1 for ch in next_punct if ch in SEGMENT_PUNCT_CHARS)
+        return self._punct_count(current) + next_punct_count > SEGMENT_PUNCT_LIMIT
+
+    def _should_split_segment(
+        self,
+        *,
+        punct: str,
+        gap_ms: float,
+        seg_chars: int,
+        seg_ms: float,
+        seg_punct_count: int,
+        strong_punc: set[str],
+        comma_punc: set[str],
+        min_chars: int,
+        min_chars_for_comma: int,
+        min_seg_ms_for_comma: float,
+        min_seg_ms_for_vad: float,
+        vad_gap_ms: float,
+        comma_pause_ms: float,
+        max_seg_ms: float,
+    ) -> bool:
+        has_strong_punc = any(ch in strong_punc for ch in punct)
+        if has_strong_punc:
+            return True
+
+        has_comma_punc = any(ch in comma_punc for ch in punct)
+        if (
+            bool(self._config.word_split_on_comma)
+            and has_comma_punc
+            and (
+                seg_ms >= min_seg_ms_for_comma
+                or seg_chars >= min_chars_for_comma
+                or gap_ms >= comma_pause_ms
+            )
+        ):
+            return True
+
+        if gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad:
+            return True
+
+        if seg_ms >= max_seg_ms and punct in strong_punc:
+            return True
+
+        if seg_punct_count >= SEGMENT_PUNCT_LIMIT and punct in comma_punc.union(strong_punc):
+            return True
+
+        return False
 
     @staticmethod
     def _compose_word_text(items: list[dict[str, Any]]) -> str:
@@ -392,7 +450,18 @@ class DashScopeFiletransClient:
             normalized.append(FiletransSegment(start=start, end=end, text=text))
         return normalized
 
-    def _build_language_hints(self, lang: str | None) -> list[str]:
+    def _resolve_language(self, lang: str | None) -> str | None:
+        raw_lang = (lang or self._config.language or "").strip()
+        if raw_lang:
+            mapped = _map_lang_hint(raw_lang)
+            return mapped or raw_lang
+        legacy_hints = [item for item in self._config.language_hints if item]
+        if len(legacy_hints) == 1:
+            mapped = _map_lang_hint(legacy_hints[0])
+            return mapped or legacy_hints[0]
+        return None
+
+    def _build_legacy_language_hints(self, lang: str | None) -> list[str]:
         hints = [item for item in self._config.language_hints if item]
         raw_lang = (lang or "").strip()
         if raw_lang:
@@ -419,93 +488,71 @@ class DashScopeFiletransClient:
         extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
-        logging.info("[asr] dashscope http POST %s bytes=%s", self._resolve(path), len(body))
-        last_error: Exception | None = None
-        for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
-            req = urllib.request.Request(
-                url=self._resolve(path),
-                data=body,
-                headers=self._headers(extra_headers),
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc:
-                detail = _read_error_text(exc)
-                error = RuntimeError(f"DashScope submit failed: HTTP {exc.code}: {detail}")
-                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
-                    raise error from exc
-                last_error = error
-                _sleep_before_retry("submit", attempt, error)
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                error = RuntimeError(f"DashScope submit failed: {exc}")
-                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
-                    raise error from exc
-                last_error = error
-                _sleep_before_retry("submit", attempt, error)
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("DashScope submit failed without an error.")
+        url = self._resolve(path)
+        logging.info("[asr] dashscope http POST %s bytes=%s", url, len(body))
+        return self._request_json(
+            url=url,
+            method="POST",
+            data=body,
+            headers=self._headers(extra_headers),
+            stage="submit",
+        )
 
     def _get_json(self, path: str) -> dict[str, Any]:
-        logging.info("[asr] dashscope http GET %s", self._resolve(path))
-        last_error: Exception | None = None
-        for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
-            req = urllib.request.Request(
-                url=self._resolve(path),
-                headers=self._headers(),
-                method="GET",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc:
-                detail = _read_error_text(exc)
-                error = RuntimeError(f"DashScope poll failed: HTTP {exc.code}: {detail}")
-                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
-                    raise error from exc
-                last_error = error
-                _sleep_before_retry("poll", attempt, error)
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                error = RuntimeError(f"DashScope poll failed: {exc}")
-                if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
-                    raise error from exc
-                last_error = error
-                _sleep_before_retry("poll", attempt, error)
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("DashScope poll failed without an error.")
+        url = self._resolve(path)
+        logging.info("[asr] dashscope http GET %s", url)
+        return self._request_json(
+            url=url,
+            method="GET",
+            data=None,
+            headers=self._headers(),
+            stage="poll",
+        )
 
     def _open_json_url(self, url: str, *, headers: dict[str, str]) -> dict[str, Any]:
         logging.info("[asr] dashscope open result url=%s", url)
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme.lower() not in {"http", "https"}:
             raise RuntimeError("DashScope transcription result URL is invalid.")
+        return self._request_json(
+            url=url,
+            method="GET",
+            data=None,
+            headers=headers,
+            stage="result_fetch",
+        )
+
+    def _request_json(
+        self,
+        *,
+        url: str,
+        method: str,
+        data: bytes | None,
+        headers: dict[str, str],
+        stage: str,
+    ) -> dict[str, Any]:
         last_error: Exception | None = None
         for attempt in range(1, HTTP_REQUEST_MAX_ATTEMPTS + 1):
-            req = urllib.request.Request(url=url, headers=headers, method="GET")
+            req = urllib.request.Request(url=url, data=data, headers=headers, method=method)
             try:
                 with urllib.request.urlopen(req, timeout=self._config.timeout_seconds) as resp:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 detail = _read_error_text(exc)
-                error = RuntimeError(
-                    f"DashScope transcription result fetch failed: HTTP {exc.code}: {detail}"
-                )
+                error = RuntimeError(f"DashScope {stage} failed: HTTP {exc.code}: {detail}")
                 if attempt >= HTTP_REQUEST_MAX_ATTEMPTS or exc.code not in HTTP_RETRY_STATUS_CODES:
                     raise error from exc
                 last_error = error
-                _sleep_before_retry("result_fetch", attempt, error)
+                _sleep_before_retry(stage, attempt, error)
             except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                error = RuntimeError(f"DashScope transcription result fetch failed: {exc}")
+                error = RuntimeError(f"DashScope {stage} failed: {exc}")
                 if attempt >= HTTP_REQUEST_MAX_ATTEMPTS:
                     raise error from exc
                 last_error = error
-                _sleep_before_retry("result_fetch", attempt, error)
+                _sleep_before_retry(stage, attempt, error)
         if last_error is not None:
             raise last_error
-        raise RuntimeError("DashScope transcription result fetch failed without an error.")
+        raise RuntimeError(f"DashScope {stage} failed without an error.")
 
     def _resolve(self, path: str) -> str:
         base = self._config.base_url.rstrip("/")
@@ -545,23 +592,23 @@ def _normalize_status(status: str) -> str:
 
 
 def _extract_transcription_url(output: dict[str, Any]) -> str | None:
-    direct = output.get("transcription_url")
-    if isinstance(direct, str) and direct.strip():
-        return direct.strip()
+    direct = _strip_non_empty_str(output.get("transcription_url"))
+    if direct:
+        return direct
     result = output.get("result")
     if isinstance(result, dict):
-        nested = result.get("transcription_url")
-        if isinstance(nested, str) and nested.strip():
-            return nested.strip()
+        nested = _strip_non_empty_str(result.get("transcription_url"))
+        if nested:
+            return nested
     results = output.get("results")
     if not isinstance(results, list):
         return None
     for item in results:
         if not isinstance(item, dict):
             continue
-        value = item.get("transcription_url")
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        value = _strip_non_empty_str(item.get("transcription_url"))
+        if value:
+            return value
     return None
 
 
@@ -592,9 +639,9 @@ def _candidate_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _first_text(row: dict[str, Any]) -> str:
     for key in ("text", "transcript", "content"):
-        value = row.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+        value = _strip_non_empty_str(row.get(key))
+        if value:
+            return value
     return ""
 
 
@@ -638,3 +685,10 @@ def _need_space_between(left_char: str, right_char: str) -> bool:
         and left_char.isalnum()
         and right_char.isalnum()
     )
+
+
+def _strip_non_empty_str(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None

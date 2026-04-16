@@ -8,6 +8,13 @@ from typing import Any
 import srt
 
 from ..constants import REMOVE_TOKEN
+from video_auto_cut.shared.test_text_protocol import (
+    CHAPTER_LINE_RE,
+    TIMED_LINE_RE,
+    parse_time,
+    render_chapter_line,
+    render_test_line_text,
+)
 
 
 def _is_remove_text(text: str) -> bool:
@@ -23,7 +30,7 @@ def _strip_remove_token(text: str) -> str:
     return value
 
 
-def build_step1_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str, Any]]:
+def build_test_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str, Any]]:
     subtitles = list(srt.parse(source_srt.read_text(encoding=encoding)))
     lines: list[dict[str, Any]] = []
     for idx, subtitle in enumerate(subtitles, start=1):
@@ -46,11 +53,36 @@ def build_step1_lines_from_srt(source_srt: Path, encoding: str) -> list[dict[str
     return lines
 
 
-def build_step1_lines_from_json(source_json: Path) -> list[dict[str, Any]]:
+def build_test_lines_from_text(source_text: Path) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for index, raw_line in enumerate(source_text.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = TIMED_LINE_RE.match(line)
+        if not match:
+            raise RuntimeError(f"invalid test text line: {line}")
+        text = (match.group("text") or "").strip()
+        remove = bool(match.group("remove"))
+        lines.append(
+            {
+                "line_id": index,
+                "start": float(parse_time(match.group("start"))),
+                "end": float(parse_time(match.group("end"))),
+                "original_text": text,
+                "optimized_text": text,
+                "ai_suggest_remove": remove,
+                "user_final_remove": remove,
+            }
+        )
+    return lines
+
+
+def build_test_lines_from_json(source_json: Path) -> list[dict[str, Any]]:
     payload = json.loads(source_json.read_text(encoding="utf-8"))
     lines = payload.get("lines") if isinstance(payload, dict) else payload
     if not isinstance(lines, list):
-        raise RuntimeError(f"invalid step1 lines payload: {source_json}")
+        raise RuntimeError(f"invalid test lines payload: {source_json}")
 
     normalized: list[dict[str, Any]] = []
     for line in lines:
@@ -71,7 +103,44 @@ def build_step1_lines_from_json(source_json: Path) -> list[dict[str, Any]]:
     return normalized
 
 
-def write_final_step1_srt(lines: list[dict[str, Any]], output_path: Path, encoding: str) -> None:
+def write_test_text(lines: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = "\n".join(
+        render_test_line_text(
+            start=float(line["start"]),
+            end=float(line["end"]),
+            text=str(line.get("optimized_text") or line.get("original_text") or "").strip(),
+            remove=bool(line.get("user_final_remove", False)),
+        )
+        for line in sorted(lines, key=lambda item: int(item["line_id"]))
+    )
+    output_path.write_text((rendered + "\n") if rendered else "", encoding="utf-8")
+
+
+def build_test_chapters_from_text(source_text: Path, *, kept_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from video_auto_cut.editing.chapter_domain import canonicalize_test_chapters
+
+    chapters: list[dict[str, Any]] = []
+    for raw_line in source_text.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = CHAPTER_LINE_RE.match(line)
+        if not match:
+            raise RuntimeError(f"invalid chapter text line: {line}")
+        start = int(match.group("start"))
+        end = int(match.group("end") or start)
+        chapters.append(
+            {
+                "chapter_id": len(chapters) + 1,
+                "title": (match.group("title") or "").strip(),
+                "block_range": f"{start}-{end}" if start != end else str(start),
+            }
+        )
+    return canonicalize_test_chapters(chapters, kept_lines)
+
+
+def write_final_test_srt(lines: list[dict[str, Any]], output_path: Path, encoding: str) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     subtitles: list[srt.Subtitle] = []
 
@@ -85,7 +154,7 @@ def write_final_step1_srt(lines: list[dict[str, Any]], output_path: Path, encodi
         original_text = str(line.get("original_text", "")).strip()
         optimized_text = str(line.get("optimized_text", "")).strip() or original_text
         if bool(line.get("user_final_remove", False)):
-            content = f"{REMOVE_TOKEN} {original_text}".strip()
+            content = f"{REMOVE_TOKEN}{original_text}".strip()
         else:
             content = optimized_text
 
@@ -101,7 +170,7 @@ def write_final_step1_srt(lines: list[dict[str, Any]], output_path: Path, encodi
     output_path.write_text(srt.compose(subtitles, reindex=False), encoding=encoding)
 
 
-def write_step1_json(lines: list[dict[str, Any]], output_path: Path) -> None:
+def write_test_json(lines: list[dict[str, Any]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps({"lines": lines}, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -112,3 +181,15 @@ def write_topics_json(chapters: list[dict[str, Any]], output_path: Path) -> None
         json.dumps({"topics": chapters}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def write_chapters_text(chapters: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = "\n".join(
+        render_chapter_line(
+            block_range=str(chapter.get("block_range") or "").strip(),
+            title=str(chapter.get("title") or "").strip(),
+        )
+        for chapter in sorted(chapters, key=lambda item: int(item.get("chapter_id", 0)))
+    )
+    output_path.write_text((rendered + "\n") if rendered else "", encoding="utf-8")

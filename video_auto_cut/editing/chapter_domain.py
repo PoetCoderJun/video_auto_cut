@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-
-def kept_step1_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    kept = [item for item in lines if not bool(item.get("user_final_remove", False))]
+def kept_test_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept = [dict(item) for item in lines if not bool(item.get("user_final_remove", False))]
     kept.sort(key=lambda item: int(item["line_id"]))
     return kept
 
@@ -60,7 +59,7 @@ def ensure_full_block_coverage(chapters: list[dict[str, Any]], total_blocks: int
     if not chapters:
         raise RuntimeError("chapters cannot be empty")
     if total_blocks < 1:
-        raise RuntimeError("kept step1 lines missing")
+        raise RuntimeError("kept test lines missing")
 
     cursor = 1
     for idx, chapter in enumerate(chapters, start=1):
@@ -70,21 +69,21 @@ def ensure_full_block_coverage(chapters: list[dict[str, Any]], total_blocks: int
         start_id, end_id = parsed
         if start_id != cursor:
             raise RuntimeError(f"chapter block_range not contiguous: {idx}")
-        chapter["block_range"] = format_block_range(start_id, end_id)
         cursor = end_id + 1
 
     if cursor - 1 != total_blocks:
         raise RuntimeError("chapter block_range does not fully cover kept subtitles")
 
 
-def canonicalize_step1_chapters(
+def canonicalize_test_chapters(
     chapters: list[dict[str, Any]],
     kept_lines: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if not chapters:
         raise RuntimeError("chapters cannot be empty")
-    if not kept_lines:
-        raise RuntimeError("kept step1 lines missing")
+    canonical_kept_lines = kept_test_lines(kept_lines)
+    if not canonical_kept_lines:
+        raise RuntimeError("kept test lines missing")
 
     normalized: list[dict[str, Any]] = []
     for idx, chapter in enumerate(chapters, start=1):
@@ -92,9 +91,9 @@ def canonicalize_step1_chapters(
         if parsed is None:
             raise RuntimeError(f"chapter block_range invalid: {idx}")
         start_idx, end_idx = parsed
-        if end_idx > len(kept_lines):
+        if end_idx > len(canonical_kept_lines):
             raise RuntimeError(f"chapter block_range out of bounds: {idx}")
-        chosen = kept_lines[start_idx - 1 : end_idx]
+        chosen = canonical_kept_lines[start_idx - 1 : end_idx]
         if not chosen:
             raise RuntimeError(f"chapter block_range empty: {idx}")
         normalized.append(
@@ -106,8 +105,11 @@ def canonicalize_step1_chapters(
                 "block_range": format_block_range(start_idx, end_idx),
             }
         )
-    ensure_full_block_coverage(normalized, total_blocks=len(kept_lines))
+    ensure_full_block_coverage(normalized, total_blocks=len(canonical_kept_lines))
     return normalized
+
+
+canonicalize_test_chapters = canonicalize_test_chapters
 
 
 def line_ids_to_block_range(

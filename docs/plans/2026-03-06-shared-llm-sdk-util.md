@@ -44,7 +44,7 @@ Expected: PASS
 **Files:**
 - Verify: `video_auto_cut/editing/auto_edit.py`
 - Verify: `video_auto_cut/editing/topic_segment.py`
-- Verify: `video_auto_cut/asr/qwen3_asr.py`
+- Legacy cleanup note: `video_auto_cut/asr/qwen3_asr.py` was removed from the mainline on 2026-04-16; no current-path regression coverage is required here.
 
 **Step 1: Run tests**
 
@@ -67,7 +67,7 @@ Use temporary env:
 - `LLM_ENABLE_THINKING=1`
 
 Only rerun:
-- `audio.srt -> auto_edit -> final_step1.srt`
+- `audio.srt -> auto_edit -> final_test.srt`
 
 **Step 2: Compare outputs**
 

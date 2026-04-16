@@ -6,6 +6,7 @@ import datetime as dt
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 # Use resumable (multipart) upload for files >= this size (more reliable on slow/unstable networks)
 RESUMABLE_UPLOAD_THRESHOLD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -164,6 +165,29 @@ class OSSAudioUploader:
         if url.startswith("http://"):
             url = "https://" + url[len("http://") :]
         return url
+
+
+def create_oss_uploader_from_config(
+    config: Any,
+    *,
+    prefix: str | None = None,
+    default_prefix: str = "video-auto-cut/asr",
+    min_ttl_seconds: int = 60,
+) -> OSSAudioUploader:
+    endpoint = getattr(config, "asr_oss_endpoint", None)
+    bucket_name = getattr(config, "asr_oss_bucket", None)
+    access_key_id = getattr(config, "asr_oss_access_key_id", None)
+    access_key_secret = getattr(config, "asr_oss_access_key_secret", None)
+    raw_prefix = prefix if prefix is not None else getattr(config, "asr_oss_prefix", default_prefix)
+    raw_ttl = getattr(config, "asr_oss_signed_url_ttl_seconds", 86400)
+    return OSSAudioUploader(
+        endpoint=(endpoint or "").strip(),
+        bucket_name=(bucket_name or "").strip(),
+        access_key_id=(access_key_id or "").strip(),
+        access_key_secret=(access_key_secret or "").strip(),
+        prefix=(raw_prefix or default_prefix).strip().strip("/") or default_prefix,
+        signed_url_ttl_seconds=max(int(min_ttl_seconds), int(raw_ttl)),
+    )
 
 
 def _ensure_https_endpoint(endpoint: str) -> str:
