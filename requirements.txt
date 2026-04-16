@@ -1,6 +1,6 @@
 fastapi
+cryptography>=41.0.5,<44
 libsql
-moviepy
 numpy
 openai
 opencc-python-reimplemented

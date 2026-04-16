@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT_DIR="$ROOT_DIR/web_frontend/public/generated-format-samples"
 
 mkdir -p "$OUT_DIR"

@@ -1,16 +1,32 @@
+# Git / local secrets
 .git
 .env
 .env.*
 !.env.example
-workdir
-web_frontend
-node_modules
-__pycache__
-*.pyc
-.venv
-venv
-*.md
-scripts
-deploy
-test_data
-autocut
+
+# Python / Node caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+web_frontend/node_modules/
+web_frontend/.next/
+
+# Runtime artifacts
+workdir/
+log/
+logs/
+.omx/
+
+# Not copied by the current root API/worker Dockerfile
+# Keeping these out of build context makes the current boundary explicit:
+# this image does not bundle repo-local PI skills or frontend assets.
+.pi/
+skills/
+web_frontend/
+docs/
+scripts/
+test_data/
+deploy/
+autocut/

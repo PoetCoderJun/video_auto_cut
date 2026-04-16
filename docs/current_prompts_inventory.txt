@@ -1,0 +1,53 @@
+当前仓库 prompt / skill / system prompt 入口索引
+刷新日期：2026-04-16
+维护原则：这个文件只做“入口索引”，真正的 source of truth 永远是对应源码或 `SKILL.md` 本身。
+
+==================================================
+1) 项目级 system / orchestration prompt
+==================================================
+
+- `.pi/APPEND_SYSTEM.md`
+  - 项目级 PI system prompt。
+  - 约束 repo-local skills 的优先级、项目背景和全局质量要求。
+
+==================================================
+2) repo-local skills（当前主路径）
+==================================================
+
+- `skills/test-agent-editing/SKILL.md`
+  - 顶层 Test 四步工作流入口。
+- `skills/asr-transcribe/SKILL.md`
+  - 媒体 -> `.srt` / `.test.json` 的 ASR 起步入口。
+- `skills/delete/SKILL.md`
+  - delete 规则与输出合同。
+- `skills/polish/SKILL.md`
+  - polish 规则与输出合同。
+- `skills/chapter/SKILL.md`
+  - chapter 规则与输出合同。
+
+==================================================
+3) 代码内仍维护的 prompt 定义
+==================================================
+
+这些 prompt 仍在源码内维护，但并不都属于今天的首选主路径：
+
+- `video_auto_cut/editing/auto_edit.py`
+  - 旧两段式 auto edit prompt。
+- `video_auto_cut/editing/topic_segment.py`
+  - 分章 prompt / repair 约束。
+- `web_api/services/render_web.py`
+  - 渲染章节标题精修 prompt。
+
+已归档 / 已清理的旧路径：
+
+- 2026-04-16: 删除 `video_auto_cut/asr/qwen3_asr.py` 与 `scripts/qwen3_asr_transcribe.py`。
+  - 原本地 Qwen3 ASR 文本纠错 / 转录脚本已确认无主路径消费者，现仅保留历史说明，不再视为当前 prompt 入口。
+  - 渲染章节标题精修 prompt。
+
+==================================================
+4) 使用说明
+==================================================
+
+- 要确认当前编辑主路径，优先看：`skills/*.md`、`.pi/APPEND_SYSTEM.md`、`video_auto_cut/pi_agent_runner.py`。
+- 要确认 API / 导出相关 prompt，优先看：`web_api/services/render_web.py`。
+- 要继续清理旧 prompt residue，请直接在 `docs/requirements_todo.md` 里记录，而不要只改这份索引。
