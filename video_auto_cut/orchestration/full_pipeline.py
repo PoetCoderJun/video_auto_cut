@@ -7,14 +7,14 @@ import os
 import sys
 from pathlib import Path
 
+from video_auto_cut.shared.dotenv import auto_load_dotenv
+
 from .pipeline_options_builder import build_pipeline_options_from_env
 from .pipeline_service import (
-    PipelineOptions,
     run_auto_edit,
     run_transcribe,
 )
-
-_ENV_LOADED = False
+from video_auto_cut.shared.interfaces import PipelineOptions
 
 
 def _ensure_local_package_import() -> None:
@@ -22,48 +22,6 @@ def _ensure_local_package_import() -> None:
     repo_root_str = str(repo_root)
     if repo_root_str not in sys.path:
         sys.path.insert(0, repo_root_str)
-
-
-def _strip_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-        return value[1:-1]
-    return value
-
-
-def _load_env_file(path: Path) -> None:
-    try:
-        content = path.read_text(encoding="utf-8")
-    except Exception:
-        return
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = _strip_quotes(value.strip())
-        if not key or key in os.environ:
-            continue
-        os.environ[key] = value
-
-
-def _auto_load_dotenv() -> None:
-    global _ENV_LOADED
-    if _ENV_LOADED:
-        return
-    candidates = [
-        Path.cwd() / ".env",
-        Path(__file__).resolve().parents[2] / ".env",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            _load_env_file(candidate)
-            break
-    _ENV_LOADED = True
 
 
 def _setup_logging() -> None:
@@ -140,9 +98,66 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _first_non_empty(*values: str | None) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        stripped = str(value).strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _build_cli_pipeline_options(args: argparse.Namespace) -> PipelineOptions:
+    return build_pipeline_options_from_env(
+        encoding=args.encoding,
+        force=bool(args.force),
+        lang=args.lang,
+        prompt=args.prompt,
+        asr_backend=_first_non_empty(
+            args.asr_backend,
+            os.environ.get("ASR_BACKEND"),
+            "dashscope_filetrans",
+        )
+        or "dashscope_filetrans",
+        asr_dashscope_base_url=_first_non_empty(args.asr_dashscope_base_url),
+        asr_dashscope_model=_first_non_empty(args.asr_dashscope_model),
+        asr_dashscope_api_key=_first_non_empty(
+            args.asr_dashscope_api_key,
+            os.environ.get("DASHSCOPE_ASR_API_KEY"),
+            os.environ.get("ASR_DASHSCOPE_API_KEY"),
+            os.environ.get("DASHSCOPE_API_KEY"),
+        ),
+        llm_base_url=_first_non_empty(args.llm_base_url, os.environ.get("LLM_BASE_URL")),
+        llm_model=_first_non_empty(args.llm_model, os.environ.get("LLM_MODEL")),
+        llm_api_key=_first_non_empty(
+            args.llm_api_key,
+            os.environ.get("LLM_API_KEY"),
+            os.environ.get("DASHSCOPE_API_KEY"),
+        ),
+        llm_timeout=int(args.llm_timeout),
+        llm_temperature=float(args.llm_temperature),
+        llm_max_tokens=int(args.llm_max_tokens) if args.llm_max_tokens is not None else None,
+        auto_edit_merge_gap=float(args.auto_edit_merge_gap),
+        auto_edit_pad_head=float(args.auto_edit_pad_head),
+        auto_edit_pad_tail=float(args.auto_edit_pad_tail),
+        bitrate=args.bitrate,
+        cut_merge_gap=float(args.cut_merge_gap),
+        topic_output=args.topic_output,
+        topic_strict=bool(args.topic_strict),
+        topic_max_topics=int(args.topic_max_topics),
+        topic_title_max_chars=int(args.topic_title_max_chars),
+    )
+
+
 def main() -> None:
     _ensure_local_package_import()
-    _auto_load_dotenv()
+    auto_load_dotenv(
+        [
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+    )
     _setup_logging()
     args = _parse_args()
 
@@ -157,31 +172,7 @@ def main() -> None:
         if srt_path.exists() and not args.force:
             logging.info("Step 1/2: skip transcribe (exists): %s", srt_path)
         else:
-            options = build_pipeline_options_from_env(
-                encoding=args.encoding,
-                force=bool(args.force),
-                lang=args.lang,
-                prompt=args.prompt,
-                asr_backend=(args.asr_backend or os.environ.get("ASR_BACKEND") or "dashscope_filetrans").strip() or "dashscope_filetrans",
-                asr_dashscope_base_url=(args.asr_dashscope_base_url or "").strip() or None,
-                asr_dashscope_model=(args.asr_dashscope_model or "").strip() or None,
-                asr_dashscope_api_key=(args.asr_dashscope_api_key or os.environ.get("DASHSCOPE_ASR_API_KEY") or os.environ.get("ASR_DASHSCOPE_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or None),
-                llm_base_url=(args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip() or None,
-                llm_model=(args.llm_model or os.environ.get("LLM_MODEL") or "").strip() or None,
-                llm_api_key=(args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or None),
-                llm_timeout=int(args.llm_timeout),
-                llm_temperature=float(args.llm_temperature),
-                llm_max_tokens=int(args.llm_max_tokens) if args.llm_max_tokens is not None else None,
-                auto_edit_merge_gap=float(args.auto_edit_merge_gap),
-                auto_edit_pad_head=float(args.auto_edit_pad_head),
-                auto_edit_pad_tail=float(args.auto_edit_pad_tail),
-                bitrate=args.bitrate,
-                cut_merge_gap=float(args.cut_merge_gap),
-                topic_output=args.topic_output,
-                topic_strict=bool(args.topic_strict),
-                topic_max_topics=int(args.topic_max_topics),
-                topic_title_max_chars=int(args.topic_title_max_chars),
-            )
+            options = _build_cli_pipeline_options(args)
             srt_path = run_transcribe(video_path, options)
     elif not srt_path.exists():
         raise FileNotFoundError(
@@ -192,31 +183,7 @@ def main() -> None:
         if optimized_path.exists() and not args.force:
             logging.info("Step 2/2: skip auto edit (exists): %s", optimized_path)
         else:
-            options = build_pipeline_options_from_env(
-                encoding=args.encoding,
-                force=bool(args.force),
-                lang=args.lang,
-                prompt=args.prompt,
-                asr_backend=(args.asr_backend or os.environ.get("ASR_BACKEND") or "dashscope_filetrans").strip() or "dashscope_filetrans",
-                asr_dashscope_base_url=(args.asr_dashscope_base_url or "").strip() or None,
-                asr_dashscope_model=(args.asr_dashscope_model or "").strip() or None,
-                asr_dashscope_api_key=(args.asr_dashscope_api_key or os.environ.get("DASHSCOPE_ASR_API_KEY") or os.environ.get("ASR_DASHSCOPE_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or None),
-                llm_base_url=(args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip() or None,
-                llm_model=(args.llm_model or os.environ.get("LLM_MODEL") or "").strip() or None,
-                llm_api_key=(args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or None),
-                llm_timeout=int(args.llm_timeout),
-                llm_temperature=float(args.llm_temperature),
-                llm_max_tokens=int(args.llm_max_tokens) if args.llm_max_tokens is not None else None,
-                auto_edit_merge_gap=float(args.auto_edit_merge_gap),
-                auto_edit_pad_head=float(args.auto_edit_pad_head),
-                auto_edit_pad_tail=float(args.auto_edit_pad_tail),
-                bitrate=args.bitrate,
-                cut_merge_gap=float(args.cut_merge_gap),
-                topic_output=args.topic_output,
-                topic_strict=bool(args.topic_strict),
-                topic_max_topics=int(args.topic_max_topics),
-                topic_title_max_chars=int(args.topic_title_max_chars),
-            )
+            options = _build_cli_pipeline_options(args)
             optimized_path = run_auto_edit(srt_path, options).optimized_srt_path
     elif not optimized_path.exists():
         raise FileNotFoundError(

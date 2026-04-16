@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from functools import lru_cache
 from pathlib import Path
+
+from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
+from video_auto_cut.shared.interfaces import PipelineOptions
 
 
 @dataclass(frozen=True)
@@ -14,9 +17,6 @@ class Settings:
     turso_auth_token: str | None
     turso_sync_interval: float
     max_upload_mb: int
-    worker_poll_seconds: float
-    task_queue_lease_seconds: float
-    task_heartbeat_seconds: float
     cleanup_enabled: bool
     cleanup_interval_seconds: float
     cleanup_ttl_seconds: int
@@ -79,19 +79,40 @@ class Settings:
     web_cors_expose_headers: tuple[str, ...]
 
 
+_PIPELINE_OPTION_FIELD_NAMES = {field.name for field in fields(PipelineOptions)}
+_SETTINGS_PIPELINE_FIELD_NAMES = tuple(
+    field.name for field in fields(Settings) if field.name in _PIPELINE_OPTION_FIELD_NAMES
+)
+
+
+def _build_settings_pipeline_values(pipeline_options: PipelineOptions) -> dict[str, object]:
+    values = {
+        name: getattr(pipeline_options, name)
+        for name in _SETTINGS_PIPELINE_FIELD_NAMES
+    }
+    values.update(
+        {
+            "asr_dashscope_poll_seconds": max(0.5, pipeline_options.asr_dashscope_poll_seconds),
+            "asr_dashscope_timeout_seconds": max(30.0, pipeline_options.asr_dashscope_timeout_seconds),
+            "asr_dashscope_word_split_comma_pause_s": max(
+                0.0, pipeline_options.asr_dashscope_word_split_comma_pause_s
+            ),
+            "asr_dashscope_word_split_min_chars": max(1, pipeline_options.asr_dashscope_word_split_min_chars),
+            "asr_dashscope_word_vad_gap_s": max(0.0, pipeline_options.asr_dashscope_word_vad_gap_s),
+            "asr_dashscope_word_max_segment_s": max(1.0, pipeline_options.asr_dashscope_word_max_segment_s),
+            "asr_dashscope_no_speech_gap_s": max(0.2, pipeline_options.asr_dashscope_no_speech_gap_s),
+            "asr_oss_signed_url_ttl_seconds": max(60, pipeline_options.asr_oss_signed_url_ttl_seconds),
+            "auto_edit_llm_concurrency": max(1, pipeline_options.auto_edit_llm_concurrency),
+            "topic_max_topics": min(6, pipeline_options.topic_max_topics),
+        }
+    )
+    return values
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     def parse_csv(value: str) -> tuple[str, ...]:
         return tuple(item.strip() for item in value.split(",") if item.strip())
-
-    def parse_int_csv(value: str) -> tuple[int, ...]:
-        values: list[int] = []
-        for item in value.split(","):
-            raw = item.strip()
-            if not raw:
-                continue
-            values.append(max(0, int(raw)))
-        return tuple(values)
 
     def getenv_first(*names: str) -> str | None:
         for name in names:
@@ -109,15 +130,6 @@ def get_settings() -> Settings:
     turso_local_replica_path = Path(replica_path_raw).expanduser().resolve()
     turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip() or None
     turso_auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip() or None
-    llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    asr_api_key = getenv_first("DASHSCOPE_ASR_API_KEY", "ASR_DASHSCOPE_API_KEY", "DASHSCOPE_API_KEY")
-    asr_language = getenv_first("DASHSCOPE_ASR_LANGUAGE")
-    asr_language_hints_raw = getenv_first("ASR_DASHSCOPE_LANGUAGE_HINTS") or ""
-    asr_language_hints = tuple(
-        item.strip() for item in asr_language_hints_raw.split(",") if item.strip()
-    )
-    asr_channel_ids_raw = getenv_first("DASHSCOPE_ASR_CHANNEL_IDS") or "0"
-    asr_channel_ids = parse_int_csv(asr_channel_ids_raw) or (0,)
     auth_base_url = (
         (os.getenv("WEB_AUTH_BASE_URL") or "").strip()
         or (os.getenv("BETTER_AUTH_URL") or "").strip()
@@ -134,13 +146,22 @@ def get_settings() -> Settings:
     cors_methods_raw = (os.getenv("WEB_CORS_ALLOWED_METHODS") or "GET,POST,PUT,PATCH,DELETE,OPTIONS").strip()
     cors_headers_raw = (os.getenv("WEB_CORS_ALLOWED_HEADERS") or "*").strip()
     cors_expose_headers_raw = (os.getenv("WEB_CORS_EXPOSE_HEADERS") or "").strip()
-    asr_backend = (os.getenv("ASR_BACKEND", "dashscope_filetrans").strip().lower() or "dashscope_filetrans")
-    if asr_backend != "dashscope_filetrans":
+    pipeline_options = build_pipeline_options_from_env(
+        lang=(os.getenv("WEB_LANG") or "Chinese").strip() or "Chinese",
+        llm_model=(os.getenv("LLM_MODEL") or "qwen-plus").strip() or "qwen-plus",
+        topic_llm_model=(os.getenv("TOPIC_LLM_MODEL") or os.getenv("LLM_MODEL") or "kimi-k2.5").strip()
+        or "kimi-k2.5",
+        topic_max_topics=min(
+            6,
+            int((os.getenv("TOPIC_MAX_TOPICS") or "5").strip() or "5"),
+        ),
+    )
+    if pipeline_options.asr_backend != "dashscope_filetrans":
         raise RuntimeError(
-            f"Unsupported ASR_BACKEND={asr_backend}. "
+            f"Unsupported ASR_BACKEND={pipeline_options.asr_backend}. "
             "This deployment only supports ASR_BACKEND=dashscope_filetrans."
         )
-    llm_max_tokens_raw = (os.getenv("LLM_MAX_TOKENS") or "").strip()
+    pipeline_settings = _build_settings_pipeline_values(pipeline_options)
 
     return Settings(
         work_dir=work_dir,
@@ -149,142 +170,12 @@ def get_settings() -> Settings:
         turso_auth_token=turso_auth_token,
         turso_sync_interval=max(0.0, float(os.getenv("TURSO_SYNC_INTERVAL", "2.0"))),
         max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "2048")),
-        worker_poll_seconds=float(os.getenv("WORKER_POLL_SECONDS", "1.0")),
         cleanup_enabled=os.getenv("WEB_CLEANUP_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         cleanup_interval_seconds=max(1.0, float(os.getenv("WEB_CLEANUP_INTERVAL_SECONDS", "300"))),
         cleanup_ttl_seconds=max(0, int(os.getenv("WEB_CLEANUP_TTL_SECONDS", "3600"))),
         cleanup_batch_size=max(1, int(os.getenv("WEB_CLEANUP_BATCH_SIZE", "10"))),
         cleanup_on_startup=os.getenv("WEB_CLEANUP_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes"},
-        asr_dashscope_base_url=(
-            getenv_first(
-                "DASHSCOPE_ASR_BASE_URL",
-                "ASR_DASHSCOPE_BASE_URL",
-            )
-            or "https://dashscope-intl.aliyuncs.com"
-            .strip()
-            .rstrip("/")
-        ),
-        asr_dashscope_model=(
-            getenv_first("DASHSCOPE_ASR_MODEL", "ASR_DASHSCOPE_MODEL")
-            or "qwen3-asr-flash-filetrans"
-        ).strip(),
-        asr_dashscope_task=(getenv_first("DASHSCOPE_ASR_TASK", "ASR_DASHSCOPE_TASK") or "").strip(),
-        asr_dashscope_api_key=(asr_api_key or "").strip() or None,
-        asr_dashscope_poll_seconds=max(
-            0.5,
-            float(getenv_first("DASHSCOPE_ASR_POLL_SECONDS", "ASR_DASHSCOPE_POLL_SECONDS") or "2.0"),
-        ),
-        asr_dashscope_timeout_seconds=max(
-            30.0,
-            float(
-                getenv_first("DASHSCOPE_ASR_TIMEOUT_SECONDS", "ASR_DASHSCOPE_TIMEOUT_SECONDS")
-                or "3600"
-            ),
-        ),
-        asr_dashscope_language=(asr_language or "").strip() or None,
-        asr_dashscope_language_hints=asr_language_hints,
-        asr_dashscope_context=(
-            getenv_first("DASHSCOPE_ASR_TEXT", "ASR_DASHSCOPE_CONTEXT") or ""
-        ).strip(),
-        asr_dashscope_enable_itn=(
-            getenv_first("DASHSCOPE_ASR_ENABLE_ITN") or "0"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_enable_words=(
-            getenv_first("DASHSCOPE_ASR_ENABLE_WORDS", "ASR_DASHSCOPE_ENABLE_WORDS") or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_channel_ids=asr_channel_ids,
-        asr_dashscope_sentence_rule_with_punc=(
-            getenv_first("ASR_SENTENCE_RULE_WITH_PUNC", "ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC")
-            or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_word_split_enabled=(
-            getenv_first("ASR_WORD_SPLIT_ENABLED", "ASR_DASHSCOPE_WORD_SPLIT_ENABLED") or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_word_split_on_comma=(
-            getenv_first("ASR_WORD_SPLIT_ON_COMMA", "ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA") or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_word_split_comma_pause_s=max(
-            0.0,
-            float(
-                getenv_first(
-                    "ASR_WORD_SPLIT_COMMA_PAUSE_S",
-                    "ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S",
-                )
-                or "0.4"
-            ),
-        ),
-        asr_dashscope_word_split_min_chars=max(
-            1,
-            int(
-                getenv_first("ASR_WORD_SPLIT_MIN_CHARS", "ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS")
-                or "12"
-            ),
-        ),
-        asr_dashscope_word_vad_gap_s=max(
-            0.0,
-            float(
-                getenv_first("ASR_WORD_VAD_GAP_S", "ASR_DASHSCOPE_WORD_VAD_GAP_S") or "1.0"
-            ),
-        ),
-        asr_dashscope_word_max_segment_s=max(
-            1.0,
-            float(
-                getenv_first("ASR_WORD_MAX_SEGMENT_S", "ASR_DASHSCOPE_WORD_MAX_SEGMENT_S")
-                or "8.0"
-            ),
-        ),
-        asr_dashscope_no_speech_gap_s=max(
-            0.2,
-            float(
-                getenv_first("ASR_NO_SPEECH_GAP_S", "ASR_DASHSCOPE_NO_SPEECH_GAP_S") or "1.0"
-            ),
-        ),
-        asr_dashscope_insert_no_speech=(
-            getenv_first("ASR_INSERT_NO_SPEECH", "ASR_DASHSCOPE_INSERT_NO_SPEECH") or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_insert_head_no_speech=(
-            getenv_first(
-                "ASR_INSERT_HEAD_NO_SPEECH",
-                "ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH",
-            )
-            or "1"
-        ).strip().lower()
-        in {"1", "true", "yes"},
-        asr_oss_endpoint=(os.getenv("OSS_ENDPOINT") or "").strip() or None,
-        asr_oss_bucket=(os.getenv("OSS_BUCKET") or "").strip() or None,
-        asr_oss_access_key_id=(os.getenv("OSS_ACCESS_KEY_ID") or "").strip() or None,
-        asr_oss_access_key_secret=(os.getenv("OSS_ACCESS_KEY_SECRET") or "").strip() or None,
-        asr_oss_prefix=(os.getenv("OSS_AUDIO_PREFIX") or "video-auto-cut/asr").strip().strip("/"),
-        asr_oss_signed_url_ttl_seconds=max(
-            60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
-        ),
-        lang=os.getenv("WEB_LANG", "Chinese"),
-        llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
-        llm_model=(os.getenv("LLM_MODEL") or "qwen-plus").strip() or "qwen-plus",
-        topic_llm_model=(os.getenv("LLM_MODEL") or "kimi-k2.5").strip()
-        or "kimi-k2.5",
-        llm_api_key=(llm_api_key or "").strip() or None,
-        llm_timeout=int(os.getenv("LLM_TIMEOUT", "300")),
-        llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
-        llm_max_tokens=int(llm_max_tokens_raw) if llm_max_tokens_raw else None,
-        auto_edit_llm_concurrency=max(1, int(os.getenv("AUTO_EDIT_LLM_CONCURRENCY", "4"))),
-        topic_max_topics=min(6, int(os.getenv("TOPIC_MAX_TOPICS", "5"))),
-        topic_title_max_chars=int(os.getenv("TOPIC_TITLE_MAX_CHARS", "6")),
-        cut_merge_gap=float(os.getenv("CUT_MERGE_GAP", "0.0")),
-        task_queue_lease_seconds=max(
-            30.0,
-            float(os.getenv("TASK_QUEUE_LEASE_SECONDS", "300")),
-        ),
-        task_heartbeat_seconds=max(
-            1.0,
-            float(os.getenv("TASK_QUEUE_HEARTBEAT_SECONDS", "10")),
-        ),
+        **pipeline_settings,
         auth_enabled=os.getenv("WEB_AUTH_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         auth_jwks_url=auth_jwks_url,
         auth_issuer=auth_issuer,
