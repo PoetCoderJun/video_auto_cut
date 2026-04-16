@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
-import secrets
-import string
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,9 +18,13 @@ from .constants import (
     JOB_STATUS_TEST_READY,
     JOB_STATUS_UPLOAD_READY,
 )
-from .db import get_conn, retry_turso_operation
-from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch, row_get
-from .utils.srt_utils import build_test_chapters_from_text, build_test_lines_from_text, write_chapters_text, write_test_text
+from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch
+from video_auto_cut.shared.test_text_io import (
+    load_test_chapters,
+    load_test_lines,
+    write_test_json,
+    write_topics_json,
+)
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
 USER_STATUS_ACTIVE = "ACTIVE"
@@ -54,469 +55,9 @@ _STATUS_RANK = {
     JOB_STATUS_SUCCEEDED: 5,
     JOB_STATUS_FAILED: 6,
 }
+
 def _parse_iso(value: str | None) -> datetime:
     return parse_iso_datetime_or_epoch(value)
-
-
-@retry_turso_operation("ensure user")
-def ensure_user(user_id: str, email: str | None) -> None:
-    now = now_iso()
-    normalized_email = (email or "").strip().lower() or None
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT user_id, email, status, activated_at FROM users WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-        if not row:
-            conn.execute(
-                """
-                INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
-                VALUES(?, ?, ?, NULL, ?, ?)
-                """,
-                (user_id, normalized_email, USER_STATUS_PENDING_COUPON, now, now),
-            )
-            conn.commit()
-            return
-
-        if normalized_email is None:
-            return
-
-        previous_email = row_get(row, "email", 1)
-        if previous_email != normalized_email:
-            conn.execute(
-                "UPDATE users SET email = ?, updated_at = ? WHERE user_id = ?",
-                (normalized_email, now, user_id),
-            )
-            conn.commit()
-
-
-@retry_turso_operation("get user")
-def get_user(user_id: str) -> dict[str, Any] | None:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT user_id, email, status, activated_at FROM users WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-    if not row:
-        return None
-    return {
-        "user_id": str(row_get(row, "user_id", 0)),
-        "email": row_get(row, "email", 1),
-        "status": row_get(row, "status", 2) or USER_STATUS_PENDING_COUPON,
-        "activated_at": row_get(row, "activated_at", 3),
-    }
-
-
-def normalize_code(raw: str) -> str:
-    return raw.strip().upper()
-
-
-def _generate_coupon_code(length: int = 10) -> str:
-    alphabet = string.ascii_uppercase + string.digits
-    token = "".join(secrets.choice(alphabet) for _ in range(max(4, int(length))))
-    return f"CPN-{token}"
-
-
-def _create_coupon_in_tx(
-    conn: Any,
-    *,
-    code: str,
-    credits: int,
-    expires_at: str | None,
-    status: str,
-    source: str | None,
-    now: str,
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO coupon_codes(
-            code,
-            credits,
-            used_count,
-            expires_at,
-            status,
-            source,
-            created_at,
-            updated_at
-        )
-        VALUES(?, ?, 0, ?, ?, ?, ?, ?)
-        """,
-        (
-            code,
-            int(credits),
-            expires_at,
-            status,
-            source,
-            now,
-            now,
-        ),
-    )
-
-
-@retry_turso_operation("claim public coupon code")
-def claim_public_coupon_code(
-    ip_address: str,
-    *,
-    credits: int,
-    source: str | None = "PUBLIC_WEB_INVITE",
-) -> dict[str, Any]:
-    normalized_ip = str(ip_address or "").strip()
-    if not normalized_ip:
-        raise ValueError("client ip cannot be empty")
-
-    normalized_credits = int(credits)
-    if normalized_credits <= 0:
-        raise ValueError("credits must be positive")
-
-    ip_hash = hashlib.sha256(normalized_ip.encode("utf-8")).hexdigest()
-    normalized_source = (source or "").strip() or None
-
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        now = now_iso()
-
-        claim = conn.execute(
-            """
-            SELECT code
-            FROM public_invite_claims
-            WHERE ip_hash = ?
-            LIMIT 1
-            """,
-            (ip_hash,),
-        ).fetchone()
-        existing_code = str(row_get(claim, "code", 0) or "").strip()
-        has_existing_claim = bool(existing_code)
-        if existing_code:
-            coupon = conn.execute(
-                """
-                SELECT code, credits, used_count, expires_at, status
-                FROM coupon_codes
-                WHERE code = ?
-                LIMIT 1
-                """,
-                (existing_code,),
-            ).fetchone()
-            if coupon:
-                try:
-                    _assert_coupon_usable_in_tx(coupon)
-                except LookupError:
-                    coupon = None
-                else:
-                    conn.execute(
-                        "UPDATE public_invite_claims SET updated_at = ? WHERE ip_hash = ?",
-                        (now, ip_hash),
-                    )
-                    conn.commit()
-                    return {
-                        "code": str(row_get(coupon, "code", 0)),
-                        "credits": int(row_get(coupon, "credits", 1) or normalized_credits),
-                        "already_claimed": True,
-                    }
-
-        if not has_existing_claim:
-            settings_row = conn.execute(
-                """
-                SELECT max_claims
-                FROM public_invite_settings
-                WHERE settings_id = 1
-                LIMIT 1
-                """
-            ).fetchone()
-            max_claims = int(row_get(settings_row, "max_claims", 0) or 0)
-            claim_count_row = conn.execute(
-                "SELECT COUNT(*) AS total FROM public_invite_claims"
-            ).fetchone()
-            claim_count = int(row_get(claim_count_row, "total", 0) or 0)
-            if max_claims > 0 and claim_count >= max_claims:
-                conn.rollback()
-                raise LookupError("PUBLIC_INVITE_EXHAUSTED")
-
-        generated_code = ""
-        last_error: Exception | None = None
-        for _attempt in range(20):
-            try:
-                generated_code = _generate_coupon_code()
-                _create_coupon_in_tx(
-                    conn,
-                    code=generated_code,
-                    credits=normalized_credits,
-                    expires_at=None,
-                    status="ACTIVE",
-                    source=normalized_source,
-                    now=now,
-                )
-                last_error = None
-                break
-            except Exception as exc:
-                last_error = exc
-                generated_code = ""
-        if not generated_code:
-            conn.rollback()
-            if last_error is not None:
-                raise RuntimeError("failed to generate coupon") from last_error
-            raise RuntimeError("failed to generate coupon")
-
-        if has_existing_claim:
-            conn.execute(
-                """
-                UPDATE public_invite_claims
-                SET code = ?, updated_at = ?
-                WHERE ip_hash = ?
-                """,
-                (generated_code, now, ip_hash),
-            )
-            already_claimed = True
-        else:
-            conn.execute(
-                """
-                INSERT INTO public_invite_claims(ip_hash, code, created_at, updated_at)
-                VALUES(?, ?, ?, ?)
-                """,
-                (ip_hash, generated_code, now, now),
-            )
-            already_claimed = False
-
-        conn.commit()
-        return {
-            "code": generated_code,
-            "credits": normalized_credits,
-            "already_claimed": already_claimed,
-        }
-
-
-@retry_turso_operation("get credit balance")
-def get_credit_balance(user_id: str) -> int:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-    if not row:
-        return 0
-    return int(row_get(row, "balance", 0) or 0)
-
-
-@retry_turso_operation("get recent credit ledger")
-def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT entry_id, delta, reason, job_id, idempotency_key, created_at
-            FROM credit_ledger
-            WHERE user_id = ?
-            ORDER BY entry_id DESC
-            LIMIT ?
-            """,
-            (user_id, int(max(1, limit))),
-        ).fetchall()
-    return [
-        {
-            "entry_id": int(row_get(row, "entry_id", 0)),
-            "delta": int(row_get(row, "delta", 1)),
-            "reason": str(row_get(row, "reason", 2)),
-            "job_id": row_get(row, "job_id", 3),
-            "idempotency_key": str(row_get(row, "idempotency_key", 4)),
-            "created_at": str(row_get(row, "created_at", 5)),
-        }
-        for row in rows
-    ]
-
-
-@retry_turso_operation("consume export credit")
-def consume_job_export_credit(user_id: str, job_id: str) -> dict[str, Any]:
-    idempotency_key = f"job:{job_id}:export_success"
-    now = now_iso()
-
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-
-        existing = conn.execute(
-            "SELECT entry_id FROM credit_ledger WHERE idempotency_key = ? LIMIT 1",
-            (idempotency_key,),
-        ).fetchone()
-        if existing:
-            balance = _get_balance_in_tx(conn, user_id)
-            conn.commit()
-            return {"consumed": False, "balance": balance}
-
-        balance = _get_balance_in_tx(conn, user_id)
-        if balance < 1:
-            conn.rollback()
-            raise LookupError("INSUFFICIENT_CREDITS")
-
-        inserted = conn.execute(
-            """
-            INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-            VALUES(?, -1, 'JOB_EXPORT_SUCCESS', ?, ?, ?)
-            """,
-            (user_id, job_id, idempotency_key, now),
-        )
-        if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
-            balance = _get_balance_in_tx(conn, user_id)
-            conn.commit()
-            return {"consumed": False, "balance": balance}
-
-        balance = _get_balance_in_tx(conn, user_id)
-        conn.commit()
-        return {"consumed": True, "balance": balance}
-
-
-def _assert_not_expired_or_invalid(expires_at: Any) -> None:
-    if not isinstance(expires_at, str) or not expires_at.strip():
-        return
-    try:
-        expires_dt = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
-        now_dt = datetime.now(timezone.utc)
-        if expires_dt.tzinfo is None:
-            expires_dt = expires_dt.replace(tzinfo=timezone.utc)
-        if expires_dt < now_dt:
-            raise LookupError("COUPON_CODE_EXPIRED")
-    except LookupError:
-        raise
-    except Exception:
-        raise LookupError("COUPON_CODE_INVALID")
-
-
-def _assert_coupon_usable_in_tx(coupon: Any) -> None:
-    used_count = int(row_get(coupon, "used_count", 2) or 0)
-    if used_count >= 1:
-        raise LookupError("COUPON_CODE_EXHAUSTED")
-
-    status = str(row_get(coupon, "status", 4) or "").upper()
-    if status != "ACTIVE":
-        raise LookupError("COUPON_CODE_INVALID")
-
-    _assert_not_expired_or_invalid(row_get(coupon, "expires_at", 3))
-
-
-@retry_turso_operation("preview coupon code")
-def preview_coupon_code(code: str) -> dict[str, Any]:
-    normalized = normalize_code(code)
-    if not normalized:
-        raise ValueError("coupon code cannot be empty")
-
-    with get_conn() as conn:
-        coupon = conn.execute(
-            """
-            SELECT code, credits, used_count, expires_at, status
-            FROM coupon_codes
-            WHERE code = ?
-            """,
-            (normalized,),
-        ).fetchone()
-    if not coupon:
-        raise LookupError("COUPON_CODE_INVALID")
-
-    _assert_coupon_usable_in_tx(coupon)
-    credits = int(row_get(coupon, "credits", 1) or 0)
-    if credits <= 0:
-        raise LookupError("COUPON_CODE_INVALID")
-    return {"code": normalized, "credits": credits}
-
-
-def _activate_user_in_tx(conn: Any, user_id: str, now: str) -> None:
-    conn.execute(
-        """
-        UPDATE users
-        SET status = ?, activated_at = ?, updated_at = ?
-        WHERE user_id = ?
-        """,
-        (USER_STATUS_ACTIVE, now, now, user_id),
-    )
-
-
-def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
-    normalized = normalize_code(code)
-    if not normalized:
-        raise ValueError("coupon code cannot be empty")
-
-    idempotency_key = f"coupon:{normalized}"
-    now = now_iso()
-
-    with get_conn() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-
-        user = conn.execute(
-            "SELECT user_id, status, activated_at FROM users WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-        if not user:
-            conn.execute(
-                """
-                INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
-                VALUES(?, NULL, ?, NULL, ?, ?)
-                """,
-                (user_id, USER_STATUS_PENDING_COUPON, now, now),
-            )
-            already_activated = False
-        else:
-            user_status = str(row_get(user, "status", 1) or "").upper()
-            already_activated = user_status == USER_STATUS_ACTIVE or bool(row_get(user, "activated_at", 2))
-
-        coupon = conn.execute(
-            """
-            SELECT code, credits, used_count, expires_at, status
-            FROM coupon_codes
-            WHERE code = ?
-            """,
-            (normalized,),
-        ).fetchone()
-        if not coupon:
-            conn.rollback()
-            raise LookupError("COUPON_CODE_INVALID")
-
-        try:
-            _assert_coupon_usable_in_tx(coupon)
-        except LookupError:
-            conn.rollback()
-            raise
-
-        credits = int(row_get(coupon, "credits", 1) or 0)
-        if credits <= 0:
-            conn.rollback()
-            raise LookupError("COUPON_CODE_INVALID")
-
-        reserved = conn.execute(
-            """
-            UPDATE coupon_codes
-            SET used_count = 1, status = 'DISABLED', updated_at = ?
-            WHERE code = ? AND status = 'ACTIVE' AND COALESCE(used_count, 0) = 0
-            """,
-            (now, normalized),
-        )
-        if int(getattr(reserved, "rowcount", 0) or 0) <= 0:
-            conn.rollback()
-            raise LookupError("COUPON_CODE_EXHAUSTED")
-
-        inserted = conn.execute(
-            """
-            INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-            VALUES(?, ?, 'COUPON_REDEEM', NULL, ?, ?)
-            """,
-            (user_id, credits, idempotency_key, now),
-        )
-        if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
-            conn.rollback()
-            raise LookupError("COUPON_CODE_EXHAUSTED")
-
-        _activate_user_in_tx(conn, user_id, now)
-        balance = _get_balance_in_tx(conn, user_id)
-        conn.commit()
-        return {
-            "already_activated": already_activated,
-            "coupon_redeemed": True,
-            "granted_credits": credits,
-            "balance": balance,
-        }
-
-
-def _get_balance_in_tx(conn: Any, user_id: str) -> int:
-    row = conn.execute(
-        "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
-        (user_id,),
-    ).fetchone()
-    return int(row_get(row, "balance", 0) or 0)
-
 
 def _meta_path(job_id: str) -> Path:
     return job_dir(job_id) / "job.meta.json"
@@ -539,18 +80,34 @@ def _render_succeeded_path(job_id: str) -> Path:
 
 
 def _test_lines_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "lines_draft.json"
+
+
+def _legacy_test_lines_draft_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "lines_draft.txt"
 
 
 def _test_chapters_draft_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "chapters_draft.json"
+
+
+def _legacy_test_chapters_draft_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "chapters_draft.txt"
 
 
 def _test_final_lines_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "final_test.json"
+
+
+def _legacy_test_final_lines_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_test.txt"
 
 
 def _test_final_chapters_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "final_chapters.json"
+
+
+def _legacy_test_final_chapters_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_chapters.txt"
 
 
@@ -584,6 +141,12 @@ def _read_files_manifest(job_id: str) -> dict[str, Any]:
 
 def _write_files_manifest(job_id: str, payload: dict[str, Any]) -> None:
     _write_json(_files_path(job_id), payload)
+
+
+def _existing_artifact_path(primary: Path, legacy: Path) -> Path:
+    if primary.exists():
+        return primary
+    return legacy
 
 
 def _existing_video_path(job_id: str) -> str | None:
@@ -639,15 +202,24 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if test_srt.exists():
         result["final_test_srt_path"] = str(test_srt)
 
-    chapters_draft = _test_chapters_draft_path(job_id)
+    chapters_draft = _existing_artifact_path(
+        _test_chapters_draft_path(job_id),
+        _legacy_test_chapters_draft_path(job_id),
+    )
     if chapters_draft.exists():
         result["chapters_draft_path"] = str(chapters_draft)
 
-    final_test_text = _test_final_lines_path(job_id)
+    final_test_text = _existing_artifact_path(
+        _test_final_lines_path(job_id),
+        _legacy_test_final_lines_path(job_id),
+    )
     if final_test_text.exists():
         result["final_test_text_path"] = str(final_test_text)
 
-    final_chapters = _test_final_chapters_path(job_id)
+    final_chapters = _existing_artifact_path(
+        _test_final_chapters_path(job_id),
+        _legacy_test_final_chapters_path(job_id),
+    )
     if final_chapters.exists():
         result["final_chapters_path"] = str(final_chapters)
 
@@ -656,28 +228,6 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         result["final_video_path"] = str(final_video)
 
     return result
-
-
-def _has_legacy_step2_state(job_id: str, meta: dict[str, Any]) -> bool:
-    raw_status = str(meta.get("status") or "").strip().upper()
-    if raw_status in {"STEP2_RUNNING", "STEP2_READY", "STEP2_CONFIRMED"}:
-        return True
-
-    step2_dir = job_dir(job_id) / "step2"
-    legacy_paths = (
-        step2_dir / "topics.json",
-        step2_dir / "final_topics.json",
-        step2_dir / ".confirmed",
-    )
-    if any(path.exists() for path in legacy_paths):
-        return True
-
-    payload = _read_files_manifest(job_id)
-    for field in ("topics_path", "final_topics_path"):
-        value = payload.get(field)
-        if isinstance(value, str) and value.strip():
-            return True
-    return False
 
 
 def _infer_job_status(job_id: str) -> str:
@@ -695,7 +245,13 @@ def _infer_job_status(job_id: str) -> str:
         and files.get("final_chapters_path")
     ):
         return JOB_STATUS_TEST_CONFIRMED
-    if _test_lines_draft_path(job_id).exists() and _test_chapters_draft_path(job_id).exists():
+    if _existing_artifact_path(
+        _test_lines_draft_path(job_id),
+        _legacy_test_lines_draft_path(job_id),
+    ).exists() and _existing_artifact_path(
+        _test_chapters_draft_path(job_id),
+        _legacy_test_chapters_draft_path(job_id),
+    ).exists():
         return JOB_STATUS_TEST_READY
     if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
@@ -761,7 +317,13 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
         }
 
     if status == JOB_STATUS_TEST_READY:
-        if _test_lines_draft_path(job_id).exists() and _test_chapters_draft_path(job_id).exists():
+        if _existing_artifact_path(
+            _test_lines_draft_path(job_id),
+            _legacy_test_lines_draft_path(job_id),
+        ).exists() and _existing_artifact_path(
+            _test_chapters_draft_path(job_id),
+            _legacy_test_chapters_draft_path(job_id),
+        ).exists():
             return None
         return {
             "code": JOB_ERROR_CODE_FILES_MISSING,
@@ -823,22 +385,6 @@ def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] 
         return None
     if owner_user_id and str(meta.get("owner_user_id") or "") != owner_user_id:
         return None
-
-    if _has_legacy_step2_state(job_id, meta):
-        files = _normalize_files(job_id, _read_files_manifest(job_id))
-        if files.get("final_video_path") or _render_succeeded_path(job_id).exists():
-            pass
-        else:
-            return {
-                "job_id": job_id,
-                "status": JOB_STATUS_FAILED,
-                "progress": int(meta.get("progress") or 0) if str(meta.get("progress") or "").strip() else 0,
-                "stage": None,
-                "error": {
-                    "code": "INVALID_STEP_STATE",
-                    "message": "任务流程已升级，请重新上传并重新生成字幕与章节。",
-                },
-            }
 
     files = _normalize_files(job_id, _read_files_manifest(job_id))
     inferred_status = _infer_job_status(job_id)
@@ -992,9 +538,13 @@ def upsert_job_files(job_id: str, **kwargs: Any) -> None:
 
 def clear_step_data(job_id: str) -> None:
     _test_lines_draft_path(job_id).unlink(missing_ok=True)
+    _legacy_test_lines_draft_path(job_id).unlink(missing_ok=True)
     _test_chapters_draft_path(job_id).unlink(missing_ok=True)
+    _legacy_test_chapters_draft_path(job_id).unlink(missing_ok=True)
     _test_final_lines_path(job_id).unlink(missing_ok=True)
+    _legacy_test_final_lines_path(job_id).unlink(missing_ok=True)
     _test_final_chapters_path(job_id).unlink(missing_ok=True)
+    _legacy_test_final_chapters_path(job_id).unlink(missing_ok=True)
     _test_confirmed_path(job_id).unlink(missing_ok=True)
 
 
@@ -1054,29 +604,49 @@ def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
     return _list_succeeded_jobs_with_artifacts(limit=limit)
 
 
+def list_jobs_by_status(status: str) -> list[str]:
+    normalized_status = _normalize_meta_status(status)
+    if normalized_status is None:
+        return []
+
+    settings = get_settings()
+    jobs_root = settings.work_dir / "jobs"
+    if not jobs_root.exists():
+        return []
+
+    job_ids: list[str] = []
+    for item in sorted(path for path in jobs_root.iterdir() if path.is_dir() and path.name.startswith("job_")):
+        meta = _read_meta(item.name)
+        if not meta:
+            continue
+        if _normalize_meta_status(meta.get("status")) == normalized_status:
+            job_ids.append(item.name)
+    return job_ids
+
+
 def replace_test_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
-    write_test_text(lines, _test_lines_draft_path(job_id))
+    write_test_json(lines, _test_lines_draft_path(job_id))
 
 
 def list_test_lines(job_id: str) -> list[dict[str, Any]]:
-    path = None
-    if _test_confirmed_path(job_id).exists() and _test_final_lines_path(job_id).exists():
-        path = _test_final_lines_path(job_id)
-    if path is None or not path.exists():
-        draft = _test_lines_draft_path(job_id)
-        if draft.exists():
-            path = draft
-    if path is None or not path.exists():
-        final = _test_final_lines_path(job_id)
-        if final.exists():
-            path = final
-    if path is None or not path.exists():
+    final_path = _existing_artifact_path(
+        _test_final_lines_path(job_id),
+        _legacy_test_final_lines_path(job_id),
+    )
+    draft_path = _existing_artifact_path(
+        _test_lines_draft_path(job_id),
+        _legacy_test_lines_draft_path(job_id),
+    )
+    path = final_path if _test_confirmed_path(job_id).exists() and final_path.exists() else draft_path
+    if not path.exists():
+        path = final_path
+    if not path.exists():
         return []
-    return build_test_lines_from_text(path)
+    return load_test_lines(path)
 
 
 def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
-    write_chapters_text(chapters, _test_chapters_draft_path(job_id))
+    write_topics_json(chapters, _test_chapters_draft_path(job_id))
 
 
 def _list_chapters_from_path(path: Path) -> list[dict[str, Any]]:
@@ -1084,17 +654,29 @@ def _list_chapters_from_path(path: Path) -> list[dict[str, Any]]:
         return []
     lines = list_test_lines(path.parents[1].name)
     kept_lines = [line for line in lines if not bool(line.get("user_final_remove", False))]
-    return build_test_chapters_from_text(path, kept_lines=kept_lines)
+    return load_test_chapters(path, kept_lines=kept_lines)
 
 
 def list_test_chapters(job_id: str) -> list[dict[str, Any]]:
-    if _test_confirmed_path(job_id).exists() and _test_final_chapters_path(job_id).exists():
+    final_path = _existing_artifact_path(
+        _test_final_chapters_path(job_id),
+        _legacy_test_final_chapters_path(job_id),
+    )
+    if _test_confirmed_path(job_id).exists() and final_path.exists():
         return list_final_test_chapters(job_id)
-    draft_path = _test_chapters_draft_path(job_id)
+    draft_path = _existing_artifact_path(
+        _test_chapters_draft_path(job_id),
+        _legacy_test_chapters_draft_path(job_id),
+    )
     if draft_path.exists():
         return _list_chapters_from_path(draft_path)
     return list_final_test_chapters(job_id)
 
 
 def list_final_test_chapters(job_id: str) -> list[dict[str, Any]]:
-    return _list_chapters_from_path(_test_final_chapters_path(job_id))
+    return _list_chapters_from_path(
+        _existing_artifact_path(
+            _test_final_chapters_path(job_id),
+            _legacy_test_final_chapters_path(job_id),
+        )
+    )

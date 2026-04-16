@@ -2,13 +2,23 @@ from __future__ import annotations
 
 import fcntl
 import logging
-from pathlib import Path
 from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from video_auto_cut.asr.oss_uploader import create_oss_uploader_from_config
 from video_auto_cut.asr.transcribe_stage import run_asr_transcription_stage
+from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_settings
+
+# Backward-compatible alias for tests/older patch points.
+build_pipeline_options = build_pipeline_options_from_settings
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit
+from video_auto_cut.shared.test_text_io import (
+    write_final_test_srt,
+    write_test_json,
+    write_topics_json,
+)
 from video_auto_cut.editing.chapter_domain import (
     build_document_revision,
     canonicalize_test_chapters,
@@ -24,7 +34,8 @@ from ..constants import (
     PROGRESS_TEST_CONFIRMED,
     PROGRESS_TEST_READY,
 )
-from ..repository import (
+from ..db_repository import get_credit_balance
+from ..job_file_repository import (
     get_job_owner_user_id,
     list_test_chapters,
     list_test_lines,
@@ -33,17 +44,153 @@ from ..repository import (
     update_job,
     upsert_job_files,
 )
-from ..utils.srt_utils import build_test_lines_from_text, write_chapters_text, write_final_test_srt, write_test_text
-from .billing import has_available_credits
-from .pipeline_options import build_pipeline_options
 from .step2 import generate_test_chapters
 
 
+@dataclass(frozen=True)
+class TestRunContext:
+    dirs: dict[str, Path]
+    media_path: Path
+    asr_oss_key: str | None
+    options: Any
+
+
+class TestJobStateManager:
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        self.current_stage_code = "REMOVING_REDUNDANT_LINES"
+
+    def reset_lines(self) -> None:
+        replace_test_lines(self.job_id, [])
+
+    def mark_transcribing(self) -> None:
+        self._update_running(
+            progress=31,
+            stage_code="TRANSCRIBING_MEDIA",
+            stage_message="正在识别语音并生成字幕...",
+        )
+
+    def mark_auto_edit_stage(self, stage_code: str, stage_message: str) -> None:
+        self.current_stage_code = stage_code
+        progress_by_stage = {
+            "REMOVING_REDUNDANT_LINES": 32,
+            "POLISHING_EXPRESSION": 34,
+        }
+        self._update_running(
+            progress=progress_by_stage.get(stage_code, 34),
+            stage_code=stage_code,
+            stage_message=stage_message,
+        )
+
+    def sync_preview_lines(self, lines: list[dict[str, object]]) -> None:
+        if not lines:
+            return
+        replace_test_lines(self.job_id, lines)
+        first_text = str(lines[0].get("optimized_text") or lines[0].get("original_text") or "").strip()
+        logging.info(
+            "[web_api] test preview sync job=%s stage=%s line_count=%s first_line=%s",
+            self.job_id,
+            self.current_stage_code,
+            len(lines),
+            first_text[:60],
+        )
+
+    def sync_raw_lines(self, lines: list[dict[str, Any]]) -> None:
+        if not lines:
+            return
+        replace_test_lines(self.job_id, lines)
+        logging.info(
+            "[web_api] test flow transcribe done job=%s raw_line_count=%s",
+            self.job_id,
+            len(lines),
+        )
+
+    def sync_final_lines(self, lines: list[dict[str, Any]]) -> None:
+        replace_test_lines(self.job_id, lines)
+
+    def sync_chapters(self, chapters: list[dict[str, Any]]) -> None:
+        replace_test_chapters(self.job_id, chapters)
+
+    def mark_generating_chapters(self) -> None:
+        self._update_running(
+            progress=34,
+            stage_code="GENERATING_CHAPTERS",
+            stage_message="正在生成章节结构...",
+        )
+
+    def mark_ready(self) -> None:
+        update_job(
+            self.job_id,
+            status=JOB_STATUS_TEST_READY,
+            progress=PROGRESS_TEST_READY,
+            stage_code="TEST_READY",
+            stage_message="字幕和章节已生成，请确认内容。",
+        )
+
+    def _update_running(self, *, progress: int, stage_code: str, stage_message: str) -> None:
+        update_job(
+            self.job_id,
+            status=JOB_STATUS_TEST_RUNNING,
+            progress=progress,
+            stage_code=stage_code,
+            stage_message=stage_message,
+        )
+
+
 def run_test(job_id: str) -> None:
+    state = TestJobStateManager(job_id)
+    context = _build_test_run_context(job_id)
+    state.reset_lines()
+    asr_artifacts = _run_test_transcription(context, state)
+    srt_path = asr_artifacts.srt_path
+    auto_edit_artifacts = _run_test_auto_edit(context, srt_path, state)
+    optimized_srt_path = auto_edit_artifacts.optimized_srt_path
+    optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
+    lines = list(auto_edit_artifacts.test_lines)
+    if not lines:
+        raise RuntimeError("test flow produced empty line list")
+
+    state.sync_final_lines(lines)
+    chapters, chapters_draft_path = _generate_test_chapters_draft(context, optimized_srt_path, lines, state)
+    state.sync_chapters(chapters)
+    _persist_test_artifacts(
+        job_id,
+        srt_path=srt_path,
+        optimized_srt_path=optimized_srt_path,
+        chapters_draft_path=chapters_draft_path,
+        optimized_srt_upload=optimized_srt_upload,
+    )
+    state.mark_ready()
+
+
+def _build_test_run_context(job_id: str) -> TestRunContext:
     dirs = ensure_job_dirs(job_id)
     files = _load_required_paths(job_id)
     asr_oss_key = files.get("asr_oss_key")
-    replace_test_lines(job_id, [])
+    media_path = _resolve_test_media_path(job_id, dirs, files, asr_oss_key)
+    logging.info("[web_api] test flow transcribe using: %s", media_path)
+    options = build_pipeline_options_from_settings(get_settings())
+    logging.info(
+        "[web_api] test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s)",
+        options.asr_backend,
+        getattr(options, "asr_dashscope_enable_words", None),
+        getattr(options, "asr_dashscope_sentence_rule_with_punc", None),
+    )
+    _ensure_test_credit(job_id)
+    return TestRunContext(
+        dirs=dirs,
+        media_path=media_path,
+        asr_oss_key=asr_oss_key,
+        options=options,
+    )
+
+
+def _resolve_test_media_path(
+    job_id: str,
+    dirs: dict[str, Path],
+    files: dict[str, str],
+    asr_oss_key: str | None,
+) -> Path:
     if asr_oss_key:
         media_path = dirs["input"] / "audio.wav"
         logging.info(
@@ -51,119 +198,82 @@ def run_test(job_id: str) -> None:
             job_id,
             asr_oss_key[:50] + "..." if len(asr_oss_key) > 50 else asr_oss_key,
         )
-    else:
-        media_path = Path(files["audio_path"])
-        logging.info(
-            "[web_api] test inputs job=%s audio_path=%s video_path=%s",
-            job_id,
-            files.get("audio_path"),
-            files.get("video_path"),
-        )
-    logging.info("[web_api] test flow transcribe using: %s", media_path)
-    options = build_pipeline_options()
+        return media_path
+
+    media_path = Path(files["audio_path"])
     logging.info(
-        "[web_api] test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s)",
-        options.asr_backend,
-        getattr(options, "asr_dashscope_enable_words", None),
-        getattr(options, "asr_dashscope_sentence_rule_with_punc", None),
+        "[web_api] test inputs job=%s audio_path=%s video_path=%s",
+        job_id,
+        files.get("audio_path"),
+        files.get("video_path"),
     )
+    return media_path
+
+
+def _ensure_test_credit(job_id: str) -> None:
     owner_user_id = get_job_owner_user_id(job_id)
     if not owner_user_id:
         raise RuntimeError("job owner not found")
-    if not has_available_credits(owner_user_id, required=1):
+    if get_credit_balance(owner_user_id) < 1:
         raise RuntimeError("额度不足，请先兑换邀请码后重试")
 
-    logging.info("[web_api] test flow transcribe start: %s", media_path)
-    update_job(
-        job_id,
-        status=JOB_STATUS_TEST_RUNNING,
-        progress=31,
-        stage_code="TRANSCRIBING_MEDIA",
-        stage_message="正在识别语音并生成字幕...",
-    )
+
+def _run_test_transcription(context: TestRunContext, state: TestJobStateManager) -> Any:
+    logging.info("[web_api] test flow transcribe start: %s", context.media_path)
+    state.mark_transcribing()
     asr_artifacts = run_asr_transcription_stage(
-        media_path,
-        options,
-        oss_object_key=asr_oss_key,
+        context.media_path,
+        context.options,
+        oss_object_key=context.asr_oss_key,
     )
-    srt_path = asr_artifacts.srt_path
-    raw_lines = getattr(asr_artifacts, "test_lines", None) or getattr(asr_artifacts, "test_lines", None)
-    if raw_lines:
-        replace_test_lines(job_id, raw_lines)
-        logging.info(
-            "[web_api] test flow transcribe done job=%s raw_line_count=%s",
-            job_id,
-            len(raw_lines),
-        )
+    raw_lines = list(getattr(asr_artifacts, "test_lines", None) or [])
+    state.sync_raw_lines(raw_lines)
+    return asr_artifacts
 
+
+def _run_test_auto_edit(
+    context: TestRunContext,
+    srt_path: Path,
+    state: TestJobStateManager,
+) -> Any:
     logging.info("[web_api] test flow editor start: %s", srt_path)
-    current_stage_code = "REMOVING_REDUNDANT_LINES"
-
-    def push_auto_edit_stage(stage_code: str, stage_message: str) -> None:
-        nonlocal current_stage_code
-        current_stage_code = stage_code
-        progress_by_stage = {
-            "REMOVING_REDUNDANT_LINES": 32,
-            "POLISHING_EXPRESSION": 34,
-        }
-        update_job(
-            job_id,
-            status=JOB_STATUS_TEST_RUNNING,
-            progress=progress_by_stage.get(stage_code, 34),
-            stage_code=stage_code,
-            stage_message=stage_message,
-        )
-
-    def push_auto_edit_preview(lines: list[dict[str, object]]) -> None:
-        if not lines:
-            return
-        replace_test_lines(job_id, lines)
-        first_text = str(lines[0].get("optimized_text") or lines[0].get("original_text") or "").strip()
-        logging.info(
-            "[web_api] test preview sync job=%s stage=%s line_count=%s first_line=%s",
-            job_id,
-            current_stage_code,
-            len(lines),
-            first_text[:60],
-        )
-
-    push_auto_edit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
+    state.mark_auto_edit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
     auto_edit_artifacts = run_auto_edit(
         srt_path,
-        options,
-        stage_callback=push_auto_edit_stage,
-        preview_callback=push_auto_edit_preview,
+        context.options,
+        stage_callback=state.mark_auto_edit_stage,
+        preview_callback=state.sync_preview_lines,
     )
-    optimized_srt_path = auto_edit_artifacts.optimized_srt_path
-    optimized_srt_upload = _upload_optimized_srt_to_oss(job_id, optimized_srt_path)
-    test_lines_path = auto_edit_artifacts.test_text_path
-    if not test_lines_path.exists():
-        raise RuntimeError(f"test sidecar missing: {test_lines_path}")
+    return auto_edit_artifacts
 
-    lines = list(auto_edit_artifacts.test_lines)
-    if not lines:
-        raise RuntimeError("test flow produced empty line list")
 
-    replace_test_lines(job_id, lines)
-    update_job(
-        job_id,
-        status=JOB_STATUS_TEST_RUNNING,
-        progress=34,
-        stage_code="GENERATING_CHAPTERS",
-        stage_message="正在生成章节结构...",
-    )
-
+def _generate_test_chapters_draft(
+    context: TestRunContext,
+    optimized_srt_path: Path,
+    lines: list[dict[str, Any]],
+    state: TestJobStateManager,
+) -> tuple[list[dict[str, Any]], Path]:
+    state.mark_generating_chapters()
     kept_lines = kept_test_lines(lines)
-    test_dir = dirs["base"] / "test"
+    test_dir = context.dirs["base"] / "test"
     test_dir.mkdir(parents=True, exist_ok=True)
-    chapters_draft_path = test_dir / "chapters_draft.txt"
+    chapters_draft_path = test_dir / "chapters_draft.json"
     chapters = generate_test_chapters(
         source_srt=optimized_srt_path,
         output_path=chapters_draft_path,
         kept_lines=kept_lines,
     )
-    replace_test_chapters(job_id, chapters)
+    return chapters, chapters_draft_path
 
+
+def _persist_test_artifacts(
+    job_id: str,
+    *,
+    srt_path: Path,
+    optimized_srt_path: Path,
+    chapters_draft_path: Path,
+    optimized_srt_upload: dict[str, str] | None,
+) -> None:
     upsert_job_files(
         job_id,
         srt_path=str(srt_path),
@@ -177,17 +287,9 @@ def run_test(job_id: str) -> None:
         ),
     )
 
-    update_job(
-        job_id,
-        status=JOB_STATUS_TEST_READY,
-        progress=PROGRESS_TEST_READY,
-        stage_code="TEST_READY",
-        stage_message="字幕和章节已生成，请确认内容。",
-    )
-
 
 def _load_required_paths(job_id: str) -> dict[str, str]:
-    from ..repository import get_job_files
+    from ..job_file_repository import get_job_files
 
     files = get_job_files(job_id)
     if not files:
@@ -284,11 +386,11 @@ def confirm_test(
         normalized_chapters = canonicalize_test_chapters(chapters, kept_lines)
 
         final_test_srt = test_dir / "final_test.srt"
-        final_test_text = test_dir / "final_test.txt"
-        final_chapters = test_dir / "final_chapters.txt"
+        final_test_text = test_dir / "final_test.json"
+        final_chapters = test_dir / "final_chapters.json"
         write_final_test_srt(lines, final_test_srt, DEFAULT_ENCODING)
-        write_test_text(lines, final_test_text)
-        write_chapters_text(normalized_chapters, final_chapters)
+        write_test_json(lines, final_test_text)
+        write_topics_json(normalized_chapters, final_chapters)
 
         upsert_job_files(
             job_id,

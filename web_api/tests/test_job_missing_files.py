@@ -13,13 +13,14 @@ from web_api.constants import (
     JOB_STATUS_FAILED,
     JOB_STATUS_TEST_CONFIRMED,
     JOB_STATUS_TEST_READY,
-    TASK_TYPE_TEST,
+    JOB_STATUS_UPLOAD_READY,
+    PROGRESS_UPLOAD_READY,
 )
-from web_api.repository import create_job, get_job, update_job
-from web_api.services.tasks import execute_task
+from web_api.job_file_repository import create_job, get_job, update_job
+from web_api.services.test_runner import recover_interrupted_test_runs, run_test_job_background
 
 
-class JobMissingFilesTests(unittest.TestCase):
+class _TempWorkDirTestCase(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
@@ -39,13 +40,16 @@ class JobMissingFilesTests(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
+
+class JobMissingFilesTests(_TempWorkDirTestCase):
+
     def test_get_job_marks_test_confirmed_without_final_srt_as_failed(self) -> None:
         job_id = "job_missing_test_srt"
         create_job(job_id, "CREATED", "user-1")
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
-        (test_dir / "final_chapters.txt").write_text("", encoding="utf-8")
+        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
+        (test_dir / "final_chapters.json").write_text('{"topics":[]}\n', encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(
             job_id,
@@ -69,7 +73,7 @@ class JobMissingFilesTests(unittest.TestCase):
         create_job(job_id, "CREATED", "user-1")
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "lines_draft.txt").write_text("", encoding="utf-8")
+        (test_dir / "lines_draft.json").write_text('{"lines":[]}\n', encoding="utf-8")
         update_job(job_id, status=JOB_STATUS_TEST_READY, progress=35)
 
         job = get_job(job_id, owner_user_id="user-1")
@@ -80,37 +84,18 @@ class JobMissingFilesTests(unittest.TestCase):
         self.assertEqual(job["error"]["code"], JOB_ERROR_CODE_FILES_MISSING)
         self.assertEqual(job["error"]["message"], JOB_ERROR_MESSAGE_FILES_MISSING)
 
-    def test_get_job_rejects_legacy_step2_artifacts_after_cutover(self) -> None:
-        job_id = "job_legacy_step2"
-        create_job(job_id, "CREATED", "user-1")
-        step2_dir = Path(self.tmpdir.name) / "jobs" / job_id / "step2"
-        step2_dir.mkdir(parents=True, exist_ok=True)
-        (step2_dir / "final_topics.json").write_text('{"topics":[]}', encoding="utf-8")
-        update_job(job_id, status="STEP2_READY", progress=75)
-
-        job = get_job(job_id, owner_user_id="user-1")
-
-        self.assertIsNotNone(job)
-        self.assertEqual(job["status"], JOB_STATUS_FAILED)
-        self.assertEqual(job["error"]["code"], "INVALID_STEP_STATE")
-        self.assertEqual(job["error"]["message"], "任务流程已升级，请重新上传并重新生成字幕与章节。")
-
-
-class TaskMissingFilesErrorTests(unittest.TestCase):
-    @patch("web_api.services.tasks.set_task_failed")
-    @patch("web_api.services.tasks.update_job")
-    def test_execute_task_exposes_missing_files_as_public_job_error(
+class TestBackgroundRunnerTests(_TempWorkDirTestCase):
+    @patch("web_api.services.test_runner.update_job")
+    def test_run_test_job_background_exposes_missing_files_as_public_job_error(
         self,
         mock_update_job,
-        mock_set_task_failed,
     ) -> None:
         def fail_test(_: str) -> None:
             raise RuntimeError("job files missing for test")
 
-        with patch.dict("web_api.services.tasks.TASK_DISPATCH", {TASK_TYPE_TEST: fail_test}, clear=False):
-            execute_task({"task_id": 7, "job_id": "job-123", "task_type": TASK_TYPE_TEST})
+        with patch("web_api.services.test_runner.run_test", side_effect=fail_test):
+            run_test_job_background("job-123")
 
-        mock_set_task_failed.assert_called_once_with(7, "job files missing for test")
         mock_update_job.assert_called_once_with(
             "job-123",
             status=JOB_STATUS_FAILED,
@@ -118,22 +103,36 @@ class TaskMissingFilesErrorTests(unittest.TestCase):
             error_message=JOB_ERROR_MESSAGE_FILES_MISSING,
         )
 
-    @patch("web_api.services.tasks.set_task_failed")
-    @patch("web_api.services.tasks.update_job")
-    def test_execute_task_rejects_legacy_step2_task_after_cutover(
+    @patch("web_api.services.test_runner.update_job")
+    def test_run_test_job_background_resets_credit_failures_to_upload_ready(
         self,
         mock_update_job,
-        mock_set_task_failed,
     ) -> None:
-        execute_task({"task_id": 8, "job_id": "job-456", "task_type": "STEP2"})
+        with patch("web_api.services.test_runner.run_test", side_effect=RuntimeError("额度不足，请先兑换邀请码后重试")):
+            run_test_job_background("job-456")
 
-        mock_set_task_failed.assert_called_once_with(8, "unsupported task type: STEP2")
         mock_update_job.assert_called_once_with(
             "job-456",
-            status=JOB_STATUS_FAILED,
-            error_code="INTERNAL_ERROR",
-            error_message="unsupported task",
+            status=JOB_STATUS_UPLOAD_READY,
+            progress=PROGRESS_UPLOAD_READY,
         )
+
+    def test_recover_interrupted_test_runs_promotes_complete_drafts_to_test_ready(self) -> None:
+        job_id = "job_recover_ready"
+        create_job(job_id, "CREATED", "user-1")
+        test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "lines_draft.json").write_text('{"lines":[{"line_id":1,"start":0,"end":1,"original_text":"a","optimized_text":"a","ai_suggest_remove":false,"user_final_remove":false}]}\n', encoding="utf-8")
+        (test_dir / "chapters_draft.json").write_text('{"topics":[{"chapter_id":1,"title":"A","start":0,"end":1,"block_range":"1-1"}]}\n', encoding="utf-8")
+        update_job(job_id, status="TEST_RUNNING", progress=30, stage_code="TEST_QUEUED", stage_message="running")
+
+        recovered = recover_interrupted_test_runs()
+
+        self.assertEqual(recovered, 1)
+        job = get_job(job_id, owner_user_id="user-1")
+        self.assertIsNotNone(job)
+        self.assertEqual(job["status"], "TEST_READY")
+        self.assertEqual(job["progress"], 35)
 
 
 if __name__ == "__main__":

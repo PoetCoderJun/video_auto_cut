@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from web_api.app import _RequestGuardMiddleware, _SlidingWindowRateLimiter, create_app
 from web_api.config import get_settings
-from web_api.repository import get_job_files
+from web_api.job_file_repository import get_job_files
 
 
 class ApiSecurityGuardsTest(unittest.TestCase):

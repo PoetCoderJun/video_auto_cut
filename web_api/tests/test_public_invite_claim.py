@@ -7,7 +7,7 @@ from pathlib import Path
 
 from web_api.config import get_settings
 from web_api.db import get_conn, init_db
-from web_api.repository import claim_public_coupon_code
+from web_api.db_repository import claim_public_coupon_code
 
 
 class PublicInviteClaimTests(unittest.TestCase):

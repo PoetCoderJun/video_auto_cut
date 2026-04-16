@@ -2,44 +2,19 @@ from __future__ import annotations
 
 import tempfile
 import logging
-import uuid
 from pathlib import Path
-from typing import AbstractSet
 
 from fastapi import UploadFile
 
 from ..config import ensure_job_dirs, get_settings
-from ..constants import JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY, PROGRESS_UPLOAD_READY
-from ..errors import invalid_step_state, not_found, upload_too_large
-from ..repository import create_job, get_job, get_job_files, upsert_job_files, update_job
+from ..constants import JOB_STATUS_UPLOAD_READY, PROGRESS_UPLOAD_READY
+from ..errors import invalid_step_state, upload_too_large
+from ..job_file_repository import get_job_files, upsert_job_files, update_job
 from ..utils.media import validate_audio_extension
 from .oss_presign import get_oss_uploader
 
 
-def new_job_id() -> str:
-    return f"job_{uuid.uuid4().hex[:12]}"
-
-
-def create_new_job(owner_user_id: str) -> dict:
-    job_id = new_job_id()
-    ensure_job_dirs(job_id)
-    return create_job(job_id, JOB_STATUS_CREATED, owner_user_id)
-
-
-def load_job_or_404(job_id: str, owner_user_id: str) -> dict:
-    job = get_job(job_id, owner_user_id=owner_user_id)
-    if not job:
-        raise not_found("job not found")
-    return job
-
-
-def require_status(job: dict, allowed: AbstractSet[str]) -> None:
-    if job.get("status") not in allowed:
-        allowed_text = ", ".join(sorted(allowed))
-        raise invalid_step_state(f"current status={job.get('status')} expected in [{allowed_text}]")
-
-
-async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
+def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
     settings = get_settings()
     ensure_job_dirs(job_id)
 
@@ -61,7 +36,7 @@ async def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:
     with tempfile.NamedTemporaryFile(prefix=f"{job_id}_", suffix=suffix, delete=False) as temp_file:
         temp_path = Path(temp_file.name)
         while True:
-            chunk = await file.read(1024 * 1024)
+            chunk = file.file.read(1024 * 1024)
             if not chunk:
                 break
             total += len(chunk)

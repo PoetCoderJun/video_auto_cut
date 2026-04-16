@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 from web_api.config import get_settings
 from web_api.constants import JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED
-from web_api.repository import create_job, job_dir, upsert_job_files
+from web_api.config import job_dir
+from web_api.job_file_repository import create_job, upsert_job_files
 from web_api.services.cleanup import cleanup_job_artifacts, list_expired_succeeded_jobs, list_succeeded_jobs_with_artifacts
 
 

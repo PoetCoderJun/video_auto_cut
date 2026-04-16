@@ -4,15 +4,19 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from web_api.api.routes import render_complete
 from web_api.config import get_settings
 from web_api.constants import JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED
 from web_api.db import get_conn, init_db
-from web_api.repository import create_job, get_job, now_iso, update_job
-from web_api.services.render_completion import mark_render_success
+from web_api.errors import ApiError
+from web_api.job_file_repository import create_job, get_job, update_job
+from web_api.services.auth import CurrentUser
+from web_api.utils.persistence_helpers import now_iso
 
 
-class RenderCompletionTests(unittest.TestCase):
+class RenderCompletionRouteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
@@ -35,15 +39,15 @@ class RenderCompletionTests(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_mark_render_success_deducts_once_and_persists_succeeded_status(self) -> None:
+    def test_render_complete_deducts_once_and_persists_succeeded_status(self) -> None:
         job_id = "job_render_done"
         user_id = "user_render_done"
         create_job(job_id, "CREATED", user_id)
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
+        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
         (test_dir / "final_test.srt").write_text("", encoding="utf-8")
-        (test_dir / "final_chapters.txt").write_text("【1】开场\n", encoding="utf-8")
+        (test_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","block_range":"1"}]}\n', encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 
@@ -57,8 +61,10 @@ class RenderCompletionTests(unittest.TestCase):
             )
             conn.commit()
 
-        first = mark_render_success(job_id)
-        second = mark_render_success(job_id)
+        current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
+        with patch("web_api.api.routes.require_active_user", return_value=None):
+            first = render_complete(job_id, current_user=current_user)["data"]["billing"]
+            second = render_complete(job_id, current_user=current_user)["data"]["billing"]
 
         self.assertTrue(first["consumed"])
         self.assertEqual(first["balance"], 1)
@@ -87,22 +93,25 @@ class RenderCompletionTests(unittest.TestCase):
         self.assertEqual(str(rows[0]["reason"]), "JOB_EXPORT_SUCCESS")
         self.assertEqual(str(rows[0]["idempotency_key"]), f"job:{job_id}:export_success")
 
-    def test_mark_render_success_raises_when_credit_is_insufficient(self) -> None:
+    def test_render_complete_raises_when_credit_is_insufficient(self) -> None:
         job_id = "job_render_no_credit"
         user_id = "user_render_no_credit"
         create_job(job_id, "CREATED", user_id)
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
+        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
         (test_dir / "final_test.srt").write_text("", encoding="utf-8")
-        (test_dir / "final_chapters.txt").write_text("【1】开场\n", encoding="utf-8")
+        (test_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","block_range":"1"}]}\n', encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 
-        with self.assertRaises(RuntimeError) as ctx:
-            mark_render_success(job_id)
+        current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
+        with patch("web_api.api.routes.require_active_user", return_value=None):
+            with self.assertRaises(ApiError) as ctx:
+                render_complete(job_id, current_user=current_user)
 
-        self.assertEqual(str(ctx.exception), "额度不足，请先兑换邀请码后重试")
+        self.assertEqual(ctx.exception.code, "INVALID_STEP_STATE")
+        self.assertEqual(ctx.exception.message, "额度不足，请先兑换邀请码后重试")
         job = get_job(job_id, owner_user_id=user_id)
         self.assertIsNotNone(job)
         self.assertEqual(job["status"], JOB_STATUS_TEST_CONFIRMED)
