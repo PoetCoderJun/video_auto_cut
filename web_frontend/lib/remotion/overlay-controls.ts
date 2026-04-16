@@ -37,12 +37,26 @@ export const DEFAULT_OVERLAY_CONTROLS: Required<OverlayScaleControls> = {
   progressLabelMode: "auto",
 };
 
-const clamp = (value: number, min: number, max: number): number => {
-  if (!Number.isFinite(value)) return min;
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-};
+const PROGRESS_LABEL_MODE_VALUES: readonly ProgressLabelMode[] = ["auto", "single", "double"];
+
+function isFiniteOverlayNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isProgressLabelMode(value: unknown): value is ProgressLabelMode {
+  return PROGRESS_LABEL_MODE_VALUES.includes(value as ProgressLabelMode);
+}
+
+export function normalizeOverlayControlNumber(
+  value: unknown,
+  defaultValue: number,
+  limits: {min: number; max: number}
+): number {
+  const resolvedValue = isFiniteOverlayNumber(value) ? value : defaultValue;
+  if (resolvedValue < limits.min) return limits.min;
+  if (resolvedValue > limits.max) return limits.max;
+  return resolvedValue;
+}
 
 const roundToStep = (value: number, step = 1): number => {
   const resolvedStep = Number.isFinite(step) && step > 0 ? step : 1;
@@ -50,7 +64,7 @@ const roundToStep = (value: number, step = 1): number => {
 };
 
 const emphasizeScale = (factor: number, strength: number, min: number, max: number): number =>
-  clamp(1 + (factor - 1) * strength, min, max);
+  normalizeOverlayControlNumber(1 + (factor - 1) * strength, min, {min, max});
 
 const scaleDimension = (
   value: number,
@@ -61,44 +75,47 @@ const scaleDimension = (
 
 export const normalizeOverlayScaleControls = (
   controls: OverlayScaleControls
-): {
-  subtitleScale: number;
-  subtitleYPercent: number;
-  progressScale: number;
-  progressYPercent: number;
-  chapterScale: number;
-  showSubtitles: boolean;
-  showProgress: boolean;
-  showChapter: boolean;
-} => ({
-  subtitleScale: clamp(
+): Required<OverlayScaleControls> => ({
+  subtitleScale: normalizeOverlayControlNumber(
     controls.subtitleScale ?? DEFAULT_OVERLAY_CONTROLS.subtitleScale,
-    OVERLAY_SCALE_LIMITS.subtitle.min,
-    OVERLAY_SCALE_LIMITS.subtitle.max
+    DEFAULT_OVERLAY_CONTROLS.subtitleScale,
+    OVERLAY_SCALE_LIMITS.subtitle
   ),
-  subtitleYPercent: clamp(
+  subtitleYPercent: normalizeOverlayControlNumber(
     controls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
-    OVERLAY_POSITION_LIMITS.subtitleY.min,
-    OVERLAY_POSITION_LIMITS.subtitleY.max
+    DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
+    OVERLAY_POSITION_LIMITS.subtitleY
   ),
-  progressScale: clamp(
+  progressScale: normalizeOverlayControlNumber(
     controls.progressScale ?? DEFAULT_OVERLAY_CONTROLS.progressScale,
-    OVERLAY_SCALE_LIMITS.progress.min,
-    OVERLAY_SCALE_LIMITS.progress.max
+    DEFAULT_OVERLAY_CONTROLS.progressScale,
+    OVERLAY_SCALE_LIMITS.progress
   ),
-  progressYPercent: clamp(
+  progressYPercent: normalizeOverlayControlNumber(
     controls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent,
-    OVERLAY_POSITION_LIMITS.progressY.min,
-    OVERLAY_POSITION_LIMITS.progressY.max
+    DEFAULT_OVERLAY_CONTROLS.progressYPercent,
+    OVERLAY_POSITION_LIMITS.progressY
   ),
-  chapterScale: clamp(
+  chapterScale: normalizeOverlayControlNumber(
     controls.chapterScale ?? DEFAULT_OVERLAY_CONTROLS.chapterScale,
-    OVERLAY_SCALE_LIMITS.chapter.min,
-    OVERLAY_SCALE_LIMITS.chapter.max
+    DEFAULT_OVERLAY_CONTROLS.chapterScale,
+    OVERLAY_SCALE_LIMITS.chapter
   ),
-  showSubtitles: controls.showSubtitles ?? DEFAULT_OVERLAY_CONTROLS.showSubtitles,
-  showProgress: controls.showProgress ?? DEFAULT_OVERLAY_CONTROLS.showProgress,
-  showChapter: controls.showChapter ?? DEFAULT_OVERLAY_CONTROLS.showChapter,
+  showSubtitles:
+    typeof controls.showSubtitles === "boolean"
+      ? controls.showSubtitles
+      : DEFAULT_OVERLAY_CONTROLS.showSubtitles,
+  showProgress:
+    typeof controls.showProgress === "boolean"
+      ? controls.showProgress
+      : DEFAULT_OVERLAY_CONTROLS.showProgress,
+  showChapter:
+    typeof controls.showChapter === "boolean"
+      ? controls.showChapter
+      : DEFAULT_OVERLAY_CONTROLS.showChapter,
+  progressLabelMode: isProgressLabelMode(controls.progressLabelMode)
+    ? controls.progressLabelMode
+    : DEFAULT_OVERLAY_CONTROLS.progressLabelMode,
 });
 
 export const applyOverlayScaleToTypography = (
@@ -108,7 +125,11 @@ export const applyOverlayScaleToTypography = (
   const normalized = normalizeOverlayScaleControls(controls);
   const progressVisualScale = emphasizeScale(normalized.progressScale, 1.35, 0.55, 2.05);
   const progressTypeScale = emphasizeScale(normalized.progressScale, 1.65, 0.5, 2.15);
-  const progressInsetScale = clamp(1 - (progressVisualScale - 1) * 0.28, 0.72, 1.18);
+  const progressInsetScale = normalizeOverlayControlNumber(
+    1 - (progressVisualScale - 1) * 0.28,
+    0.72,
+    {min: 0.72, max: 1.18}
+  );
   const subtitleFontSize = scaleDimension(typography.subtitleFontSize, normalized.subtitleScale, 16);
   const progressLabelFontSize = scaleDimension(
     typography.progressLabelFontSize,

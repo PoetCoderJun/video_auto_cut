@@ -29,7 +29,7 @@ import {
   markRenderSucceeded,
   reportClientUploadIssue,
   runStep1,
-  uploadAudioDirectToOss,
+  uploadAudio,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import {
@@ -49,6 +49,7 @@ import {
   saveCachedJobSourceVideo,
 } from "../lib/video-cache";
 import {
+  formatDuration,
   getLikelyAppExportFileMessage,
   getSourceVideoMismatchMessage,
   isLikelyAppExportFileName,
@@ -288,20 +289,17 @@ const STEP1_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
   STEP1_READY: 100,
 };
 
+const ACTIVE_STEP_BY_STATUS: Partial<Record<Job["status"], number>> = {
+  [STATUS.CREATED]: 1,
+  [STATUS.UPLOAD_READY]: 1,
+  [STATUS.STEP1_RUNNING]: 2,
+  [STATUS.STEP1_READY]: 2,
+  [STATUS.STEP1_CONFIRMED]: 3,
+  [STATUS.SUCCEEDED]: 3,
+};
+
 function getActiveStep(status: Job["status"]): number {
-  switch (status) {
-    case STATUS.CREATED:
-    case STATUS.UPLOAD_READY:
-      return 1;
-    case STATUS.STEP1_RUNNING:
-    case STATUS.STEP1_READY:
-      return 2;
-    case STATUS.STEP1_CONFIRMED:
-    case STATUS.SUCCEEDED:
-      return 3;
-    default:
-      return 1;
-  }
+  return ACTIVE_STEP_BY_STATUS[status] ?? 1;
 }
 
 function clampPercent(value: number): number {
@@ -330,13 +328,6 @@ function withTimeout<T>(
       },
     );
   });
-}
-
-function formatDuration(seconds: number): string {
-  if (!seconds || Number.isNaN(seconds)) return "00:00";
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
 function getFriendlyError(err: unknown): string {
@@ -1792,7 +1783,7 @@ export default function JobWorkspace({
         const audioFile = await extractAudioForAsr(preparedSource.file);
         uploadStage = "audio_upload";
         setUploadStageMessage("正在上传音频...");
-        const uploadedJob = await uploadAudioDirectToOss(
+        const uploadedJob = await uploadAudio(
           nextJob.job_id,
           audioFile,
         );

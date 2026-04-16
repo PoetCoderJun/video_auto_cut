@@ -1,31 +1,15 @@
 import type {Chapter, Step1Line, SubtitleTheme} from "./api";
-import type {OverlayScaleControls, ProgressLabelMode} from "./remotion/overlay-controls";
+import {
+  DEFAULT_OVERLAY_CONTROLS,
+  normalizeOverlayScaleControls,
+  type OverlayScaleControls,
+  type ProgressLabelMode,
+} from "./remotion/overlay-controls.ts";
 
 const STEP1_DRAFT_PREFIX = "video_auto_cut_step1_draft:";
 const EXPORT_PREFS_STORAGE_KEY = "video_auto_cut_export_preferences";
 const DRAFT_SCHEMA_VERSION = 1;
 const EXPORT_PREFS_SCHEMA_VERSION = 1;
-const DEFAULT_EXPORT_OVERLAY_CONTROLS: Required<OverlayScaleControls> = {
-  subtitleScale: 1,
-  subtitleYPercent: 90,
-  progressScale: 1,
-  progressYPercent: 97,
-  chapterScale: 1,
-  showSubtitles: true,
-  showProgress: true,
-  showChapter: true,
-  progressLabelMode: "auto",
-};
-const OVERLAY_SCALE_LIMITS = {
-  subtitle: {min: 0.7, max: 1.45},
-  progress: {min: 0.7, max: 1.6},
-  chapter: {min: 0.7, max: 1.45},
-} as const;
-const OVERLAY_POSITION_LIMITS = {
-  subtitleY: {min: 0, max: 100},
-  progressY: {min: 0, max: 100},
-} as const;
-
 const SUBTITLE_THEME_VALUES: readonly SubtitleTheme[] = [
   "text-black",
   "text-white",
@@ -87,54 +71,9 @@ function isProgressLabelMode(value: unknown): value is ProgressLabelMode {
   return PROGRESS_LABEL_MODE_VALUES.includes(value as ProgressLabelMode);
 }
 
-function readNumber(value: unknown): number | undefined {
-  return isFiniteNumber(value) ? value : undefined;
-}
-
 function normalizeOverlayControls(value: unknown): Required<OverlayScaleControls> {
-  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  return {
-    subtitleScale: clamp(
-      readNumber(source.subtitleScale) ?? DEFAULT_EXPORT_OVERLAY_CONTROLS.subtitleScale,
-      OVERLAY_SCALE_LIMITS.subtitle.min,
-      OVERLAY_SCALE_LIMITS.subtitle.max
-    ),
-    subtitleYPercent: clamp(
-      readNumber(source.subtitleYPercent) ?? DEFAULT_EXPORT_OVERLAY_CONTROLS.subtitleYPercent,
-      OVERLAY_POSITION_LIMITS.subtitleY.min,
-      OVERLAY_POSITION_LIMITS.subtitleY.max
-    ),
-    progressScale: clamp(
-      readNumber(source.progressScale) ?? DEFAULT_EXPORT_OVERLAY_CONTROLS.progressScale,
-      OVERLAY_SCALE_LIMITS.progress.min,
-      OVERLAY_SCALE_LIMITS.progress.max
-    ),
-    progressYPercent: clamp(
-      readNumber(source.progressYPercent) ?? DEFAULT_EXPORT_OVERLAY_CONTROLS.progressYPercent,
-      OVERLAY_POSITION_LIMITS.progressY.min,
-      OVERLAY_POSITION_LIMITS.progressY.max
-    ),
-    chapterScale: clamp(
-      readNumber(source.chapterScale) ?? DEFAULT_EXPORT_OVERLAY_CONTROLS.chapterScale,
-      OVERLAY_SCALE_LIMITS.chapter.min,
-      OVERLAY_SCALE_LIMITS.chapter.max
-    ),
-    showSubtitles:
-      typeof source.showSubtitles === "boolean"
-        ? source.showSubtitles
-        : DEFAULT_EXPORT_OVERLAY_CONTROLS.showSubtitles,
-    showProgress:
-      typeof source.showProgress === "boolean"
-        ? source.showProgress
-        : DEFAULT_EXPORT_OVERLAY_CONTROLS.showProgress,
-    showChapter:
-      typeof source.showChapter === "boolean"
-        ? source.showChapter
-        : DEFAULT_EXPORT_OVERLAY_CONTROLS.showChapter,
-    progressLabelMode: isProgressLabelMode(source.progressLabelMode)
-      ? source.progressLabelMode
-      : DEFAULT_EXPORT_OVERLAY_CONTROLS.progressLabelMode,
-  };
+  const source = value && typeof value === "object" ? (value as OverlayScaleControls) : {};
+  return normalizeOverlayScaleControls(source);
 }
 
 function normalizeStep1Lines(value: unknown): Step1Line[] {

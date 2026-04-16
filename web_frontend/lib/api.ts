@@ -172,6 +172,7 @@ export function invalidateTokenCache(): void {
 }
 
 type RequestOptions = {
+  authToken?: string;
   requireAuth?: boolean;
   keepalive?: boolean;
 };
@@ -261,10 +262,24 @@ async function resolveAuthToken(): Promise<string | null> {
 
 async function request<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
   const headers = new Headers(init?.headers);
-  const token = await resolveAuthToken();
   const requireAuth = Boolean(options?.requireAuth);
-  if (requireAuth && !token) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+  const hasExplicitAuthToken = Boolean(
+    options && Object.prototype.hasOwnProperty.call(options, "authToken")
+  );
+
+  let token: string | null = null;
+  if (hasExplicitAuthToken) {
+    const normalizedExplicitToken = String(options?.authToken || "").trim();
+    if (normalizedExplicitToken) {
+      token = normalizedExplicitToken;
+    } else if (requireAuth) {
+      throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+    }
+  } else {
+    token = await resolveAuthToken();
+    if (requireAuth && !token) {
+      throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+    }
   }
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -294,31 +309,6 @@ async function requestAuthed<T>(
   options?: RequestOptions
 ): Promise<T> {
   return request<T>(path, init, {requireAuth: true, ...options});
-}
-
-async function requestWithExplicitToken<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  const normalizedToken = token.trim();
-  if (!normalizedToken) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
-  }
-  headers.set("Authorization", `Bearer ${normalizedToken}`);
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}${path}`, {
-      ...init,
-      headers,
-      cache: "no-store",
-    });
-  } catch (err) {
-    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
-  }
-
-  await assertOk(response);
-
-  const payload = (await response.json()) as ApiResponse<T>;
-  return payload.data;
 }
 
 function readRenderCompletionStore(): Record<string, RenderCompletionPendingMarker> {
@@ -437,30 +427,17 @@ export async function activateInviteCode(
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({code}),
   };
-  let data:
-    | {
-        coupon: {already_activated: boolean; coupon_redeemed: boolean; granted_credits: number; balance: number};
-        user: UserProfile;
-      }
-    | undefined;
-
-  if (explicitToken) {
-    data = await requestWithExplicitToken<{
-      coupon: {already_activated: boolean; coupon_redeemed: boolean; granted_credits: number; balance: number};
-      user: UserProfile;
-    }>("/auth/coupon/redeem", explicitToken, requestInit);
-  } else {
-    data = await requestAuthed<{
-      coupon: {already_activated: boolean; coupon_redeemed: boolean; granted_credits: number; balance: number};
-      user: UserProfile;
-    }>("/auth/coupon/redeem", requestInit);
-  }
-
-  const resolved = data as {
+  const hasExplicitTokenArg = arguments.length >= 2;
+  const data = await requestAuthed<{
     coupon: {already_activated: boolean; coupon_redeemed: boolean; granted_credits: number; balance: number};
     user: UserProfile;
-  };
-  return resolved.coupon;
+  }>(
+    "/auth/coupon/redeem",
+    requestInit,
+    hasExplicitTokenArg ? {authToken: explicitToken} : undefined
+  );
+
+  return data.coupon;
 }
 
 export async function verifyCouponCode(code: string): Promise<{valid: boolean; code: string; credits: number}> {
@@ -509,14 +486,6 @@ export async function uploadAudioOssReady(
     }
   );
   return data.job;
-}
-
-/**
- * Upload audio via backend API.
- * The backend receives the file, uploads it to OSS, and stores only `asr_oss_key`.
- */
-export async function uploadAudioDirectToOss(jobId: string, file: File): Promise<Job> {
-  return uploadAudio(jobId, file);
 }
 
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {

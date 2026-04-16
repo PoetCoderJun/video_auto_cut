@@ -52,6 +52,44 @@ const clamp = (value: number, min: number, max: number): number => {
   return value;
 };
 
+const STANDARD_ASPECT_RATIO_LABELS_BY_DIMENSION: Record<string, string> = {
+  "854x480": "16:9",
+  "1280x720": "16:9",
+  "1920x1080": "16:9",
+  "2560x1440": "16:9",
+  "3840x2160": "16:9",
+  "360x640": "9:16",
+  "544x960": "9:16",
+  "720x1280": "9:16",
+  "1080x1920": "9:16",
+  "1440x2560": "9:16",
+  "2160x3840": "9:16",
+  "1080x1080": "1:1",
+  "1440x1080": "4:3",
+  "3440x1440": "21:9",
+};
+
+const getGreatestCommonDivisor = (left: number, right: number): number => {
+  let a = Math.abs(Math.round(left));
+  let b = Math.abs(Math.round(right));
+  while (b !== 0) {
+    const next = a % b;
+    a = b;
+    b = next;
+  }
+  return Math.max(1, a);
+};
+
+const formatAspectRatio = (width: number, height: number): string => {
+  if (!(width > 0) || !(height > 0)) return "Preview";
+  const roundedWidth = Math.round(width);
+  const roundedHeight = Math.round(height);
+  const standardLabel = STANDARD_ASPECT_RATIO_LABELS_BY_DIMENSION[`${roundedWidth}x${roundedHeight}`];
+  if (standardLabel) return standardLabel;
+  const divisor = getGreatestCommonDivisor(roundedWidth, roundedHeight);
+  return `${Math.round(roundedWidth / divisor)}:${Math.round(roundedHeight / divisor)}`;
+};
+
 const findActiveTopicIndexByStart = (
   topics: Array<{start: number}>,
   timeSec: number
@@ -607,6 +645,25 @@ export default function ExportFramePreview({
               当前会话缺少本地原视频，预览不可用
             </div>
           )}
+
+          <div
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              padding: "6px 10px",
+              borderRadius: 999,
+              backgroundColor: "rgba(15, 23, 42, 0.78)",
+              color: "#ffffff",
+              fontSize: 12,
+              fontWeight: 600,
+              letterSpacing: "0.02em",
+              fontFamily: OVERLAY_FONT_FAMILY,
+              pointerEvents: "none",
+            }}
+          >
+            {formatAspectRatio(compositionWidth, compositionHeight)}
+          </div>
 
           {previewModel.showChapter && previewModel?.activeTopic ? (
             <div

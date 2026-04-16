@@ -23,7 +23,7 @@ import {
   invalidateTokenCache,
   reportClientUploadIssue,
   setApiAuthTokenProvider,
-  uploadAudioDirectToOss,
+  uploadAudio,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
 import {
@@ -390,7 +390,7 @@ export default function HomePageClient() {
       const audioFile = await extractAudioForAsr(preparedSource.file);
       uploadStage = "audio_upload";
       setUploadStageMessage("正在上传音频...");
-      await uploadAudioDirectToOss(job.job_id, audioFile);
+      await uploadAudio(job.job_id, audioFile);
       uploadStage = "source_cache";
       // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
       await saveCachedJobSourceVideo(job.job_id, preparedSource.file).catch(() => undefined);

@@ -2,7 +2,7 @@ import type {RenderMeta, WebRenderConfig} from "./api";
 
 const APP_EXPORTED_VIDEO_NAME_RE = /^job_[a-z0-9]+_export\.(mp4|webm)$/i;
 
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "00:00";
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
