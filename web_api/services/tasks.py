@@ -6,19 +6,19 @@ from ..constants import (
     JOB_ERROR_CODE_FILES_MISSING,
     JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_FAILED,
-    JOB_STATUS_STEP1_RUNNING,
+    JOB_STATUS_TEST_RUNNING,
     JOB_STATUS_UPLOAD_READY,
     PROGRESS_UPLOAD_READY,
-    PROGRESS_STEP1_RUNNING,
-    TASK_TYPE_STEP1,
+    PROGRESS_TEST_RUNNING,
+    TASK_TYPE_TEST,
 )
 from ..repository import update_job
 from ..task_queue import enqueue_task, get_queue_db_path, set_task_failed, set_task_succeeded
-from .step1 import run_step1
+from .test import run_test
 
 
 TASK_DISPATCH = {
-    TASK_TYPE_STEP1: run_step1,
+    TASK_TYPE_TEST: run_test,
 }
 
 
@@ -63,11 +63,11 @@ def _exception_summary(exc: Exception) -> str:
 
 
 def queue_job_task(job_id: str, task_type: str) -> int:
-    if task_type == TASK_TYPE_STEP1:
-        status = JOB_STATUS_STEP1_RUNNING
-        progress = PROGRESS_STEP1_RUNNING
-        stage_code = "STEP1_QUEUED"
-        stage_message = "上传完成，正在启动字幕和章节生成..."
+    if task_type == TASK_TYPE_TEST:
+        status = JOB_STATUS_TEST_RUNNING
+        progress = PROGRESS_TEST_RUNNING
+        stage_code = "TEST_QUEUED"
+        stage_message = "上传完成，正在启动字幕与章节生成..."
     else:
         raise RuntimeError(f"unsupported task type: {task_type}")
 
@@ -103,11 +103,11 @@ def execute_task(task: dict[str, object]) -> None:
         logging.info("[web_api] execute task=%s job=%s", task_type, job_id)
         fn(job_id)
     except Exception as exc:  # pragma: no cover - runtime behavior
-        if task_type == TASK_TYPE_STEP1:
-            logging.error("[web_api] step1 failed summary job=%s error=%s", job_id, _exception_summary(exc))
+        if task_type == TASK_TYPE_TEST:
+            logging.error("[web_api] test flow failed summary job=%s error=%s", job_id, _exception_summary(exc))
         logging.exception("[web_api] task failed task=%s job=%s", task_type, job_id)
         set_task_failed(task_id, str(exc))
-        if task_type == TASK_TYPE_STEP1 and _is_insufficient_credit_error(exc):
+        if task_type == TASK_TYPE_TEST and _is_insufficient_credit_error(exc):
             update_job(
                 job_id,
                 status=JOB_STATUS_UPLOAD_READY,

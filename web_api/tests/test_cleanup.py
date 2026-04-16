@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from web_api.config import get_settings
-from web_api.constants import JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_SUCCEEDED
+from web_api.constants import JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED
 from web_api.repository import create_job, job_dir, upsert_job_files
 from web_api.services.cleanup import cleanup_job_artifacts, list_expired_succeeded_jobs, list_succeeded_jobs_with_artifacts
 
@@ -27,34 +27,34 @@ class CleanupTests(unittest.TestCase):
                 get_settings.cache_clear()
                 try:
                     create_job("job_cleanup_succeeded", JOB_STATUS_SUCCEEDED, "user")
-                    create_job("job_cleanup_step1_confirmed", JOB_STATUS_STEP1_CONFIRMED, "user")
+                    create_job("job_cleanup_test_confirmed", JOB_STATUS_TEST_CONFIRMED, "user")
                     upsert_job_files(
                         "job_cleanup_succeeded",
                         final_video_path=str(Path(tmpdir) / "jobs" / "job_cleanup_succeeded" / "final.mp4"),
                     )
                     upsert_job_files(
-                        "job_cleanup_step1_confirmed",
-                        final_video_path=str(Path(tmpdir) / "jobs" / "job_cleanup_step1_confirmed" / "final.mp4"),
+                        "job_cleanup_test_confirmed",
+                        final_video_path=str(Path(tmpdir) / "jobs" / "job_cleanup_test_confirmed" / "final.mp4"),
                     )
                     Path(tmpdir, "jobs", "job_cleanup_succeeded", "final.mp4").parent.mkdir(
                         parents=True,
                         exist_ok=True,
                     )
                     Path(tmpdir, "jobs", "job_cleanup_succeeded", "final.mp4").write_text("x")
-                    Path(tmpdir, "jobs", "job_cleanup_step1_confirmed", "final.mp4").parent.mkdir(
+                    Path(tmpdir, "jobs", "job_cleanup_test_confirmed", "final.mp4").parent.mkdir(
                         parents=True,
                         exist_ok=True,
                     )
-                    Path(tmpdir, "jobs", "job_cleanup_step1_confirmed", "final.mp4").write_text("x")
+                    Path(tmpdir, "jobs", "job_cleanup_test_confirmed", "final.mp4").write_text("x")
 
                     candidates = list_succeeded_jobs_with_artifacts(limit=10)
                     cutoff = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
                     expired = list_expired_succeeded_jobs(cutoff, limit=10)
 
                     self.assertIn("job_cleanup_succeeded", candidates)
-                    self.assertNotIn("job_cleanup_step1_confirmed", candidates)
+                    self.assertNotIn("job_cleanup_test_confirmed", candidates)
                     self.assertIn("job_cleanup_succeeded", expired)
-                    self.assertNotIn("job_cleanup_step1_confirmed", expired)
+                    self.assertNotIn("job_cleanup_test_confirmed", expired)
                 finally:
                     get_settings.cache_clear()
 

@@ -28,9 +28,12 @@ class Settings:
     asr_dashscope_api_key: str | None
     asr_dashscope_poll_seconds: float
     asr_dashscope_timeout_seconds: float
+    asr_dashscope_language: str | None
     asr_dashscope_language_hints: tuple[str, ...]
     asr_dashscope_context: str
+    asr_dashscope_enable_itn: bool
     asr_dashscope_enable_words: bool
+    asr_dashscope_channel_ids: tuple[int, ...]
     asr_dashscope_sentence_rule_with_punc: bool
     asr_dashscope_word_split_enabled: bool
     asr_dashscope_word_split_on_comma: bool
@@ -47,7 +50,6 @@ class Settings:
     asr_oss_access_key_secret: str | None
     asr_oss_prefix: str
     asr_oss_signed_url_ttl_seconds: int
-    use_dashscope_temp_oss: bool
     lang: str
     llm_base_url: str | None
     llm_model: str | None
@@ -82,6 +84,25 @@ def get_settings() -> Settings:
     def parse_csv(value: str) -> tuple[str, ...]:
         return tuple(item.strip() for item in value.split(",") if item.strip())
 
+    def parse_int_csv(value: str) -> tuple[int, ...]:
+        values: list[int] = []
+        for item in value.split(","):
+            raw = item.strip()
+            if not raw:
+                continue
+            values.append(max(0, int(raw)))
+        return tuple(values)
+
+    def getenv_first(*names: str) -> str | None:
+        for name in names:
+            value = os.getenv(name)
+            if value is None:
+                continue
+            stripped = value.strip()
+            if stripped:
+                return stripped
+        return None
+
     repo_root = Path(__file__).resolve().parents[1]
     work_dir = Path(os.getenv("WORK_DIR", str(repo_root / "workdir"))).expanduser().resolve()
     replica_path_raw = os.getenv("TURSO_LOCAL_REPLICA_PATH") or str(work_dir / "web_api_turso_replica.db")
@@ -89,11 +110,14 @@ def get_settings() -> Settings:
     turso_database_url = (os.getenv("TURSO_DATABASE_URL") or "").strip() or None
     turso_auth_token = (os.getenv("TURSO_AUTH_TOKEN") or "").strip() or None
     llm_api_key = os.getenv("LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    asr_api_key = os.getenv("ASR_DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
-    asr_language_hints_raw = (os.getenv("ASR_DASHSCOPE_LANGUAGE_HINTS") or "").strip()
+    asr_api_key = getenv_first("DASHSCOPE_ASR_API_KEY", "ASR_DASHSCOPE_API_KEY", "DASHSCOPE_API_KEY")
+    asr_language = getenv_first("DASHSCOPE_ASR_LANGUAGE")
+    asr_language_hints_raw = getenv_first("ASR_DASHSCOPE_LANGUAGE_HINTS") or ""
     asr_language_hints = tuple(
         item.strip() for item in asr_language_hints_raw.split(",") if item.strip()
     )
+    asr_channel_ids_raw = getenv_first("DASHSCOPE_ASR_CHANNEL_IDS") or "0"
+    asr_channel_ids = parse_int_csv(asr_channel_ids_raw) or (0,)
     auth_base_url = (
         (os.getenv("WEB_AUTH_BASE_URL") or "").strip()
         or (os.getenv("BETTER_AUTH_URL") or "").strip()
@@ -132,57 +156,104 @@ def get_settings() -> Settings:
         cleanup_batch_size=max(1, int(os.getenv("WEB_CLEANUP_BATCH_SIZE", "10"))),
         cleanup_on_startup=os.getenv("WEB_CLEANUP_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes"},
         asr_dashscope_base_url=(
-            os.getenv(
+            getenv_first(
+                "DASHSCOPE_ASR_BASE_URL",
                 "ASR_DASHSCOPE_BASE_URL",
-                "https://dashscope-intl.aliyuncs.com",
             )
+            or "https://dashscope-intl.aliyuncs.com"
             .strip()
             .rstrip("/")
         ),
-        asr_dashscope_model=os.getenv("ASR_DASHSCOPE_MODEL", "qwen3-asr-flash-filetrans").strip(),
-        asr_dashscope_task=os.getenv("ASR_DASHSCOPE_TASK", "").strip(),
+        asr_dashscope_model=(
+            getenv_first("DASHSCOPE_ASR_MODEL", "ASR_DASHSCOPE_MODEL")
+            or "qwen3-asr-flash-filetrans"
+        ).strip(),
+        asr_dashscope_task=(getenv_first("DASHSCOPE_ASR_TASK", "ASR_DASHSCOPE_TASK") or "").strip(),
         asr_dashscope_api_key=(asr_api_key or "").strip() or None,
-        asr_dashscope_poll_seconds=max(0.5, float(os.getenv("ASR_DASHSCOPE_POLL_SECONDS", "2.0"))),
-        asr_dashscope_timeout_seconds=max(
-            30.0, float(os.getenv("ASR_DASHSCOPE_TIMEOUT_SECONDS", "3600"))
+        asr_dashscope_poll_seconds=max(
+            0.5,
+            float(getenv_first("DASHSCOPE_ASR_POLL_SECONDS", "ASR_DASHSCOPE_POLL_SECONDS") or "2.0"),
         ),
+        asr_dashscope_timeout_seconds=max(
+            30.0,
+            float(
+                getenv_first("DASHSCOPE_ASR_TIMEOUT_SECONDS", "ASR_DASHSCOPE_TIMEOUT_SECONDS")
+                or "3600"
+            ),
+        ),
+        asr_dashscope_language=(asr_language or "").strip() or None,
         asr_dashscope_language_hints=asr_language_hints,
-        asr_dashscope_context=os.getenv("ASR_DASHSCOPE_CONTEXT", "").strip(),
-        asr_dashscope_enable_words=os.getenv("ASR_DASHSCOPE_ENABLE_WORDS", "1").strip().lower()
-        in {"1", "true", "yes"},
-        asr_dashscope_sentence_rule_with_punc=os.getenv(
-            "ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC", "1"
+        asr_dashscope_context=(
+            getenv_first("DASHSCOPE_ASR_TEXT", "ASR_DASHSCOPE_CONTEXT") or ""
+        ).strip(),
+        asr_dashscope_enable_itn=(
+            getenv_first("DASHSCOPE_ASR_ENABLE_ITN") or "0"
         ).strip().lower()
         in {"1", "true", "yes"},
-        asr_dashscope_word_split_enabled=os.getenv(
-            "ASR_DASHSCOPE_WORD_SPLIT_ENABLED", "1"
+        asr_dashscope_enable_words=(
+            getenv_first("DASHSCOPE_ASR_ENABLE_WORDS", "ASR_DASHSCOPE_ENABLE_WORDS") or "1"
         ).strip().lower()
         in {"1", "true", "yes"},
-        asr_dashscope_word_split_on_comma=os.getenv(
-            "ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA", "1"
+        asr_dashscope_channel_ids=asr_channel_ids,
+        asr_dashscope_sentence_rule_with_punc=(
+            getenv_first("ASR_SENTENCE_RULE_WITH_PUNC", "ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC")
+            or "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_word_split_enabled=(
+            getenv_first("ASR_WORD_SPLIT_ENABLED", "ASR_DASHSCOPE_WORD_SPLIT_ENABLED") or "1"
+        ).strip().lower()
+        in {"1", "true", "yes"},
+        asr_dashscope_word_split_on_comma=(
+            getenv_first("ASR_WORD_SPLIT_ON_COMMA", "ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA") or "1"
         ).strip().lower()
         in {"1", "true", "yes"},
         asr_dashscope_word_split_comma_pause_s=max(
-            0.0, float(os.getenv("ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S", "0.4"))
+            0.0,
+            float(
+                getenv_first(
+                    "ASR_WORD_SPLIT_COMMA_PAUSE_S",
+                    "ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S",
+                )
+                or "0.4"
+            ),
         ),
         asr_dashscope_word_split_min_chars=max(
-            1, int(os.getenv("ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS", "12"))
+            1,
+            int(
+                getenv_first("ASR_WORD_SPLIT_MIN_CHARS", "ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS")
+                or "12"
+            ),
         ),
         asr_dashscope_word_vad_gap_s=max(
-            0.0, float(os.getenv("ASR_DASHSCOPE_WORD_VAD_GAP_S", "1.0"))
+            0.0,
+            float(
+                getenv_first("ASR_WORD_VAD_GAP_S", "ASR_DASHSCOPE_WORD_VAD_GAP_S") or "1.0"
+            ),
         ),
         asr_dashscope_word_max_segment_s=max(
-            1.0, float(os.getenv("ASR_DASHSCOPE_WORD_MAX_SEGMENT_S", "8.0"))
+            1.0,
+            float(
+                getenv_first("ASR_WORD_MAX_SEGMENT_S", "ASR_DASHSCOPE_WORD_MAX_SEGMENT_S")
+                or "8.0"
+            ),
         ),
         asr_dashscope_no_speech_gap_s=max(
-            0.2, float(os.getenv("ASR_DASHSCOPE_NO_SPEECH_GAP_S", "1.0"))
+            0.2,
+            float(
+                getenv_first("ASR_NO_SPEECH_GAP_S", "ASR_DASHSCOPE_NO_SPEECH_GAP_S") or "1.0"
+            ),
         ),
-        asr_dashscope_insert_no_speech=os.getenv(
-            "ASR_DASHSCOPE_INSERT_NO_SPEECH", "1"
+        asr_dashscope_insert_no_speech=(
+            getenv_first("ASR_INSERT_NO_SPEECH", "ASR_DASHSCOPE_INSERT_NO_SPEECH") or "1"
         ).strip().lower()
         in {"1", "true", "yes"},
-        asr_dashscope_insert_head_no_speech=os.getenv(
-            "ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH", "1"
+        asr_dashscope_insert_head_no_speech=(
+            getenv_first(
+                "ASR_INSERT_HEAD_NO_SPEECH",
+                "ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH",
+            )
+            or "1"
         ).strip().lower()
         in {"1", "true", "yes"},
         asr_oss_endpoint=(os.getenv("OSS_ENDPOINT") or "").strip() or None,
@@ -193,8 +264,6 @@ def get_settings() -> Settings:
         asr_oss_signed_url_ttl_seconds=max(
             60, int(os.getenv("OSS_SIGNED_URL_TTL_SECONDS", "86400"))
         ),
-        use_dashscope_temp_oss=os.getenv("USE_DASHSCOPE_TEMP_OSS", "0").strip().lower()
-        in {"1", "true", "yes"},
         lang=os.getenv("WEB_LANG", "Chinese"),
         llm_base_url=(os.getenv("LLM_BASE_URL") or "").strip() or None,
         llm_model=(os.getenv("LLM_MODEL") or "qwen-plus").strip() or "qwen-plus",
@@ -255,7 +324,7 @@ def ensure_job_dirs(job_id: str) -> dict[str, Path]:
     paths = {
         "base": base,
         "input": base / "input",
-        "step1": base / "step1",
+        "test": base / "test",
         "render": base / "render",
     }
     for path in paths.values():

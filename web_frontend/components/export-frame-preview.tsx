@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useEffect, useMemo, useRef, useState} from "react";
+import React, {useCallback, useEffect, useMemo, useRef, useState} from "react";
 
 import type {WebRenderConfig} from "@/lib/api";
 import type {SubtitleTheme} from "@/lib/remotion/stitch-video-web";
@@ -35,6 +35,7 @@ type ExportFramePreviewProps = {
   emptyStateMode?: "message" | "blank";
   subtitleTheme: SubtitleTheme;
   previewTimeSec: number;
+  onPreviewTimeChange?: (timeSec: number) => void;
   overlayControls: OverlayScaleControls;
 };
 
@@ -52,21 +53,23 @@ const clamp = (value: number, min: number, max: number): number => {
   return value;
 };
 
-const STANDARD_ASPECT_RATIO_LABELS_BY_DIMENSION: Record<string, string> = {
-  "854x480": "16:9",
-  "1280x720": "16:9",
-  "1920x1080": "16:9",
-  "2560x1440": "16:9",
-  "3840x2160": "16:9",
-  "360x640": "9:16",
-  "544x960": "9:16",
-  "720x1280": "9:16",
-  "1080x1920": "9:16",
-  "1440x2560": "9:16",
-  "2160x3840": "9:16",
-  "1080x1080": "1:1",
-  "1440x1080": "4:3",
-  "3440x1440": "21:9",
+const formatClockTime = (timeSec: number): string => {
+  const safe = Math.max(0, Number.isFinite(timeSec) ? timeSec : 0);
+  const minutes = Math.floor(safe / 60);
+  const seconds = Math.floor(safe % 60);
+  const tenths = Math.floor((safe % 1) * 10);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
+};
+
+const STANDARD_ASPECT_RATIO_LABELS: Record<string, string> = {
+  "1:1": "1:1",
+  "9:16": "9:16",
+  "17:30": "9:16",
+  "16:9": "16:9",
+  "427:240": "16:9",
+  "21:9": "21:9",
+  "43:18": "21:9",
+  "64:27": "21:9",
 };
 
 const getGreatestCommonDivisor = (left: number, right: number): number => {
@@ -82,12 +85,9 @@ const getGreatestCommonDivisor = (left: number, right: number): number => {
 
 const formatAspectRatio = (width: number, height: number): string => {
   if (!(width > 0) || !(height > 0)) return "Preview";
-  const roundedWidth = Math.round(width);
-  const roundedHeight = Math.round(height);
-  const standardLabel = STANDARD_ASPECT_RATIO_LABELS_BY_DIMENSION[`${roundedWidth}x${roundedHeight}`];
-  if (standardLabel) return standardLabel;
-  const divisor = getGreatestCommonDivisor(roundedWidth, roundedHeight);
-  return `${Math.round(roundedWidth / divisor)}:${Math.round(roundedHeight / divisor)}`;
+  const divisor = getGreatestCommonDivisor(width, height);
+  const normalizedLabel = `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+  return STANDARD_ASPECT_RATIO_LABELS[normalizedLabel] ?? normalizedLabel;
 };
 
 const findActiveTopicIndexByStart = (
@@ -157,7 +157,7 @@ const getCenteredVideoStyle = (
     objectFit: "contain",
     objectPosition: "center center",
     display: "block",
-    backgroundColor: "#eef4ff",
+    backgroundColor: "#020617",
   };
 
   if (!sourceDimensions) return fallback;
@@ -175,7 +175,7 @@ const getCenteredVideoStyle = (
       height: Math.round(compositionWidth / sourceAspect),
       transform: "translateY(-50%)",
       display: "block",
-      backgroundColor: "#eef4ff",
+      backgroundColor: "#020617",
     };
   }
 
@@ -187,7 +187,7 @@ const getCenteredVideoStyle = (
     height: "100%",
     transform: "translateX(-50%)",
     display: "block",
-    backgroundColor: "#eef4ff",
+    backgroundColor: "#020617",
   };
 };
 
@@ -198,13 +198,26 @@ export default function ExportFramePreview({
   emptyStateMode = "message",
   subtitleTheme,
   previewTimeSec,
+  onPreviewTimeChange,
   overlayControls,
 }: ExportFramePreviewProps) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [sourceDimensions, setSourceDimensions] = useState<{width: number; height: number} | null>(null);
   const [frameSize, setFrameSize] = useState({width: 0, height: 0});
+  const [localPreviewTimeSec, setLocalPreviewTimeSec] = useState(previewTimeSec);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubTimeSec, setScrubTimeSec] = useState(previewTimeSec);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const playbackFrameRef = useRef<number | null>(null);
+  const wasPlayingBeforeScrubRef = useRef(false);
+
+  useEffect(() => {
+    if (!onPreviewTimeChange) {
+      setLocalPreviewTimeSec(previewTimeSec);
+    }
+  }, [onPreviewTimeChange, previewTimeSec]);
 
   useEffect(() => {
     if (sourceUrlOverride) {
@@ -264,13 +277,64 @@ export default function ExportFramePreview({
   }, [config?.composition.height, config?.composition.width]);
 
   const totalDuration = useMemo(() => getTotalDuration(config), [config]);
-  const clampedPreviewTime = clamp(previewTimeSec, 0, totalDuration);
+  const resolvedPreviewTimeSec = onPreviewTimeChange ? previewTimeSec : localPreviewTimeSec;
+  const clampedPreviewTime = clamp(resolvedPreviewTimeSec, 0, totalDuration);
+  const displayedPreviewTime = isScrubbing ? scrubTimeSec : clampedPreviewTime;
+
+  const commitPreviewTime = useCallback(
+    (nextTimeSec: number) => {
+      const clamped = clamp(nextTimeSec, 0, totalDuration);
+      if (onPreviewTimeChange) {
+        onPreviewTimeChange(clamped);
+        return;
+      }
+      setLocalPreviewTimeSec(clamped);
+    },
+    [onPreviewTimeChange, totalDuration]
+  );
 
   const timelineSegments = useMemo(() => (config ? buildTimelineSegments(config) : []), [config]);
   const sourceTime = useMemo(
     () => mapPreviewTimeToSourceTime(timelineSegments, clampedPreviewTime),
     [clampedPreviewTime, timelineSegments]
   );
+  const displayedSourceTime = useMemo(
+    () => mapPreviewTimeToSourceTime(timelineSegments, displayedPreviewTime),
+    [displayedPreviewTime, timelineSegments]
+  );
+
+  useEffect(() => {
+    setScrubTimeSec(clampedPreviewTime);
+  }, [clampedPreviewTime]);
+
+  useEffect(() => {
+    setIsPlaying(false);
+  }, [config, sourceUrl]);
+
+  useEffect(() => {
+    if (!isPlaying || isScrubbing) return;
+
+    const playbackStartPreviewTime = clampedPreviewTime;
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const nextTimeSec = playbackStartPreviewTime + (now - startedAt) / 1000;
+      if (nextTimeSec >= totalDuration) {
+        commitPreviewTime(totalDuration);
+        setIsPlaying(false);
+        return;
+      }
+      commitPreviewTime(nextTimeSec);
+      playbackFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    playbackFrameRef.current = window.requestAnimationFrame(tick);
+    return () => {
+      if (playbackFrameRef.current !== null) {
+        window.cancelAnimationFrame(playbackFrameRef.current);
+        playbackFrameRef.current = null;
+      }
+    };
+  }, [clampedPreviewTime, commitPreviewTime, isPlaying, isScrubbing, totalDuration]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -608,237 +672,326 @@ export default function ExportFramePreview({
 
   const compositionWidth = config.composition.width;
   const compositionHeight = config.composition.height;
+  const currentFrame = Math.min(
+    config.composition.durationInFrames,
+    Math.max(0, Math.round(displayedPreviewTime * config.composition.fps))
+  );
   const widthScale = frameSize.width > 0 ? frameSize.width / compositionWidth : 1;
   const heightScale = frameSize.height > 0 ? frameSize.height / compositionHeight : 1;
   const previewScale = Math.min(widthScale, heightScale);
   const centeredVideoStyle = getCenteredVideoStyle(sourceDimensions, compositionWidth, compositionHeight);
+  const activeTopicTitle = previewModel.activeTopic?.title ?? "拖动时间轴查看不同章节";
+  const togglePlayback = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    if (clampedPreviewTime >= totalDuration) {
+      commitPreviewTime(0);
+    }
+    setIsPlaying(true);
+  };
+  const handleTimelineChange = (nextValue: number) => {
+    const nextTimeSec = clamp(nextValue, 0, totalDuration);
+    setScrubTimeSec(nextTimeSec);
+    commitPreviewTime(nextTimeSec);
+  };
+  const handleScrubStart = () => {
+    wasPlayingBeforeScrubRef.current = isPlaying;
+    setIsPlaying(false);
+    setIsScrubbing(true);
+  };
+  const handleScrubEnd = () => {
+    setIsScrubbing(false);
+    if (wasPlayingBeforeScrubRef.current) {
+      setIsPlaying(true);
+    }
+    wasPlayingBeforeScrubRef.current = false;
+  };
 
   return (
     <div className="flex min-h-0 w-full flex-1 items-center justify-center">
       <div
-        ref={frameRef}
-        className="relative flex h-full min-h-0 w-full items-center justify-center overflow-hidden rounded-[20px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fbff_0%,#edf4ff_100%)]"
+        className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,#fbfdff_0%,#f1f5f9_100%)] shadow-[0_24px_70px_-40px_rgba(15,23,42,0.28)]"
       >
-        <div
-          className="absolute left-1/2 top-1/2 overflow-hidden rounded-[18px] border border-white/80 shadow-[0_22px_50px_-30px_rgba(15,23,42,0.35)]"
-          style={{
-            width: compositionWidth,
-            height: compositionHeight,
-            transform: `translate(-50%, -50%) scale(${previewScale || 1})`,
-            transformOrigin: "center center",
-            background: "linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%)",
-          }}
-        >
-          {sourceUrl ? (
-            <video
-              ref={videoRef}
-              src={sourceUrl}
-              muted
-              playsInline
-              preload="metadata"
-              style={centeredVideoStyle}
-            />
-          ) : emptyStateMode === "blank" ? (
-            <div className="h-full w-full bg-white" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#f8fbff_0%,#eef4ff_100%)] text-sm text-slate-500">
-              当前会话缺少本地原视频，预览不可用
+        <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+              Export Preview
             </div>
-          )}
+            <div className="truncate text-sm font-semibold text-slate-900">{activeTopicTitle}</div>
+          </div>
+          <div className="ml-3 flex shrink-0 items-center gap-2">
+            <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white">
+              F{currentFrame}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">
+              {formatAspectRatio(compositionWidth, compositionHeight)}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-mono text-slate-500">
+              {compositionWidth}x{compositionHeight}
+            </span>
+          </div>
+        </div>
 
+        <div
+          ref={frameRef}
+          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top,rgba(148,163,184,0.22),transparent_38%),linear-gradient(180deg,#e2e8f0_0%,#cbd5e1_100%)] px-3 py-3"
+        >
           <div
-            style={{
-              position: "absolute",
-              top: 16,
-              right: 16,
-              padding: "6px 10px",
-              borderRadius: 999,
-              backgroundColor: "rgba(15, 23, 42, 0.78)",
-              color: "#ffffff",
-              fontSize: 12,
-              fontWeight: 600,
-              letterSpacing: "0.02em",
-              fontFamily: OVERLAY_FONT_FAMILY,
-              pointerEvents: "none",
-            }}
+            className="pointer-events-none absolute left-6 top-5 z-10 flex items-center gap-2 text-[11px] font-medium text-white/88"
           >
-            {formatAspectRatio(compositionWidth, compositionHeight)}
+            <span className="rounded-full border border-white/14 bg-black/30 px-2.5 py-1 backdrop-blur-md">
+              导出 {formatClockTime(displayedPreviewTime)}
+            </span>
+            <span className="rounded-full border border-white/14 bg-black/22 px-2.5 py-1 text-white/72 backdrop-blur-md">
+              原片 {formatClockTime(displayedSourceTime)}
+            </span>
           </div>
 
-          {previewModel.showChapter && previewModel?.activeTopic ? (
-            <div
-              style={{
-                position: "absolute",
-                top: previewModel.typography.chapterTop,
-                left: previewModel.typography.chapterInsetX,
-                right: previewModel.typography.chapterInsetX,
-                pointerEvents: "none",
-              }}
-            >
+          <div
+            className="absolute left-1/2 top-1/2 overflow-hidden rounded-[20px] border border-white/12 shadow-[0_28px_70px_-38px_rgba(2,6,23,0.75)]"
+            style={{
+              width: compositionWidth,
+              height: compositionHeight,
+              transform: `translate(-50%, -50%) scale(${previewScale || 1})`,
+              transformOrigin: "center center",
+              background: "linear-gradient(180deg, #020617 0%, #0f172a 100%)",
+            }}
+          >
+            {sourceUrl ? (
+              <video
+                ref={videoRef}
+                src={sourceUrl}
+                muted
+                playsInline
+                preload="metadata"
+                style={centeredVideoStyle}
+              />
+            ) : emptyStateMode === "blank" ? (
+              <div className="h-full w-full bg-white" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(180deg,#111827_0%,#0f172a_100%)] text-sm text-slate-300">
+                当前会话缺少本地原视频，预览不可用
+              </div>
+            )}
+
+            {previewModel.showChapter && previewModel?.activeTopic ? (
               <div
                 style={{
-                  display: "inline-flex",
-                  flexDirection: "column",
-                  gap: previewModel.typography.chapterGap,
-                  minWidth: previewModel.chapterCardStyleMinWidth,
-                  width: previewModel.chapterCardStyleWidth,
-                  maxWidth: previewModel.chapterCardStyleMaxWidth,
-                  minHeight: previewModel.chapterCardMinHeight,
-                  padding: `${previewModel.typography.chapterCardPaddingY}px ${previewModel.typography.chapterCardPaddingX}px`,
-                  borderRadius: previewModel.typography.chapterCardRadius,
-                  backgroundColor: "rgba(8, 12, 20, 0.74)",
-                  border: "1px solid rgba(255, 255, 255, 0.2)",
+                  position: "absolute",
+                  top: previewModel.typography.chapterTop,
+                  left: previewModel.typography.chapterInsetX,
+                  right: previewModel.typography.chapterInsetX,
+                  pointerEvents: "none",
                 }}
               >
                 <div
                   style={{
-                    fontSize: previewModel.typography.chapterMetaFontSize,
-                    fontWeight: 700,
-                    fontFamily: OVERLAY_FONT_FAMILY,
-                    color: "#8ee0ff",
+                    display: "inline-flex",
+                    flexDirection: "column",
+                    gap: previewModel.typography.chapterGap,
+                    minWidth: previewModel.chapterCardStyleMinWidth,
+                    width: previewModel.chapterCardStyleWidth,
+                    maxWidth: previewModel.chapterCardStyleMaxWidth,
+                    minHeight: previewModel.chapterCardMinHeight,
+                    padding: `${previewModel.typography.chapterCardPaddingY}px ${previewModel.typography.chapterCardPaddingX}px`,
+                    borderRadius: previewModel.typography.chapterCardRadius,
+                    backgroundColor: "rgba(8, 12, 20, 0.74)",
+                    border: "1px solid rgba(255, 255, 255, 0.2)",
                   }}
                 >
-                  CHAPTER {previewModel.activeTopicLabel}
+                  <div
+                    style={{
+                      fontSize: previewModel.typography.chapterMetaFontSize,
+                      fontWeight: 700,
+                      fontFamily: OVERLAY_FONT_FAMILY,
+                      color: "#8ee0ff",
+                    }}
+                  >
+                    CHAPTER {previewModel.activeTopicLabel}
+                  </div>
+                  <div
+                    style={{
+                      fontSize:
+                        previewModel.activeTopicLayout?.fontSize ?? previewModel.typography.chapterTitleFontSize,
+                      lineHeight: CHAPTER_TITLE_LINE_HEIGHT,
+                      fontWeight: 800,
+                      fontFamily: OVERLAY_FONT_FAMILY,
+                      color: "#ffffff",
+                      whiteSpace: "pre-line",
+                      wordBreak: "normal",
+                      overflowWrap: "anywhere",
+                      maxWidth: previewModel.chapterTitleMaxWidth,
+                    }}
+                  >
+                    {previewModel.activeTopicLayout?.text ?? previewModel.activeTopic.title}
+                  </div>
                 </div>
+              </div>
+            ) : null}
+
+            {previewModel.showSubtitles ? (
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: `${previewModel.subtitleYPercent}%`,
+                  transform: "translateY(-50%)",
+                  display: "flex",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                  paddingLeft: previewModel?.typography.subtitleSidePadding,
+                  paddingRight: previewModel?.typography.subtitleSidePadding,
+                }}
+              >
                 <div
                   style={{
-                    fontSize:
-                      previewModel.activeTopicLayout?.fontSize ?? previewModel.typography.chapterTitleFontSize,
-                    lineHeight: CHAPTER_TITLE_LINE_HEIGHT,
-                    fontWeight: 800,
-                    fontFamily: OVERLAY_FONT_FAMILY,
+                    boxSizing: "border-box",
                     color: "#ffffff",
+                    fontSize: subtitleRenderFontSize,
+                    fontWeight: 700,
+                    fontFamily: OVERLAY_FONT_FAMILY,
+                    lineHeight: previewModel.subtitleLineHeight,
+                    textAlign: "center",
                     whiteSpace: "pre-line",
                     wordBreak: "normal",
                     overflowWrap: "anywhere",
-                    maxWidth: previewModel.chapterTitleMaxWidth,
+                    overflow: "hidden",
+                    ...subtitleStyleOverrides,
                   }}
                 >
-                  {previewModel.activeTopicLayout?.text ?? previewModel.activeTopic.title}
+                  {activeCaptionLayout?.text ?? subtitleRenderText}
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {previewModel.showSubtitles ? (
-            <div
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                top: `${previewModel.subtitleYPercent}%`,
-                transform: "translateY(-50%)",
-                display: "flex",
-                justifyContent: "center",
-                pointerEvents: "none",
-                paddingLeft: previewModel?.typography.subtitleSidePadding,
-                paddingRight: previewModel?.typography.subtitleSidePadding,
-              }}
-            >
+            {previewModel.showProgress ? (
               <div
                 style={{
-                  boxSizing: "border-box",
-                  color: "#ffffff",
-                  fontSize: subtitleRenderFontSize,
-                  fontWeight: 700,
-                  fontFamily: OVERLAY_FONT_FAMILY,
-                  lineHeight: previewModel.subtitleLineHeight,
-                  textAlign: "center",
-                  whiteSpace: "pre-line",
-                  wordBreak: "normal",
-                  overflowWrap: "anywhere",
-                  overflow: "hidden",
-                  ...subtitleStyleOverrides,
-                }}
-              >
-                {activeCaptionLayout?.text ?? subtitleRenderText}
-              </div>
-            </div>
-          ) : null}
-
-          {previewModel.showProgress ? (
-            <div
-              style={{
-                position: "absolute",
-                left: previewModel?.typography.progressInsetX,
-                right: previewModel?.typography.progressInsetX,
-                top: `${previewModel.progressYPercent}%`,
-                transform: "translateY(-50%)",
-                height: previewModel?.typography.progressHeight,
-                pointerEvents: "none",
-              }}
-            >
-              <div
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  height: "100%",
-                  borderRadius: previewModel?.typography.progressRadius,
-                  overflow: "hidden",
-                  backgroundColor: "rgba(16, 22, 30, 0.42)",
-                  border: "1px solid rgba(255, 255, 255, 0.22)",
+                  position: "absolute",
+                  left: previewModel?.typography.progressInsetX,
+                  right: previewModel?.typography.progressInsetX,
+                  top: `${previewModel.progressYPercent}%`,
+                  transform: "translateY(-50%)",
+                  height: previewModel?.typography.progressHeight,
+                  pointerEvents: "none",
                 }}
               >
                 <div
                   style={{
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: `${(previewModel?.progressRatio ?? 0) * 100}%`,
-                    background:
-                      "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+                    position: "relative",
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: previewModel?.typography.progressRadius,
+                    overflow: "hidden",
+                    backgroundColor: "rgba(16, 22, 30, 0.42)",
+                    border: "1px solid rgba(255, 255, 255, 0.22)",
                   }}
-                />
-                {(previewModel?.topicSegments ?? []).map((segment) => (
+                >
                   <div
-                    key={`preview-segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
                     style={{
                       position: "absolute",
+                      left: 0,
                       top: 0,
                       bottom: 0,
-                      left: `${segment.startRatio * 100}%`,
-                      width: `${(segment.endRatio - segment.startRatio) * 100}%`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
-                      borderRight: "1px solid rgba(255, 255, 255, 0.2)",
-                      backgroundColor:
-                        segment.index ===
-                        (previewModel?.activeTopicLabel ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1 : -1)
-                          ? "rgba(255, 255, 255, 0.08)"
-                          : "rgba(255, 255, 255, 0.02)",
+                      width: `${(previewModel?.progressRatio ?? 0) * 100}%`,
+                      background:
+                        "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
                     }}
-                  >
+                  />
+                  {(previewModel?.topicSegments ?? []).map((segment) => (
                     <div
+                      key={`preview-segment-${segment.index}-${segment.startRatio}-${segment.endRatio}`}
                       style={{
-                        maxWidth: "100%",
-                        padding: `0 ${previewModel?.typography.progressLabelPaddingX ?? 0}px`,
-                        fontSize: segment.labelFit.fontSize,
-                        fontWeight: 700,
-                        fontFamily: OVERLAY_FONT_FAMILY,
-                        lineHeight: previewModel?.progressLabelLineHeight ?? 1.2,
-                        whiteSpace: previewModel?.allowWrappedProgressLabels ? "pre-line" : "nowrap",
+                        position: "absolute",
+                        top: 0,
+                        bottom: 0,
+                        left: `${segment.startRatio * 100}%`,
+                        width: `${(segment.endRatio - segment.startRatio) * 100}%`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
                         overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        textAlign: "center",
-                        color:
+                        borderRight: "1px solid rgba(255, 255, 255, 0.2)",
+                        backgroundColor:
                           segment.index ===
                           (previewModel?.activeTopicLabel
                             ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1
                             : -1)
-                            ? "#ffffff"
-                            : "rgba(238, 244, 255, 0.84)",
+                            ? "rgba(255, 255, 255, 0.08)"
+                            : "rgba(255, 255, 255, 0.02)",
                       }}
                     >
-                      {segment.labelFit.visible ? segment.labelFit.text : ""}
+                      <div
+                        style={{
+                          maxWidth: "100%",
+                          padding: `0 ${previewModel?.typography.progressLabelPaddingX ?? 0}px`,
+                          fontSize: segment.labelFit.fontSize,
+                          fontWeight: 700,
+                          fontFamily: OVERLAY_FONT_FAMILY,
+                          lineHeight: previewModel?.progressLabelLineHeight ?? 1.2,
+                          whiteSpace: previewModel?.allowWrappedProgressLabels ? "pre-line" : "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          textAlign: "center",
+                          color:
+                            segment.index ===
+                            (previewModel?.activeTopicLabel
+                              ? Number(previewModel.activeTopicLabel.split("/")[0]) - 1
+                              : -1)
+                              ? "#ffffff"
+                              : "rgba(238, 244, 255, 0.84)",
+                        }}
+                      >
+                        {segment.labelFit.visible ? segment.labelFit.text : ""}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200/80 bg-white/90 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={togglePlayback}
+              className="inline-flex h-9 min-w-[64px] items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800"
+            >
+              {isPlaying ? "暂停" : "播放"}
+            </button>
+            <div className="min-w-[72px] text-[12px] font-mono text-slate-600">
+              {formatClockTime(displayedPreviewTime)}
             </div>
-          ) : null}
+            <input
+              type="range"
+              min={0}
+              max={Math.max(totalDuration, 0.1)}
+              step={0.01}
+              value={displayedPreviewTime}
+              onMouseDown={handleScrubStart}
+              onTouchStart={handleScrubStart}
+              onChange={(event) => handleTimelineChange(Number(event.currentTarget.value))}
+              onMouseUp={handleScrubEnd}
+              onTouchEnd={handleScrubEnd}
+              onBlur={handleScrubEnd}
+              className="h-2 min-w-[160px] flex-1 cursor-ew-resize accent-slate-900"
+              aria-label="导出预览时间轴"
+            />
+            <div className="min-w-[72px] text-right text-[12px] font-mono text-slate-400">
+              {formatClockTime(totalDuration)}
+            </div>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+            <span className="truncate">
+              {previewModel.activeTopicLabel ? `章节 ${previewModel.activeTopicLabel}` : "章节未命中"} · {activeTopicTitle}
+            </span>
+            <span>原片映射 {formatClockTime(displayedSourceTime)}</span>
+          </div>
         </div>
       </div>
     </div>

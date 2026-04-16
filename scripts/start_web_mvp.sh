@@ -107,10 +107,10 @@ fi
 
 if ! python_can_run "${PYTHON_CMD[@]}"; then
   if command -v conda >/dev/null 2>&1 && python_can_run conda run --no-capture-output -n qwen312 python; then
-    echo "[start_web_mvp] current python cannot run Step1 (Python>=3.10), fallback to conda env: qwen312"
+    echo "[start_web_mvp] current python cannot run test flow (Python>=3.10), fallback to conda env: qwen312"
     PYTHON_CMD=(conda run --no-capture-output -n qwen312 python)
   else
-    echo "[start_web_mvp] current python cannot run Step1 (requires Python>=3.10)."
+    echo "[start_web_mvp] current python cannot run test flow (requires Python>=3.10)."
     echo "[start_web_mvp] fix: activate a compatible env or set PYTHON_BIN."
     exit 1
   fi
@@ -125,7 +125,7 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 
 if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
-  echo "[start_web_mvp] warning: ffmpeg/ffprobe not found. Step1/Render may fail."
+  echo "[start_web_mvp] warning: ffmpeg/ffprobe not found. test flow/render may fail."
 fi
 
 "${PYTHON_CMD[@]}" - <<'PY'

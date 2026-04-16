@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  clearStep1Draft,
+  clearTestDraft,
   clearExportPreferences,
   loadExportPreferences,
-  loadStep1Draft,
-  mergeStep1Draft,
+  loadTestDraft,
+  mergeTestDraft,
   saveExportPreferences,
-  saveStep1Draft,
+  saveTestDraft,
 } from "./job-draft-storage.ts";
 
 function createMockStorage() {
@@ -43,10 +43,10 @@ function withMockWindowStorage(storage = createMockStorage()) {
   };
 }
 
-test("step1 drafts save load and clear by job id", () => {
+test("test drafts save load and clear by job id", () => {
   const restoreWindow = withMockWindowStorage();
   try {
-    saveStep1Draft("job-step1", {
+    saveTestDraft("job-test", {
       lines: [
         {
           line_id: 1,
@@ -70,7 +70,7 @@ test("step1 drafts save load and clear by job id", () => {
       documentRevision: "rev-1",
     });
 
-    assert.deepEqual(loadStep1Draft("job-step1"), {
+    assert.deepEqual(loadTestDraft("job-test"), {
       lines: [
         {
           line_id: 1,
@@ -94,8 +94,8 @@ test("step1 drafts save load and clear by job id", () => {
       documentRevision: "rev-1",
     });
 
-    clearStep1Draft("job-step1");
-    assert.equal(loadStep1Draft("job-step1"), null);
+    clearTestDraft("job-test");
+    assert.equal(loadTestDraft("job-test"), null);
   } finally {
     restoreWindow();
   }
@@ -177,8 +177,8 @@ test("export preferences save load and normalize invalid cached values", () => {
   }
 });
 
-test("mergeStep1Draft overlays local edits onto server lines", () => {
-  const merged = mergeStep1Draft(
+test("mergeTestDraft overlays local edits onto server lines", () => {
+  const merged = mergeTestDraft(
     {
       lines: [
         {

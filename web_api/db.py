@@ -33,6 +33,14 @@ def _is_turso_enabled() -> bool:
     return bool(settings.turso_database_url and settings.turso_auth_token)
 
 
+def is_local_only_mode() -> bool:
+    return _is_local_only_mode()
+
+
+def is_turso_enabled() -> bool:
+    return _is_turso_enabled()
+
+
 def _extract_column_names(rows: list[Any]) -> set[str]:
     columns: set[str] = set()
     for row in rows:
@@ -551,7 +559,7 @@ def init_db() -> None:
             "job_tasks",
             "jobs",
             "job_files",
-            "job_step1_lines",
+            "job_test_lines",
             "job_step2_chapters",
             "credit_wallets",
             "coupon_redemptions",

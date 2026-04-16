@@ -1,1 +1,0 @@
-"""Chapter skill scripts."""

@@ -15,7 +15,7 @@ from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
 
 from ..config import ensure_job_dirs, get_settings
 from ..constants import DEFAULT_ENCODING
-from ..repository import get_job_files, list_final_step1_chapters
+from ..repository import get_job_files, list_final_test_chapters
 
 REFERENCE_WIDTH = 1920.0
 REFERENCE_HEIGHT = 1080.0
@@ -606,15 +606,15 @@ def build_web_render_config(
     if not files:
         raise RuntimeError("job files not found for render")
 
-    step1_srt_path = files.get("final_step1_srt_path")
-    if not step1_srt_path:
+    test_srt_path = files.get("final_test_srt_path")
+    if not test_srt_path:
         raise RuntimeError("render inputs missing")
 
     settings = get_settings()
     dirs = ensure_job_dirs(job_id)
     cut_srt_path = dirs["render"] / "web.cut.srt"
     cut_timeline = build_cut_srt_from_optimized_srt(
-        source_srt_path=str(step1_srt_path),
+        source_srt_path=str(test_srt_path),
         output_srt_path=str(cut_srt_path),
         encoding=DEFAULT_ENCODING,
         merge_gap_s=float(settings.cut_merge_gap),
@@ -630,7 +630,7 @@ def build_web_render_config(
     if not segments:
         raise RuntimeError("render segments missing")
 
-    topics = [_normalize_topic(item) for item in list_final_step1_chapters(job_id)]
+    topics = [_normalize_topic(item) for item in list_final_test_chapters(job_id)]
     topics = [item for item in topics if item is not None]
     topics = _remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))

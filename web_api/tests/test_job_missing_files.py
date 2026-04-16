@@ -11,9 +11,9 @@ from web_api.constants import (
     JOB_ERROR_CODE_FILES_MISSING,
     JOB_ERROR_MESSAGE_FILES_MISSING,
     JOB_STATUS_FAILED,
-    JOB_STATUS_STEP1_CONFIRMED,
-    JOB_STATUS_STEP1_READY,
-    TASK_TYPE_STEP1,
+    JOB_STATUS_TEST_CONFIRMED,
+    JOB_STATUS_TEST_READY,
+    TASK_TYPE_TEST,
 )
 from web_api.repository import create_job, get_job, update_job
 from web_api.services.tasks import execute_task
@@ -39,17 +39,17 @@ class JobMissingFilesTests(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_get_job_marks_step1_confirmed_without_final_srt_as_failed(self) -> None:
-        job_id = "job_missing_step1_srt"
+    def test_get_job_marks_test_confirmed_without_final_srt_as_failed(self) -> None:
+        job_id = "job_missing_test_srt"
         create_job(job_id, "CREATED", "user-1")
-        step1_dir = Path(self.tmpdir.name) / "jobs" / job_id / "step1"
-        step1_dir.mkdir(parents=True, exist_ok=True)
-        (step1_dir / "final_step1.json").write_text("[]", encoding="utf-8")
-        (step1_dir / "final_chapters.json").write_text('{"topics":[]}', encoding="utf-8")
-        (step1_dir / ".confirmed").touch()
+        test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
+        (test_dir / "final_chapters.txt").write_text("", encoding="utf-8")
+        (test_dir / ".confirmed").touch()
         update_job(
             job_id,
-            status=JOB_STATUS_STEP1_CONFIRMED,
+            status=JOB_STATUS_TEST_CONFIRMED,
             progress=45,
             stage_code="EXPORT_READY",
             stage_message="字幕和章节已确认，正在准备导出...",
@@ -64,13 +64,13 @@ class JobMissingFilesTests(unittest.TestCase):
         self.assertEqual(job["error"]["message"], JOB_ERROR_MESSAGE_FILES_MISSING)
         self.assertIsNone(job["stage"])
 
-    def test_get_job_marks_step1_ready_without_chapters_draft_as_failed(self) -> None:
-        job_id = "job_missing_step1_chapters_draft"
+    def test_get_job_marks_test_ready_without_chapters_draft_as_failed(self) -> None:
+        job_id = "job_missing_test_chapters_draft"
         create_job(job_id, "CREATED", "user-1")
-        step1_dir = Path(self.tmpdir.name) / "jobs" / job_id / "step1"
-        step1_dir.mkdir(parents=True, exist_ok=True)
-        (step1_dir / "lines_draft.json").write_text("[]", encoding="utf-8")
-        update_job(job_id, status=JOB_STATUS_STEP1_READY, progress=35)
+        test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        (test_dir / "lines_draft.txt").write_text("", encoding="utf-8")
+        update_job(job_id, status=JOB_STATUS_TEST_READY, progress=35)
 
         job = get_job(job_id, owner_user_id="user-1")
 
@@ -104,13 +104,13 @@ class TaskMissingFilesErrorTests(unittest.TestCase):
         mock_update_job,
         mock_set_task_failed,
     ) -> None:
-        def fail_step1(_: str) -> None:
-            raise RuntimeError("job files missing for step1")
+        def fail_test(_: str) -> None:
+            raise RuntimeError("job files missing for test")
 
-        with patch.dict("web_api.services.tasks.TASK_DISPATCH", {TASK_TYPE_STEP1: fail_step1}, clear=False):
-            execute_task({"task_id": 7, "job_id": "job-123", "task_type": TASK_TYPE_STEP1})
+        with patch.dict("web_api.services.tasks.TASK_DISPATCH", {TASK_TYPE_TEST: fail_test}, clear=False):
+            execute_task({"task_id": 7, "job_id": "job-123", "task_type": TASK_TYPE_TEST})
 
-        mock_set_task_failed.assert_called_once_with(7, "job files missing for step1")
+        mock_set_task_failed.assert_called_once_with(7, "job files missing for test")
         mock_update_job.assert_called_once_with(
             "job-123",
             status=JOB_STATUS_FAILED,

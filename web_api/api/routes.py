@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 
 from ..constants import (
     JOB_STATUS_CREATED,
-    JOB_STATUS_STEP1_CONFIRMED,
-    JOB_STATUS_STEP1_READY,
+    JOB_STATUS_TEST_CONFIRMED,
+    JOB_STATUS_TEST_READY,
     JOB_STATUS_SUCCEEDED,
     JOB_STATUS_UPLOAD_READY,
     RENDER_GET_ALLOWED_STATUSES,
-    STEP1_GET_ALLOWED_STATUSES,
-    TASK_TYPE_STEP1,
+    TASK_TYPE_TEST,
+    TEST_GET_ALLOWED_STATUSES,
 )
 from ..errors import invalid_step_state
 from ..repository import upsert_job_files
@@ -22,7 +22,7 @@ from ..schemas import (
     AudioOssReadyRequest,
     ClientUploadIssueReportRequest,
     CouponRedeemRequest,
-    Step1ConfirmRequest,
+    TestConfirmRequest,
 )
 from ..services.jobs import (
     create_new_job,
@@ -42,7 +42,7 @@ from ..services.billing import (
     require_active_user,
     redeem_coupon_for_user,
 )
-from ..services.step1 import confirm_step1, get_step1_document
+from ..services.test import confirm_test, get_test_document
 from ..services.tasks import queue_job_task
 from ..services.render_completion import mark_render_success
 from ..services.render_web import build_web_render_config
@@ -197,14 +197,13 @@ def get_oss_upload_url(
     suffix = ".mp3" if (format or "").strip().lower() == "mp3" else ".wav"
     settings = get_settings()
 
-    # 百炼临时 OSS 仅由后端 fallback 使用，前端不直传
     oss_ready = bool(
         settings.asr_oss_endpoint
         and settings.asr_oss_bucket
         and settings.asr_oss_access_key_id
         and settings.asr_oss_access_key_secret
     )
-    if not oss_ready or settings.use_dashscope_temp_oss:
+    if not oss_ready:
         raise HTTPException(
             status_code=503,
             detail="Direct OSS upload unavailable. Audio will be uploaded via API instead.",
@@ -255,20 +254,20 @@ async def upload_job_audio(
     return _ok({"job": job, "upload": upload})
 
 
-@router.post("/jobs/{job_id}/step1/run")
-def step1_run(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
+@router.post("/jobs/{job_id}/test/run")
+def test_run(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
     require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_UPLOAD_READY})
     if not has_available_credits(current_user.user_id, required=1):
         raise invalid_step_state("额度不足，请先兑换邀请码后重试")
     try:
-        task_id = queue_job_task(job_id, TASK_TYPE_STEP1)
+        task_id = queue_job_task(job_id, TASK_TYPE_TEST)
     except RuntimeError as exc:
         raise invalid_step_state(str(exc)) from exc
     latest = load_job_or_404(job_id, current_user.user_id)
     logging.info(
-        "[web_api] route=step1_run user=%s job=%s task_id=%s",
+        "[web_api] route=test_run user=%s job=%s task_id=%s",
         current_user.user_id,
         job_id,
         task_id,
@@ -276,13 +275,13 @@ def step1_run(job_id: str, current_user: CurrentUser = Depends(require_current_u
     return _ok({"accepted": True, "task_id": task_id, "job": latest})
 
 
-@router.get("/jobs/{job_id}/step1")
-def step1_get(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
+@router.get("/jobs/{job_id}/test")
+def test_get(job_id: str, current_user: CurrentUser = Depends(require_current_user)) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, STEP1_GET_ALLOWED_STATUSES)
-    document = get_step1_document(job_id)
+    require_status(job, TEST_GET_ALLOWED_STATUSES)
+    document = get_test_document(job_id)
     logging.debug(
-        "[web_api] route=step1_get user=%s job=%s line_count=%s chapter_count=%s",
+        "[web_api] route=test_get user=%s job=%s line_count=%s chapter_count=%s",
         current_user.user_id,
         job_id,
         len(document["lines"]),
@@ -291,12 +290,12 @@ def step1_get(job_id: str, current_user: CurrentUser = Depends(require_current_u
     return _ok(document)
 
 
-@router.put("/jobs/{job_id}/step1/confirm")
-def step1_confirm(
-    job_id: str, request: Step1ConfirmRequest, current_user: CurrentUser = Depends(require_current_user)
+@router.put("/jobs/{job_id}/test/confirm")
+def test_confirm(
+    job_id: str, request: TestConfirmRequest, current_user: CurrentUser = Depends(require_current_user)
 ) -> dict[str, Any]:
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP1_READY})
+    require_status(job, {JOB_STATUS_TEST_READY})
     lines = [item.model_dump() for item in request.lines]
     chapters = [item.model_dump() for item in request.chapters]
     if not lines:
@@ -304,7 +303,7 @@ def step1_confirm(
     if not chapters:
         raise invalid_step_state("chapters cannot be empty")
     try:
-        confirmed = confirm_step1(
+        confirmed = confirm_test(
             job_id,
             lines,
             chapters,
@@ -314,7 +313,7 @@ def step1_confirm(
         raise invalid_step_state(str(exc)) from exc
     job = load_job_or_404(job_id, current_user.user_id)
     logging.info(
-        "[web_api] route=step1_confirm user=%s job=%s line_count=%s chapter_count=%s",
+        "[web_api] route=test_confirm user=%s job=%s line_count=%s chapter_count=%s",
         current_user.user_id,
         job_id,
         len(lines),
@@ -356,7 +355,7 @@ def render_complete(
 ) -> dict[str, Any]:
     require_active_user(current_user.user_id, current_user.email)
     job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_STEP1_CONFIRMED, JOB_STATUS_SUCCEEDED})
+    require_status(job, {JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED})
     try:
         billing = mark_render_success(job_id)
     except RuntimeError as exc:

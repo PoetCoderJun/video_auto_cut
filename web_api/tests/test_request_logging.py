@@ -24,9 +24,9 @@ class RequestLoggingTest(unittest.TestCase):
     def test_should_suppress_polling_requests(self) -> None:
         self.assertTrue(_should_suppress_request_log("OPTIONS", "/api/v1/jobs/job_123"))
         self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123"))
-        self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/step1"))
+        self.assertTrue(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/test"))
         self.assertFalse(_should_suppress_request_log("GET", "/api/v1/jobs/job_123/render/config"))
-        self.assertFalse(_should_suppress_request_log("POST", "/api/v1/jobs/job_123/step1/run"))
+        self.assertFalse(_should_suppress_request_log("POST", "/api/v1/jobs/job_123/test/run"))
 
     def test_access_log_filter_drops_polling_access_logs(self) -> None:
         log_filter = _SuppressPollingAccessFilter()
@@ -45,7 +45,7 @@ class RequestLoggingTest(unittest.TestCase):
             pathname=__file__,
             lineno=1,
             msg='%s - "%s %s HTTP/%s" %s',
-            args=("127.0.0.1:12345", "POST", "/api/v1/jobs/job_123/step1/run", "1.1", 200),
+            args=("127.0.0.1:12345", "POST", "/api/v1/jobs/job_123/test/run", "1.1", 200),
             exc_info=None,
         )
 

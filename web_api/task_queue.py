@@ -13,15 +13,13 @@ from .constants import (
     TASK_STATUS_SUCCEEDED,
     TASK_TYPE_TEST,
 )
-from .db import get_conn, retry_turso_operation
+from .db import get_conn, is_local_only_mode, is_turso_enabled, retry_turso_operation
 from .utils.persistence_helpers import now_iso, parse_iso_datetime, row_get
 
 
 def get_queue_db_path() -> str:
     settings = get_settings()
-    raw_local_only = (os.getenv("WEB_DB_LOCAL_ONLY") or "").strip().lower()
-    local_only = raw_local_only in {"1", "true", "yes"}
-    if not local_only and settings.turso_database_url and settings.turso_auth_token:
+    if is_turso_enabled():
         return f"shared-db:{settings.turso_local_replica_path}"
     return str(settings.turso_local_replica_path)
 

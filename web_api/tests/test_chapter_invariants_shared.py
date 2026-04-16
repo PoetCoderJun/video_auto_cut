@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from video_auto_cut.editing.chapter_domain import canonicalize_step1_chapters, ensure_full_block_coverage
+from video_auto_cut.editing.chapter_domain import canonicalize_test_chapters, ensure_full_block_coverage
 
 
 class ChapterInvariantsSharedTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class ChapterInvariantsSharedTests(unittest.TestCase):
             {"line_id": 2, "start": 1.0, "end": 2.0, "user_final_remove": False},
             {"line_id": 3, "start": 2.0, "end": 4.0, "user_final_remove": False},
         ]
-        chapters = canonicalize_step1_chapters(
+        chapters = canonicalize_test_chapters(
             [
                 {"chapter_id": 1, "title": "开场", "block_range": "1-2"},
                 {"chapter_id": 2, "title": "结尾", "block_range": "3"},

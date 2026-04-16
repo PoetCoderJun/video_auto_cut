@@ -128,7 +128,7 @@ def _client_cache_key(cfg: Dict[str, Any]) -> Tuple[str, str]:
 def _require_openai_sdk() -> None:
     if OpenAI is None:
         raise RuntimeError(
-            "Python package 'openai' is required for Step1 auto-edit. "
+            "Python package 'openai' is required for Test auto-edit. "
             "Install dependencies with `pip install -r requirements.txt` and rebuild the service image."
         ) from _OPENAI_IMPORT_ERROR
 

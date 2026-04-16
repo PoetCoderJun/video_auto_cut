@@ -1,9 +1,9 @@
 export type JobStatus =
   | "CREATED"
   | "UPLOAD_READY"
-  | "STEP1_RUNNING"
-  | "STEP1_READY"
-  | "STEP1_CONFIRMED"
+  | "TEST_RUNNING"
+  | "TEST_READY"
+  | "TEST_CONFIRMED"
   | "SUCCEEDED"
   | "FAILED";
 
@@ -15,7 +15,7 @@ export type Job = {
   error: null | {code: string; message: string};
 };
 
-export type Step1Line = {
+export type TestLine = {
   line_id: number;
   start: number;
   end: number;
@@ -33,13 +33,13 @@ export type Chapter = {
   block_range: string;
 };
 
-export type Step1Document = {
-  lines: Step1Line[];
+export type TestDocument = {
+  lines: TestLine[];
   chapters: Chapter[];
   document_revision: string;
 };
 
-export type Step1ConfirmChapter = Pick<Chapter, "chapter_id" | "title" | "block_range">;
+export type TestConfirmChapter = Pick<Chapter, "chapter_id" | "title" | "block_range">;
 
 export type RenderCaption = {
   index: number;
@@ -268,6 +268,7 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
   );
 
   let token: string | null = null;
+  // Explicit caller token always wins; only consult the provider when no explicit token was supplied.
   if (hasExplicitAuthToken) {
     const normalizedExplicitToken = String(options?.authToken || "").trim();
     if (normalizedExplicitToken) {
@@ -281,6 +282,7 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
       throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
     }
   }
+
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -520,23 +522,23 @@ export async function uploadAudio(jobId: string, file: File): Promise<Job> {
   throw new ApiClientError("音频上传失败，请稍后重试。", "NETWORK_ERROR", 0);
 }
 
-export async function runStep1(jobId: string): Promise<QueueAccepted> {
-  return requestAuthed<QueueAccepted>(`/jobs/${jobId}/step1/run`, {method: "POST"});
+export async function runTest(jobId: string): Promise<QueueAccepted> {
+  return requestAuthed<QueueAccepted>(`/jobs/${jobId}/test/run`, {method: "POST"});
 }
 
-export async function getStep1(jobId: string): Promise<Step1Document> {
-  return requestAuthed<Step1Document>(`/jobs/${jobId}/step1`);
+export async function getTest(jobId: string): Promise<TestDocument> {
+  return requestAuthed<TestDocument>(`/jobs/${jobId}/test`);
 }
 
-export async function confirmStep1(
+export async function confirmTest(
   jobId: string,
   payload: {
-    lines: Step1Line[];
-    chapters: Step1ConfirmChapter[];
+    lines: TestLine[];
+    chapters: TestConfirmChapter[];
     expectedRevision: string;
   }
 ): Promise<JobStatus> {
-  const data = await requestAuthed<{confirmed: boolean; status: JobStatus}>(`/jobs/${jobId}/step1/confirm`, {
+  const data = await requestAuthed<{confirmed: boolean; status: JobStatus}>(`/jobs/${jobId}/test/confirm`, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({

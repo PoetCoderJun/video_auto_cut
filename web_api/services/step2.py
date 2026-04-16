@@ -3,20 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from video_auto_cut.editing.chapter_domain import (
-    build_document_revision,
-    canonicalize_step1_chapters,
-    ensure_full_block_coverage,
-    kept_step1_lines,
-)
+from video_auto_cut.editing.chapter_domain import ensure_full_block_coverage
 from video_auto_cut.editing.llm_client import build_llm_config
-from video_auto_cut.pi_agent_runner import Step1PiRequest, run_step1_pi
+from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
 
 from .pipeline_options import build_pipeline_options
-from ..utils.srt_utils import write_topics_json
+from ..utils.srt_utils import write_chapters_text
 
 
-def generate_step1_chapters(
+def generate_test_chapters(
     *,
     source_srt: Path,
     output_path: Path,
@@ -33,8 +28,8 @@ def generate_step1_chapters(
         max_tokens=options.llm_max_tokens,
         enable_thinking=False,
     )
-    artifacts = run_step1_pi(
-        Step1PiRequest(
+    artifacts = run_test_pi(
+        TestPiRequest(
             task="chapter",
             llm_config=llm_config,
             lines=kept_lines,
@@ -43,7 +38,7 @@ def generate_step1_chapters(
     )
     chapters = artifacts.chapters
     if not chapters:
-        raise RuntimeError("step1 generated empty chapter list")
+        raise RuntimeError("test flow generated empty chapter list")
     ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
-    write_topics_json(chapters, output_path)
+    write_chapters_text(chapters, output_path)
     return chapters

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from web_api.config import get_settings
-from web_api.constants import TASK_STATUS_RUNNING, TASK_TYPE_STEP1
+from web_api.constants import TASK_STATUS_RUNNING, TASK_TYPE_TEST
 from web_api.db import get_conn
 from web_api.task_queue import (
     claim_next_task,
@@ -36,7 +36,7 @@ class TaskQueueTest(unittest.TestCase):
                 get_settings.cache_clear()
                 try:
                     init_task_queue_db()
-                    task_id = enqueue_task("job_queue_test", TASK_TYPE_STEP1, payload={"hello": "world"})
+                    task_id = enqueue_task("job_queue_test", TASK_TYPE_TEST, payload={"hello": "world"})
                     claimed = claim_next_task()
 
                     self.assertEqual(get_queue_db_path(), str(Path(replica_path).resolve()))
@@ -44,7 +44,7 @@ class TaskQueueTest(unittest.TestCase):
                     self.assertIsNotNone(claimed)
                     self.assertEqual(claimed["task_id"], task_id)
                     self.assertEqual(claimed["job_id"], "job_queue_test")
-                    self.assertEqual(claimed["task_type"], TASK_TYPE_STEP1)
+                    self.assertEqual(claimed["task_type"], TASK_TYPE_TEST)
                     self.assertEqual(claimed["status"], TASK_STATUS_RUNNING)
                     self.assertEqual(claimed["payload"], {"hello": "world"})
                 finally:
@@ -65,7 +65,7 @@ class TaskQueueTest(unittest.TestCase):
                 get_settings.cache_clear()
                 try:
                     init_task_queue_db()
-                    task_id = enqueue_task("job_stale_queue", TASK_TYPE_STEP1)
+                    task_id = enqueue_task("job_stale_queue", TASK_TYPE_TEST)
                     claimed = claim_next_task()
                     self.assertIsNotNone(claimed)
                     self.assertEqual(claimed["task_id"], task_id)
@@ -107,7 +107,7 @@ class TaskQueueTest(unittest.TestCase):
                 get_settings.cache_clear()
                 try:
                     init_task_queue_db()
-                    task_id = enqueue_task("job_heartbeat", TASK_TYPE_STEP1)
+                    task_id = enqueue_task("job_heartbeat", TASK_TYPE_TEST)
                     claimed = claim_next_task()
                     self.assertIsNotNone(claimed)
 

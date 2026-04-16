@@ -1,0 +1,28 @@
+# Context Snapshot — upload-1mov-browser-e2e
+
+- task statement: 浏览器端到端测试上传 `test_data/raw/1.MOV` 后的行为；若发现问题则修复，直到可以在浏览器里走到成功导出并拿到输出位置。
+- desired outcome: 本地启动 Web MVP 后，可通过浏览器真实完成“上传视频 → 自动 Test → 确认进入导出 → 浏览器导出成功”；保留失败证据、修复记录、最终导出文件路径/名称。
+- known facts/evidence:
+  - 仓库已有 `test_data/raw/1.MOV` 与 `test_data/media/1.wav`；历史记录显示 2026-04-15 `1.MOV` 在大文件上传 / ASR 链路上出现过问题，而 `1.wav` 可跑通。
+  - 前端上传入口在 `web_frontend/components/home-page-client.tsx` / `job-workspace.tsx`，会先做源视频预检、浏览器导出能力校验、提取音频、再调后端上传。
+  - 导出发生在浏览器端 `@remotion/web-renderer`，但 render config 与字幕/章节数据来自后端。
+  - 当前工作树已有大量未提交改动，修复时必须避免覆盖无关文件。
+- constraints:
+  - 必须走浏览器真实链路，不仅是单元测试。
+  - 若有修复，需补做最小必要回归（至少相关前端 typecheck/build，必要时补后端测试）。
+  - 不应回滚或覆盖用户现有未提交改动。
+- unknowns/open questions:
+  - 本地运行是否依赖真实 Turso / DashScope / OSS 凭证；若需要，当前 `.env` 是否足够。
+  - 登录/邀请码链路是否会阻塞自动化测试。
+  - `1.MOV` 失败点究竟在上传、Test、render config、浏览器导出还是服务端回写。
+- likely codebase touchpoints:
+  - `scripts/start_web_mvp.sh`
+  - `web_frontend/components/home-page-client.tsx`
+  - `web_frontend/components/job-workspace.tsx`
+  - `web_frontend/lib/api.ts`
+  - `web_frontend/lib/upload-source-preflight.ts`
+  - `web_frontend/lib/remotion/rendering.ts`
+  - `web_api/api/routes.py`
+  - `web_api/services/test.py`
+  - `web_api/services/render_web.py`
+  - `video_auto_cut/asr/*`

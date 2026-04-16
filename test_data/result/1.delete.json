@@ -1,0 +1,688 @@
+{
+  "lines": [
+    {
+      "line_id": 1,
+      "start": 0.0,
+      "end": 2.588,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 2,
+      "start": 2.588,
+      "end": 3.308,
+      "original_text": "哟，这是俊。",
+      "optimized_text": "哟，这是俊。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 3,
+      "start": 3.7880000000000003,
+      "end": 6.588,
+      "original_text": "前段时间我发了续签香港签证的分享，",
+      "optimized_text": "前段时间我发了续签香港签证的分享，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 4,
+      "start": 6.668,
+      "end": 8.268,
+      "original_text": "还接受了凤凰卫视采访，",
+      "optimized_text": "还接受了凤凰卫视采访，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 5,
+      "start": 8.748,
+      "end": 10.988,
+      "original_text": "受到了大量的续签相关私信。",
+      "optimized_text": "受到了大量的续签相关私信。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 6,
+      "start": 11.468,
+      "end": 14.428,
+      "original_text": "那么二五年香港续签签证有四大变化，",
+      "optimized_text": "那么二五年香港续签签证有四大变化，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 7,
+      "start": 14.508,
+      "end": 15.628,
+      "original_text": "一分钟给大家总结，",
+      "optimized_text": "一分钟给大家总结，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 8,
+      "start": 15.628,
+      "end": 16.188,
+      "original_text": "非常的重要。",
+      "optimized_text": "非常的重要。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 9,
+      "start": 16.908,
+      "end": 17.228,
+      "original_text": "首先，",
+      "optimized_text": "首先，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 10,
+      "start": 17.228,
+      "end": 18.908,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 11,
+      "start": 18.908,
+      "end": 19.148,
+      "original_text": "嗯，",
+      "optimized_text": "嗯，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 12,
+      "start": 19.148,
+      "end": 20.348,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 13,
+      "start": 20.348,
+      "end": 22.508,
+      "original_text": "首先如果你不是parent的合同，",
+      "optimized_text": "首先如果你不是parent的合同，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 14,
+      "start": 22.748,
+      "end": 23.628,
+      "original_text": "现在不是是。",
+      "optimized_text": "现在不是是。",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 15,
+      "start": 23.628,
+      "end": 28.732,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 16,
+      "start": 28.732,
+      "end": 29.132,
+      "original_text": "首先，",
+      "optimized_text": "首先，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 17,
+      "start": 29.532,
+      "end": 31.052,
+      "original_text": "如果你不是permanent合同，",
+      "optimized_text": "如果你不是permanent合同，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 18,
+      "start": 31.052,
+      "end": 31.932,
+      "original_text": "现在不是，",
+      "optimized_text": "现在不是，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 19,
+      "start": 32.652,
+      "end": 34.492,
+      "original_text": "首先，如果你不是permanent合同，",
+      "optimized_text": "首先，如果你不是permanent合同，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 20,
+      "start": 34.492,
+      "end": 36.732,
+      "original_text": "现在不再是三加三的形式续签，",
+      "optimized_text": "现在不再是三加三的形式续签，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 21,
+      "start": 37.052,
+      "end": 39.532,
+      "original_text": "而是去合同年限和三年最小值，",
+      "optimized_text": "而是去合同年限和三年最小值，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 22,
+      "start": 39.932,
+      "end": 40.732,
+      "original_text": "这个在时间。",
+      "optimized_text": "这个在时间。",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 23,
+      "start": 40.732,
+      "end": 42.892,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 24,
+      "start": 42.892,
+      "end": 44.812,
+      "original_text": "首先，如果你不是permanent合同，",
+      "optimized_text": "首先，如果你不是permanent合同，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 25,
+      "start": 44.892,
+      "end": 47.132,
+      "original_text": "现在不再是三加三的形式续签，",
+      "optimized_text": "现在不再是三加三的形式续签，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 26,
+      "start": 47.452,
+      "end": 49.772,
+      "original_text": "而是去合同年限三年的最小值，",
+      "optimized_text": "而是去合同年限三年的最小值，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 27,
+      "start": 50.172,
+      "end": 52.012,
+      "original_text": "这在时间线上有很大的影响，",
+      "optimized_text": "这在时间线上有很大的影响，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 28,
+      "start": 52.012,
+      "end": 52.892,
+      "original_text": "要非常的注意。",
+      "optimized_text": "要非常的注意。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 29,
+      "start": 52.892,
+      "end": 53.932,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 30,
+      "start": 53.932,
+      "end": 55.532,
+      "original_text": "第二，怎么才能续签呢？",
+      "optimized_text": "第二，怎么才能续签呢？",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 31,
+      "start": 55.532,
+      "end": 57.292,
+      "original_text": "首先，对I N G来说，",
+      "optimized_text": "首先，对I N G来说，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 32,
+      "start": 57.372,
+      "end": 62.092,
+      "original_text": "需要在逗留期限截止日期前的二十八天完成续签，",
+      "optimized_text": "需要在逗留期限截止日期前的二十八天完成续签，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 33,
+      "start": 62.732,
+      "end": 64.732,
+      "original_text": "可以看一下来自入境处的截图。",
+      "optimized_text": "可以看一下来自入境处的截图。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 34,
+      "start": 64.732,
+      "end": 68.332,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 35,
+      "start": 68.332,
+      "end": 68.812,
+      "original_text": "嗯。",
+      "optimized_text": "嗯。",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 36,
+      "start": 68.812,
+      "end": 75.532,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 37,
+      "start": 75.532,
+      "end": 76.812,
+      "original_text": "第二，续签条件，",
+      "optimized_text": "第二，续签条件，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 38,
+      "start": 77.452,
+      "end": 78.332,
+      "original_text": "怎样才能续签呢？",
+      "optimized_text": "怎样才能续签呢？",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 39,
+      "start": 78.412,
+      "end": 79.772,
+      "original_text": "首先对INN说，",
+      "optimized_text": "首先对INN说，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 40,
+      "start": 79.772,
+      "end": 83.212,
+      "original_text": "需要在逗留期限前二十八天完成续签。",
+      "optimized_text": "需要在逗留期限前二十八天完成续签。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 41,
+      "start": 83.772,
+      "end": 86.092,
+      "original_text": "们可以看一下入境处最新的截图，",
+      "optimized_text": "们可以看一下入境处最新的截图，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 42,
+      "start": 86.412,
+      "end": 91.452,
+      "original_text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，",
+      "optimized_text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 43,
+      "start": 91.932,
+      "end": 95.452,
+      "original_text": "并且从事的工作必须要由学位的持有者担任，",
+      "optimized_text": "并且从事的工作必须要由学位的持有者担任，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 44,
+      "start": 95.532,
+      "end": 97.772,
+      "original_text": "及其薪酬福利必须达市场水平。",
+      "optimized_text": "及其薪酬福利必须达市场水平。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 45,
+      "start": 97.772,
+      "end": 98.572,
+      "original_text": "换句话说，",
+      "optimized_text": "换句话说，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 46,
+      "start": 99.292,
+      "end": 106.092,
+      "original_text": "对于申请者学位、现在薪酬福利水平学位持有都必须有一个要求，",
+      "optimized_text": "对于申请者学位、现在薪酬福利水平学位持有都必须有一个要求，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 47,
+      "start": 106.572,
+      "end": 112.492,
+      "original_text": "避免你去从事一些大家都懂的一些低技术的些工作去达到续签的目的。",
+      "optimized_text": "避免你去从事一些大家都懂的一些低技术的些工作去达到续签的目的。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 48,
+      "start": 112.492,
+      "end": 117.932,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 49,
+      "start": 117.932,
+      "end": 118.972,
+      "original_text": "第三就是，",
+      "optimized_text": "第三就是，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 50,
+      "start": 119.452,
+      "end": 123.692,
+      "original_text": "第三就是续签费现在上调到了申请费六百块钱，",
+      "optimized_text": "第三就是续签费现在上调到了申请费六百块钱，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 51,
+      "start": 123.692,
+      "end": 126.012,
+      "original_text": "加上签证费千三百块钱，",
+      "optimized_text": "加上签证费千三百块钱，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 52,
+      "start": 126.012,
+      "end": 127.692,
+      "original_text": "共是一千九百块钱。",
+      "optimized_text": "共是一千九百块钱。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 53,
+      "start": 128.172,
+      "end": 132.012,
+      "original_text": "第四就是续签现在不再是通过填填表，",
+      "optimized_text": "第四就是续签现在不再是通过填填表，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 54,
+      "start": 132.732,
+      "end": 135.612,
+      "original_text": "第四就是续签现在不再是通过填表的方式，",
+      "optimized_text": "第四就是续签现在不再是通过填表的方式，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 55,
+      "start": 135.692,
+      "end": 138.092,
+      "original_text": "而是通过纯电子的网站这。",
+      "optimized_text": "而是通过纯电子的网站这。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 56,
+      "start": 138.092,
+      "end": 139.532,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 57,
+      "start": 139.532,
+      "end": 142.972,
+      "original_text": "第四就是现在续签变成了纯电子网站的一个方式，",
+      "optimized_text": "第四就是现在续签变成了纯电子网站的一个方式，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 58,
+      "start": 143.212,
+      "end": 144.972,
+      "original_text": "不再需要去填表了。",
+      "optimized_text": "不再需要去填表了。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 59,
+      "start": 144.972,
+      "end": 146.892,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 60,
+      "start": 146.892,
+      "end": 148.972,
+      "original_text": "很多人都被忽悠了，",
+      "optimized_text": "很多人都被忽悠了，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 61,
+      "start": 149.372,
+      "end": 150.812,
+      "original_text": "觉得说续签好复杂，",
+      "optimized_text": "觉得说续签好复杂，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 62,
+      "start": 150.812,
+      "end": 151.612,
+      "original_text": "需要找中介，",
+      "optimized_text": "需要找中介，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 63,
+      "start": 151.612,
+      "end": 152.332,
+      "original_text": "千万不要。",
+      "optimized_text": "千万不要。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 64,
+      "start": 152.972,
+      "end": 154.412,
+      "original_text": "网上申请是非常容易的，",
+      "optimized_text": "网上申请是非常容易的，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 65,
+      "start": 154.732,
+      "end": 157.132,
+      "original_text": "并且如果你有续签相关的问题，",
+      "optimized_text": "并且如果你有续签相关的问题，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 66,
+      "start": 157.132,
+      "end": 160.252,
+      "original_text": "都可以到人才办的网站去查询，",
+      "optimized_text": "都可以到人才办的网站去查询，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 67,
+      "start": 160.492,
+      "end": 161.692,
+      "original_text": "会有专人解答。",
+      "optimized_text": "会有专人解答。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 68,
+      "start": 161.692,
+      "end": 164.204,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 69,
+      "start": 164.204,
+      "end": 168.764,
+      "original_text": "强烈大家关注香港人才服办公室的官方小红书账号，",
+      "optimized_text": "强烈大家关注香港人才服办公室的官方小红书账号，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 70,
+      "start": 169.004,
+      "end": 171.964,
+      "original_text": "那里有更多的实用信息和最新政策的解读。",
+      "optimized_text": "那里有更多的实用信息和最新政策的解读。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 71,
+      "start": 172.284,
+      "end": 173.564,
+      "original_text": "如果你有续签的问题，",
+      "optimized_text": "如果你有续签的问题，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 72,
+      "start": 173.564,
+      "end": 175.084,
+      "original_text": "欢迎点赞收藏评论，",
+      "optimized_text": "欢迎点赞收藏评论，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 73,
+      "start": 175.484,
+      "end": 176.364,
+      "original_text": "在评论里，",
+      "optimized_text": "在评论里，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 74,
+      "start": 177.324,
+      "end": 178.524,
+      "original_text": "如你有续签问题，",
+      "optimized_text": "如你有续签问题，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 75,
+      "start": 178.524,
+      "end": 181.244,
+      "original_text": "欢迎点赞收藏在评论区留言交流，",
+      "optimized_text": "欢迎点赞收藏在评论区留言交流，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 76,
+      "start": 181.404,
+      "end": 181.804,
+      "original_text": "下期见。",
+      "optimized_text": "下期见。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    }
+  ]
+}

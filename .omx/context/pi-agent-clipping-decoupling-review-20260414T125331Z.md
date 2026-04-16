@@ -1,0 +1,24 @@
+# PI Agent Clipping Decoupling Review
+
+- task statement: First-principles architecture review of current PI agent / clipping implementation; determine whether it is clean and whether clipping is truly a skill rather than core/backend-coupled.
+- desired outcome: Initial consensus-planning draft that targets full decoupling so clipping can run directly in Codex.
+- known facts/evidence:
+  - `video_auto_cut/editing/auto_edit.py` constructs `llm_config` internally and directly instantiates `PiAgentRemoveLoop`, `PiAgentChunkPolishLoop`, `PiAgentBoundaryReview`, and optionally `TopicSegmenter`.
+  - `web_api/services/step1.py` invokes `run_auto_edit(...)` and then immediately invokes `generate_step1_chapters(...)`, coupling editing and chapter generation inside the backend Step1 workflow.
+  - `skills/video-auto-cut-human-loop/SKILL.md` declares itself orchestration-only and says loop/chunk logic belongs in repo code, while recommending `video_auto_cut.orchestration.full_pipeline` / `pipeline_service`.
+  - `video_auto_cut/orchestration/full_pipeline.py::_build_pipeline_options(...)` passes unsupported kwargs like `device` into `PipelineOptions`, so the advertised Codex-friendly entrypoint is stale/broken.
+  - `video_auto_cut/editing/__init__.py` eagerly imports both `AutoEdit` and `TopicSegmenter`, and importing `video_auto_cut.editing` can fail earlier on older Python because `topic_segment.py` syntax is loaded eagerly.
+- constraints:
+  - Preserve current domain behavior where feasible.
+  - User standard: clipping pipeline must be runnable directly in Codex, not only through web backend orchestration.
+  - Need evidence-based review; call out inference explicitly.
+- unknowns/open questions:
+  - Exact minimum stable CLI/API contract for Codex-direct clipping wrapper.
+  - Whether topic/chapter generation should remain adjacent but separate from clip editing, or be a separate optional capability.
+- likely codebase touchpoints:
+  - `video_auto_cut/editing/*`
+  - `video_auto_cut/orchestration/pipeline_service.py`
+  - `video_auto_cut/orchestration/full_pipeline.py`
+  - `web_api/services/step1.py`
+  - `skills/video-auto-cut-human-loop/SKILL.md`
+  - `docs/requirements_todo.md`

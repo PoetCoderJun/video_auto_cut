@@ -36,7 +36,7 @@ class AsrTranscribeStageCliTests(unittest.TestCase):
                 ],
             )
             stdout = io.StringIO()
-            with patch("web_api.services.pipeline_options.build_pipeline_options", return_value=options), patch(
+            with patch("video_auto_cut.asr.transcribe_stage.build_pipeline_options_from_env", return_value=options), patch(
                 "video_auto_cut.asr.transcribe_stage.run_asr_transcription_stage", return_value=artifacts
             ):
                 with redirect_stdout(stdout):

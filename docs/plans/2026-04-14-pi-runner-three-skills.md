@@ -8,12 +8,12 @@
 
 ## 1. Problem Statement
 
-The current Step1 editing path is not cleanly decoupled:
+The current Test editing path is not cleanly decoupled:
 
 - `video_auto_cut/editing/auto_edit.py` is a god-object-like orchestrator.
 - Main path is chunk-first (`pi_agent_chunking.py`, `pi_agent_merge.py`, boundary reconciliation).
 - `pi_agent_remove.py`, `pi_agent_polish.py`, `pi_agent_boundary.py` each own explicit JSON prompt + fallback repair logic.
-- `web_api/services/step1.py` and `web_api/services/step2.py` still own part of the editing/chapter semantics.
+- `web_api/services/test.py` and `web_api/services/step2.py` still own part of the editing/chapter semantics.
 - `video_auto_cut/orchestration/full_pipeline.py` is stale and not a trustworthy direct-run seam.
 
 The desired end state is:
@@ -30,12 +30,12 @@ The desired end state is:
 ## 2. Product / Architecture Goals
 
 ### Must have
-- One canonical Step1 execution seam.
+- One canonical Test execution seam.
 - Three frozen task contracts: `delete`, `polish`, `chapter`.
 - Shared system prompt for the overall editing mission.
 - Preserved structured artifacts needed for:
-  - Step1 preview
-  - `step1.json`
+  - Test preview
+  - `test.json`
   - chapter correctness
   - export downstream use
 - Shared chapter invariants outside `web_api`.
@@ -56,13 +56,13 @@ The desired end state is:
 Create one canonical direct-run seam in `video_auto_cut`, e.g.:
 
 ```python
-run_step1_pi(request: Step1PiRequest, hooks: Step1PiHooks | None = None) -> Step1PiArtifacts
+run_test_pi(request: TestPiRequest, hooks: TestPiHooks | None = None) -> TestPiArtifacts
 ```
 
-This seam is the only real Step1 producer.
+This seam is the only real Test producer.
 
 All of these must call it:
-- backend Step1 flow
+- backend Test flow
 - CLI/direct-run flow
 - any skill wrappers
 
@@ -101,10 +101,10 @@ Output:
 
 ### `chapter`
 Purpose:
-- produce chapter segmentation and titles over validated Step1 lines
+- produce chapter segmentation and titles over validated Test lines
 
 Input:
-- final Step1 lines
+- final Test lines
 - optional chapter constraints
 
 Output:
@@ -128,7 +128,7 @@ Even without chunk-first design, the runner must preserve artifact lineage.
 
 Required artifacts:
 - `optimized.srt`
-- `step1.json`
+- `test.json`
 - preview-ready line structure
 - chapter-ready line/block structure
 - debug metadata sufficient for verification
@@ -136,7 +136,7 @@ Required artifacts:
 ## 3.5 Chapter invariant ownership
 
 Move these out of `web_api/services/step2.py` into shared domain / canonical runner support:
-- `canonicalize_step1_chapters(...)`
+- `canonicalize_test_chapters(...)`
 - `ensure_full_block_coverage(...)`
 
 Backend should consume validated chapter output, not define correctness.
@@ -185,8 +185,8 @@ Do not treat “larger model” as infinite-context architecture.
 **Goal:** define stable request/response schemas before refactor.
 
 Deliverables:
-- `Step1PiRequest`
-- `Step1PiArtifacts`
+- `TestPiRequest`
+- `TestPiArtifacts`
 - task-specific contract docs for `delete` / `polish` / `chapter`
 
 Candidate paths:
@@ -199,11 +199,11 @@ Acceptance:
 ---
 
 ### Workstream B — Build canonical runner seam
-**Goal:** create the only real Step1 PI execution path.
+**Goal:** create the only real Test PI execution path.
 
 Deliverables:
-- `run_step1_pi(...)`
-- `Step1PiHooks` for side-effect-only progress/preview hooks
+- `run_test_pi(...)`
+- `TestPiHooks` for side-effect-only progress/preview hooks
 
 Candidate paths:
 - `video_auto_cut/editing/pi_runner.py`
@@ -292,12 +292,12 @@ Acceptance:
 Deliverables:
 - `full_pipeline.py` becomes thin wrapper or is replaced
 - `pipeline_service.py` calls canonical seam
-- `web_api/services/step1.py` only wraps and persists
+- `web_api/services/test.py` only wraps and persists
 
 Candidate paths:
 - `video_auto_cut/orchestration/full_pipeline.py`
 - `video_auto_cut/orchestration/pipeline_service.py`
-- `web_api/services/step1.py`
+- `web_api/services/test.py`
 - `web_api/services/step2.py`
 
 Acceptance:
@@ -309,8 +309,8 @@ Acceptance:
 ## 5. Task Breakdown
 
 ## Phase 0 — Contract freeze
-1. Define `Step1PiRequest` schema.
-2. Define `Step1PiArtifacts` schema.
+1. Define `TestPiRequest` schema.
+2. Define `TestPiArtifacts` schema.
 3. Define canonical request/response schema for:
    - `delete`
    - `polish`
@@ -320,7 +320,7 @@ Acceptance:
 6. Decide and document `TopicSegmenter` integration strategy.
 
 ## Phase 1 — Canonical seam
-7. Add `video_auto_cut/editing/pi_runner.py` with `run_step1_pi(...)`.
+7. Add `video_auto_cut/editing/pi_runner.py` with `run_test_pi(...)`.
 8. Add hooks contract for progress/preview.
 9. Add shared prompt module.
 10. Add validator/parser module.
@@ -330,11 +330,11 @@ Acceptance:
 12. Route `polish` through canonical seam.
 13. Route `chapter` through canonical seam.
 14. Preserve line/block lineage in returned artifacts.
-15. Produce `optimized.srt` and `step1.json` from canonical artifacts.
+15. Produce `optimized.srt` and `test.json` from canonical artifacts.
 
 ## Phase 3 — Backend/domain cleanup
 16. Move chapter invariants out of `web_api/services/step2.py`.
-17. Update `web_api/services/step1.py` to consume canonical artifacts only.
+17. Update `web_api/services/test.py` to consume canonical artifacts only.
 18. Remove editing semantic ownership from backend path.
 19. Fix `editing/__init__.py` eager import pollution.
 20. Replace or thin-wrap `full_pipeline.py`.
@@ -356,14 +356,14 @@ Acceptance:
 ## 6. Acceptance Criteria
 
 ### Architecture
-- Exactly one canonical Step1 PI seam exists.
+- Exactly one canonical Test PI seam exists.
 - Only three editing task contracts exist: `delete`, `polish`, `chapter`.
 - Backend / CLI / skill wrappers all call the same seam.
 - Default production path is not chunk-first.
 - Main path does not rely on explicit repair/fixup prompts.
 
 ### Correctness
-- `step1.json` still contains enough lineage for preview and chapter correctness.
+- `test.json` still contains enough lineage for preview and chapter correctness.
 - `optimized.srt` remains producible from canonical artifacts.
 - chapter invariants are enforced outside `web_api`.
 - `TopicSegmenter` and `chapter` do not coexist as dual production paths.
@@ -386,9 +386,9 @@ python -m video_auto_cut.<canonical_module> --input test_data/<fixture> --task c
 ```
 
 ### Backend parity
-- backend Step1 path and direct-run seam produce equivalent:
+- backend Test path and direct-run seam produce equivalent:
   - `optimized.srt`
-  - `step1.json`
+  - `test.json`
   - validated chapter coverage semantics
 
 ### Existing test suite baseline
@@ -402,7 +402,7 @@ npm --prefix web_frontend run build
 - `web_api/tests/test_pi_runner_contracts.py`
 - `web_api/tests/test_pi_runner_direct_run.py`
 - `web_api/tests/test_chapter_invariants_shared.py`
-- `web_api/tests/test_backend_step1_wraps_canonical_runner.py`
+- `web_api/tests/test_backend_test_wraps_canonical_runner.py`
 
 ---
 
@@ -414,7 +414,7 @@ Guardrail:
 
 ### Risk 2: Loss of lineage
 Guardrail:
-- `Step1Artifacts` schema must explicitly preserve line/block lineage
+- `TestArtifacts` schema must explicitly preserve line/block lineage
 
 ### Risk 3: No-repair becomes no-safety
 Guardrail:
@@ -437,7 +437,7 @@ Guardrail:
 ## 9. ADR
 
 **Decision**  
-Adopt a thin-contract refactor around one canonical Step1 PI seam, with only three editing tasks: `delete`, `polish`, `chapter`.
+Adopt a thin-contract refactor around one canonical Test PI seam, with only three editing tasks: `delete`, `polish`, `chapter`.
 
 **Drivers**  
 - one real execution path

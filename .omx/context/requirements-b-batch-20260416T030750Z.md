@@ -1,0 +1,23 @@
+# Context Snapshot — requirements-b-batch
+
+- task statement: 创建工作分支，并基于 `docs/requirements_todo.md` 的 B 批次（B1-B6）产出 `$ralplan` 共识计划。
+- desired outcome: 明确 B 批次是否应整体推进、推荐分批顺序、代码触点、验收标准、风险与验证方案，并落档到 `.omx/plans/`。
+- known facts/evidence:
+  - 当前需求源在 `docs/requirements_todo.md`，B 批次包含 B1-B6 六项后端/核心链路治理任务。
+  - 当前工作树已有大量未提交改动；新分支将从这些改动之上创建，避免污染原分支。
+  - 当前分支已创建为 `work/2026-04-16-b-batch-ralplan`。
+- constraints:
+  - 按 `$ralplan` 执行共识规划；默认非 interactive，只输出最终计划，不直接实现。
+  - 需要遵守仓库要求：`docs/requirements_todo.md` 作为需求单一事实源，必要时同步更新状态。
+  - 计划需要 grounded，尽量给出具体文件触点与验证命令。
+- unknowns/open questions:
+  - B1-B6 中哪些项已经被近期改动部分覆盖，哪些仍是纯 backlog。
+  - 六项之间的依赖关系和最小可执行分批。
+  - 是否建议整体作为一个执行批次，还是拆成更小 PR/里程碑。
+- likely codebase touchpoints:
+  - `video_auto_cut/asr/`
+  - `video_auto_cut/editing/`
+  - `web_api/db.py`
+  - `web_api/repository.py`
+  - `web_api/task_queue.py`
+  - `web_api/services/test.py`

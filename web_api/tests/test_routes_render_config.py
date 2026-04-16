@@ -20,7 +20,7 @@ class RenderConfigRouteTest(unittest.TestCase):
         mock_has_credits,
         mock_build_config,
     ) -> None:
-        mock_load_job.return_value = {"job_id": "job-1", "status": "STEP1_CONFIRMED"}
+        mock_load_job.return_value = {"job_id": "job-1", "status": "TEST_CONFIRMED"}
         mock_build_config.side_effect = ValueError("视频分辨率无效，请重新选择源文件后重试")
 
         with self.assertRaises(ApiError) as raised:

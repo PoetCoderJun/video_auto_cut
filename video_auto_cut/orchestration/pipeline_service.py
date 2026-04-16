@@ -22,9 +22,12 @@ class PipelineOptions:
     asr_dashscope_api_key: str | None = None
     asr_dashscope_poll_seconds: float = 2.0
     asr_dashscope_timeout_seconds: float = 3600.0
+    asr_dashscope_language: str | None = None
     asr_dashscope_language_hints: tuple[str, ...] = ()
     asr_dashscope_context: str = ""
+    asr_dashscope_enable_itn: bool = False
     asr_dashscope_enable_words: bool = True
+    asr_dashscope_channel_ids: tuple[int, ...] = (0,)
     asr_dashscope_sentence_rule_with_punc: bool = True
     asr_dashscope_word_split_enabled: bool = True
     asr_dashscope_word_split_on_comma: bool = True
@@ -41,7 +44,6 @@ class PipelineOptions:
     asr_oss_access_key_secret: str | None = None
     asr_oss_prefix: str = "video-auto-cut/asr"
     asr_oss_signed_url_ttl_seconds: int = 86400
-    use_dashscope_temp_oss: bool = False
 
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -63,6 +65,13 @@ class PipelineOptions:
     topic_strict: bool = False
     topic_max_topics: int = 5
     topic_title_max_chars: int = 6
+
+
+@dataclass(frozen=True)
+class AutoEditArtifacts:
+    optimized_srt_path: Path
+    test_lines: list[dict[str, Any]]
+    test_text_path: Path
 
 
 RenderProgressCallback = Callable[[str, Optional[float]], None]
@@ -93,9 +102,12 @@ def build_transcribe_args(
         asr_dashscope_api_key=options.asr_dashscope_api_key,
         asr_dashscope_poll_seconds=float(options.asr_dashscope_poll_seconds),
         asr_dashscope_timeout_seconds=float(options.asr_dashscope_timeout_seconds),
+        asr_dashscope_language=options.asr_dashscope_language,
         asr_dashscope_language_hints=list(options.asr_dashscope_language_hints),
         asr_dashscope_context=options.asr_dashscope_context,
+        asr_dashscope_enable_itn=bool(options.asr_dashscope_enable_itn),
         asr_dashscope_enable_words=bool(options.asr_dashscope_enable_words),
+        asr_dashscope_channel_ids=list(options.asr_dashscope_channel_ids),
         asr_dashscope_sentence_rule_with_punc=bool(options.asr_dashscope_sentence_rule_with_punc),
         asr_dashscope_word_split_enabled=bool(options.asr_dashscope_word_split_enabled),
         asr_dashscope_word_split_on_comma=bool(options.asr_dashscope_word_split_on_comma),
@@ -112,7 +124,6 @@ def build_transcribe_args(
         asr_oss_access_key_secret=options.asr_oss_access_key_secret,
         asr_oss_prefix=options.asr_oss_prefix,
         asr_oss_signed_url_ttl_seconds=int(options.asr_oss_signed_url_ttl_seconds),
-        use_dashscope_temp_oss=bool(options.use_dashscope_temp_oss),
         llm_base_url=options.llm_base_url,
         llm_model=options.llm_model,
         llm_api_key=options.llm_api_key,
@@ -212,7 +223,7 @@ def run_auto_edit(
     *,
     stage_callback: AutoEditStageCallback | None = None,
     preview_callback: AutoEditPreviewCallback | None = None,
-) -> Path:
+) -> AutoEditArtifacts:
     from video_auto_cut.editing.auto_edit import AutoEdit
 
     require_llm(options, "Auto-edit")
@@ -222,12 +233,20 @@ def run_auto_edit(
         setattr(args, "auto_edit_stage_callback", stage_callback)
     if preview_callback is not None:
         setattr(args, "auto_edit_preview_callback", preview_callback)
-    AutoEdit(args).run()
+    editor = AutoEdit(args)
+    editor.run()
 
     optimized = srt_path.with_name(f"{srt_path.stem}.optimized.srt")
     if not optimized.exists():
         raise RuntimeError(f"Auto-edit step did not produce optimized SRT: {optimized}")
-    return optimized
+    test_text_path = optimized.with_suffix(".test.txt")
+    if editor.last_result is None:
+        raise RuntimeError("Auto-edit step did not expose canonical test lines.")
+    return AutoEditArtifacts(
+        optimized_srt_path=optimized,
+        test_lines=list(editor.last_result.get("test_lines") or []),
+        test_text_path=test_text_path,
+    )
 
 
 def run_topic_segmentation_from_optimized_srt(

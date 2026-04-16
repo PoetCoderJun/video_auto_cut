@@ -10,7 +10,7 @@ import srt
 
 from . import llm_client as llm_utils
 from video_auto_cut.pi_agent_runner import TestPiRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_pi
-from web_api.utils.srt_utils import write_test_text
+from video_auto_cut.shared.test_text_io import write_test_text
 
 REMOVE_TOKEN = "<remove>"
 

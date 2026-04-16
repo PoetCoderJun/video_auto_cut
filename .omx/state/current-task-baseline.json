@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "branch_name": "beta",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-16T04:47:30.307Z",
+      "updated_at": "2026-04-16T05:23:27.027Z"
+    },
+    {
+      "branch_name": "chore/requirements-c-frontend-cleanup",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-16T03:30:14.587Z",
+      "updated_at": "2026-04-16T04:28:54.534Z"
+    },
+    {
+      "branch_name": "main",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-14T12:33:56.733Z",
+      "updated_at": "2026-04-16T04:46:05.458Z"
+    },
+    {
+      "branch_name": "merge",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-16T05:37:11.353Z",
+      "updated_at": "2026-04-16T05:37:11.353Z"
+    },
+    {
+      "branch_name": "work/2026-04-16-b-batch-ralplan",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-16T03:08:26.116Z",
+      "updated_at": "2026-04-16T03:47:07.714Z"
+    },
+    {
+      "branch_name": "work/2026-04-16-d-batch-ralplan",
+      "worktree_path": "/Users/huzujun/Desktop/video_auto_cut",
+      "status": "active",
+      "created_at": "2026-04-16T03:12:14.465Z",
+      "updated_at": "2026-04-16T04:37:52.687Z"
+    }
+  ]
+}

@@ -1,0 +1,103 @@
+# Repository Guidelines
+
+## Project Structure & Module Organization
+- `web_frontend/`: Next.js 16 app (UI, auth, browser rendering). Main folders: `app/`, `components/`, `lib/`, `public/`.
+- `web_api/`: FastAPI backend and worker entrypoints. Main folders: `api/`, `services/`, `utils/`, `worker/`.
+- `video_auto_cut/`: shared Python pipeline modules (ASR, editing, rendering orchestration).
+- `scripts/`: operational scripts (for example `start_web_mvp.sh`, `coupon_admin.py`).
+- `test_data/`: local sample media for manual regression.
+- `workdir/`: runtime artifacts and job files; do not commit generated outputs.
+
+## Build, Test, and Development Commands
+- Install deps:
+  - `python -m pip install -r requirements.txt`
+  - `cd web_frontend && npm install`
+- One-command local run (recommended): `./scripts/start_web_mvp.sh`
+  - Starts FastAPI (`127.0.0.1:8000`), worker loop, and Next.js (`127.0.0.1:3000`).
+- Frontend only:
+  - `npm --prefix web_frontend run dev`
+  - `npm --prefix web_frontend run build`
+- Backend only:
+  - API: `uvicorn web_api.app:app --host 127.0.0.1 --port 8000`
+  - Worker: `python -m web_api`
+
+## Coding Style & Naming Conventions
+- Python: PEP 8, 4-space indentation, snake_case; add type hints for public service/repository functions.
+- TypeScript/React: 2-space indentation, camelCase for variables/functions, PascalCase for components/types.
+- Keep API error messages user-facing and non-technical.
+- Prefer small, focused modules in `web_api/services` and `web_frontend/components`.
+
+## Testing Guidelines
+- Current automated tests exist mainly in `web_api/tests/` (unittest style).
+- Run: `python -m unittest discover web_api/tests -p "test_*.py"`.
+- For web changes, always run:
+  - `cd web_frontend && npx tsc --noEmit`
+  - `npm --prefix web_frontend run build`
+- No strict coverage gate yet; include manual verification steps (upload, Test/Step2, render/export).
+- For overlay / export UI work, use `web_frontend/app/dev-export-preview/page.tsx` as the reusable mock lab:
+  - The mock lab uses a plain white background instead of a real source video so overlay density and wrapping are easier to inspect.
+  - Switch scenario presets to inspect long chapter titles, compact single-line titles, and landscape progress labels.
+  - Use the editable text inputs to test extreme title lengths, manual line breaks, and same-length copy with different wrap strategies before changing layout logic.
+  - Switch resolution presets or use the built-in compare grid to cover low-res landscape, 2K/4K landscape, low-res portrait, and high-res portrait before asking for screenshots or export clips.
+
+## Commit & Pull Request Guidelines
+- Follow Conventional Commit style when possible (`feat:`, `fix:`, `docs:`, `chore:`), optionally scoped (e.g., `feat(web): ...`).
+- Keep commits atomic; avoid mixing refactor + behavior change + generated artifacts.
+- If `git push` to `git@github.com:PoetCoderJun/video_auto_cut.git` fails because SSH port 22 is blocked, push via GitHub SSH over port 443 instead:
+  - `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o Hostname=ssh.github.com -p 443' git push origin main`
+- PRs should include:
+  - What changed and why.
+  - Affected paths (e.g., `web_api/api/routes.py`).
+  - Verification evidence (commands run, key logs, UI screenshots for frontend changes).
+
+## Security & Configuration Tips
+- Required envs for online mode: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
+- Local/offline fallback: set `WEB_DB_LOCAL_ONLY=1`.
+- Never commit `.env`, credentials, model weights, or `workdir/` runtime files.
+
+## Requirement Tracking
+- Maintain `docs/requirements_todo.md` as the single source of truth for requirement tracking.
+- When a new user requirement, change request, or follow-up task appears, update `docs/requirements_todo.md` in the same turn when appropriate.
+- Move items across `Backlog`, `In Progress`, and `Done` instead of rewriting history from scratch.
+- Keep entries concise and action-oriented, and include dates or affected paths when they help clarify status.
+
+<!-- OMX:RUNTIME:START -->
+<session_context>
+**Session:** omx-1776274242753-9g6mt7 | 2026-04-15T17:30:43.626Z
+
+**Codebase Map:**
+  web_frontend/: route, page, page, page, page, page, layout, page, robots, page
+
+**Active Modes:**
+- ralph: iteration 14/50, phase: starting
+- skill-active: iteration 1/?
+- team: iteration 8/?, phase: starting
+
+**Orchestration Mode:** team
+<team_orchestrator_brain>
+You are in team orchestration mode.
+- Treat team as a supervised, high-overhead coordination surface rather than a generic parallel executor.
+- Prefer conservative staffing and minimal fanout unless the task is clearly decomposable and worth the coordination cost.
+- Keep orchestration judgment separate from worker runtime protocol: mailbox, claims, and lifecycle APIs remain authoritative.
+- Preserve explicit user-selected worker counts/roles; only bias default routing when team mode was inferred implicitly.
+- Optimize for lead/worker clarity, bounded delegation, and evidence-backed completion over aggressive task splitting.
+</team_orchestrator_brain>
+
+**Explore Command Preference:** enabled via `USE_OMX_EXPLORE_CMD` (default-on; opt out with `0`, `false`, `no`, or `off`)
+- Advisory steering only: agents SHOULD treat `omx explore` as the default first stop for direct inspection and SHOULD reserve `omx sparkshell` for qualifying read-only shell-native tasks.
+- For simple file/symbol lookups, use `omx explore` FIRST before attempting full code analysis.
+- When the user asks for a simple read-only exploration task (file/symbol/pattern/relationship lookup), strongly prefer `omx explore` as the default surface.
+- Explore examples: `omx explore...
+
+**Ralph Ralplan-First Gate:** BLOCKED
+- Requirement: complete planning artifacts before implementation/tool execution.
+- Missing: `prd-*.md`, `test-spec-*.md`
+- Path: `.omx/plans/`
+
+**Compaction Protocol:**
+Before context compaction, preserve critical state:
+1. Write progress checkpoint via state_write MCP tool
+2. Save key decisions to notepad via notepad_write_working
+3. If context is >80% full, proactively checkpoint state
+</session_context>
+<!-- OMX:RUNTIME:END -->

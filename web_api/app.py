@@ -28,7 +28,7 @@ def _request_id() -> str:
 _JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
 _POLLING_PATH_PATTERNS = (
     re.compile(r"^/api/v1/jobs/[^/]+$"),
-    re.compile(r"^/api/v1/jobs/[^/]+/step1$"),
+    re.compile(r"^/api/v1/jobs/[^/]+/test$"),
 )
 
 

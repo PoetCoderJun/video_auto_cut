@@ -66,7 +66,7 @@ Use temporary environment overrides:
 - `LLM_ENABLE_THINKING=1`
 
 Only rerun:
-- `audio.srt -> auto_edit -> final_step1.srt -> step2 topics`
+- `audio.srt -> auto_edit -> final_test.srt -> step2 topics`
 
 **Step 2: Compare outputs**
 

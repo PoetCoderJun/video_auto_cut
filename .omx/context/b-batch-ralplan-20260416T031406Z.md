@@ -1,0 +1,28 @@
+# Context Snapshot — B batch ralplan
+
+- Task statement: Produce a non-interactive consensus-style ralplan draft for docs/requirements_todo.md batch B (B1-B6), focused on an executable multi-phase plan only.
+- Desired outcome: A grounded plan with RALPLAN-DR, ADR, staffing guidance, launch hints, and verification paths; no code changes.
+- Known facts/evidence:
+  - requirements backlog lists B1-B6 under docs/requirements_todo.md:26-31.
+  - ASR web path currently hard-locks dashscope_filetrans in video_auto_cut/asr/transcribe.py:22-30 and web_api/config.py:137-141.
+  - auto_edit delegates through PI runner and still emits/consumes <<REMOVE>> and multiple line/subtitle/EDL forms in video_auto_cut/editing/auto_edit.py:123-165, video_auto_cut/pi_agent_runner.py:305-370,532-570.
+  - dashscope_filetrans word-split state machine lives in video_auto_cut/asr/dashscope_filetrans.py:225-341.
+  - cut helpers remain reused by cut_srt in video_auto_cut/rendering/cut.py:31-73 and video_auto_cut/rendering/cut_srt.py:120-147, while pipeline topic segmentation consumes cut_srt via video_auto_cut/orchestration/pipeline_service.py:243-257.
+  - llm_client has shared JSON repair flow in video_auto_cut/editing/llm_client.py:238-353 while topic_segment keeps local wrappers in video_auto_cut/editing/topic_segment.py:206-259,331-351.
+  - DB/repository/task-queue helper duplication and queue reliability facts are grounded in web_api/repository.py:58-85,1041-1094; web_api/task_queue.py:19-33,44-76,116-193,261-340; web_api/db.py:36-55,244-253; web_api/services/tasks.py:20-22,65-72; web_api/api/routes.py:257-266.
+- Constraints:
+  - Current worktree is dirty; plan only.
+  - User asked for branch-first workflow, but current repo branch resolves to work/2026-04-16-d-batch-ralplan (not the user-mentioned work/2026-04-16-b-batch-ralplan).
+  - Suggested dependency order from user: B1 -> B5 -> B2 -> B3; B4 early as safe dedupe; B6 treated as architecture review, not predetermined simplification.
+- Unknowns/open questions:
+  - Whether stale ASR files are still referenced by offline scripts/tests outside the web path.
+  - Whether B2 canonical contract should center on line dicts or a typed domain model wrapper around them.
+  - Whether B6 ends as extending current durable queue versus splitting dispatch concerns.
+- Likely touchpoints:
+  - docs/requirements_todo.md
+  - video_auto_cut/asr/*
+  - video_auto_cut/editing/*
+  - video_auto_cut/pi_agent_runner.py
+  - video_auto_cut/rendering/*
+  - web_api/{db,repository,task_queue}.py
+  - web_api/services/{tasks,test,oss_presign}.py

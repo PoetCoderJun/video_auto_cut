@@ -1,0 +1,36 @@
+# Context Snapshot: A batch module boundaries
+
+- task statement: 创建工作分支，并按 `$ralplan` 为 `docs/requirements_todo.md` 中 A 批次（A1-A6）产出可执行共识计划。
+- desired outcome: 明确 A1-A6 的实施顺序、边界规则、验收标准、风险与验证路径；计划保存到 `.omx/plans/`，并回写需求追踪状态。
+- known facts/evidence:
+  - `video_auto_cut/editing/auto_edit.py` 直接导入 `web_api.utils.srt_utils.write_test_text`。
+  - `video_auto_cut/pi_agent_runner.py` 直接导入 `web_api.utils.srt_utils.build_test_lines_from_text`，并在 CLI path 动态导入 `web_api.services.pipeline_options.build_pipeline_options`。
+  - `video_auto_cut/asr/transcribe_stage.py` 仍在函数内导入 `web_api.utils.srt_utils.write_test_text`。
+  - `web_api/services/render_web.py` 同时承担标题重写/校验与排版预算逻辑；前端 `web_frontend/lib/remotion/typography.ts` 也有自己的文本换行/fit 逻辑。
+  - `video_auto_cut/orchestration/pipeline_service.py` 通过 `PipelineOptions -> SimpleNamespace` 适配，`video_auto_cut/asr/transcribe.py` / `video_auto_cut/editing/auto_edit.py` 通过大量 `getattr(...)` 读取。
+  - `web_api/db.py:init_db()` 同时做当前 schema 初始化、兼容字段修补、历史表搬迁与删表清理；`web_api/app.py`、`web_api/worker/runner.py`、`scripts/coupon_admin.py` 都会调用它。
+  - 根 `Dockerfile` 仅复制 `web_api/` 与 `video_auto_cut/`，未复制 `.pi/` / `skills/`，也未安装 `pi` CLI。
+- constraints:
+  - 遵守仓库要求：`docs/requirements_todo.md` 是需求跟踪单一事实来源。
+  - 本轮用户显式要求 `$ralplan`，默认输出计划而不是直接实现。
+  - 当前工作树已有大量未提交改动；新分支需承接现状而避免误回滚。
+- unknowns/open questions:
+  - 用户的“A问题”是否要一次覆盖 A1-A6 全批次；当前先按整个 A 批次规划。
+  - A2 是否允许彻底删除 Step2 文件/接口，还是先做兼容封口后再删。
+  - A6 最终选择是支持容器内 PI/Test 编辑，还是显式声明不支持。
+- likely codebase touchpoints:
+  - `video_auto_cut/asr/transcribe_stage.py`
+  - `video_auto_cut/editing/auto_edit.py`
+  - `video_auto_cut/pi_agent_runner.py`
+  - `video_auto_cut/orchestration/pipeline_service.py`
+  - `video_auto_cut/orchestration/full_pipeline.py`
+  - `video_auto_cut/asr/transcribe.py`
+  - `web_api/utils/srt_utils.py`
+  - `web_api/services/pipeline_options.py`
+  - `web_api/services/render_web.py`
+  - `web_api/db.py`
+  - `web_api/repository.py`
+  - `web_api/services/step2.py`
+  - `Dockerfile`
+  - `web_frontend/lib/remotion/typography.ts`
+  - `docs/web_api_interface.md`

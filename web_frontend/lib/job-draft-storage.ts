@@ -1,15 +1,14 @@
-import type {Chapter, Step1Line, SubtitleTheme} from "./api";
+import type {Chapter, TestLine, SubtitleTheme} from "./api";
 import {
-  DEFAULT_OVERLAY_CONTROLS,
   normalizeOverlayScaleControls,
   type OverlayScaleControls,
-  type ProgressLabelMode,
 } from "./remotion/overlay-controls.ts";
 
-const STEP1_DRAFT_PREFIX = "video_auto_cut_step1_draft:";
+const TEST_DRAFT_PREFIX = "video_auto_cut_test_draft:";
 const EXPORT_PREFS_STORAGE_KEY = "video_auto_cut_export_preferences";
 const DRAFT_SCHEMA_VERSION = 1;
 const EXPORT_PREFS_SCHEMA_VERSION = 1;
+
 const SUBTITLE_THEME_VALUES: readonly SubtitleTheme[] = [
   "text-black",
   "text-white",
@@ -17,12 +16,10 @@ const SUBTITLE_THEME_VALUES: readonly SubtitleTheme[] = [
   "box-black-on-white",
 ];
 
-const PROGRESS_LABEL_MODE_VALUES: readonly ProgressLabelMode[] = ["auto", "single", "double"];
-
-type Step1DraftPayload = {
+type TestDraftPayload = {
   version: number;
   updatedAt: number;
-  lines: Step1Line[];
+  lines: TestLine[];
   chapters: Chapter[];
   documentRevision: string;
 };
@@ -39,8 +36,8 @@ export type ExportPreferences = {
   overlayControls: Required<OverlayScaleControls>;
 };
 
-export type Step1DraftDocument = {
-  lines: Step1Line[];
+export type TestDraftDocument = {
+  lines: TestLine[];
   chapters: Chapter[];
   documentRevision: string;
 };
@@ -56,19 +53,8 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-}
-
 function isSubtitleTheme(value: unknown): value is SubtitleTheme {
   return SUBTITLE_THEME_VALUES.includes(value as SubtitleTheme);
-}
-
-function isProgressLabelMode(value: unknown): value is ProgressLabelMode {
-  return PROGRESS_LABEL_MODE_VALUES.includes(value as ProgressLabelMode);
 }
 
 function normalizeOverlayControls(value: unknown): Required<OverlayScaleControls> {
@@ -76,9 +62,9 @@ function normalizeOverlayControls(value: unknown): Required<OverlayScaleControls
   return normalizeOverlayScaleControls(source);
 }
 
-function normalizeStep1Lines(value: unknown): Step1Line[] {
+function normalizeTestLines(value: unknown): TestLine[] {
   if (!Array.isArray(value)) return [];
-  const lines: Step1Line[] = [];
+  const lines: TestLine[] = [];
   for (const row of value) {
     if (!row || typeof row !== "object") continue;
     const line = row as Record<string, unknown>;
@@ -155,26 +141,26 @@ function exportPrefsKey(): string {
   return EXPORT_PREFS_STORAGE_KEY;
 }
 
-function step1Key(jobId: string): string {
-  return `${STEP1_DRAFT_PREFIX}${jobId}`;
+function testKey(jobId: string): string {
+  return `${TEST_DRAFT_PREFIX}${jobId}`;
 }
 
-export function saveStep1Draft(jobId: string, document: Step1DraftDocument): void {
+export function saveTestDraft(jobId: string, document: TestDraftDocument): void {
   if (!jobId || document.lines.length === 0) return;
-  writeJson(step1Key(jobId), {
+  writeJson(testKey(jobId), {
     version: DRAFT_SCHEMA_VERSION,
     updatedAt: Date.now(),
     lines: document.lines,
     chapters: document.chapters,
     documentRevision: String(document.documentRevision || ""),
-  } satisfies Step1DraftPayload);
+  } satisfies TestDraftPayload);
 }
 
-export function loadStep1Draft(jobId: string): Step1DraftDocument | null {
+export function loadTestDraft(jobId: string): TestDraftDocument | null {
   if (!jobId) return null;
-  const payload = readJson<Step1DraftPayload>(step1Key(jobId));
+  const payload = readJson<TestDraftPayload>(testKey(jobId));
   if (!payload || payload.version !== DRAFT_SCHEMA_VERSION) return null;
-  const lines = normalizeStep1Lines(payload.lines);
+  const lines = normalizeTestLines(payload.lines);
   if (lines.length === 0) return null;
   return {
     lines,
@@ -183,9 +169,9 @@ export function loadStep1Draft(jobId: string): Step1DraftDocument | null {
   };
 }
 
-export function clearStep1Draft(jobId: string): void {
+export function clearTestDraft(jobId: string): void {
   if (!jobId) return;
-  removeKey(step1Key(jobId));
+  removeKey(testKey(jobId));
 }
 
 export function saveExportPreferences(
@@ -217,10 +203,10 @@ export function clearExportPreferences(): void {
   removeKey(exportPrefsKey());
 }
 
-export function mergeStep1Draft(
-  serverDocument: Step1DraftDocument,
-  draftDocument: Step1DraftDocument | null
-): Step1DraftDocument {
+export function mergeTestDraft(
+  serverDocument: TestDraftDocument,
+  draftDocument: TestDraftDocument | null
+): TestDraftDocument {
   if (!draftDocument || draftDocument.lines.length === 0) return serverDocument;
   const byId = new Map(draftDocument.lines.map((line) => [line.line_id, line] as const));
   let linesChanged = false;

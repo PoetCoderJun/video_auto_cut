@@ -23,7 +23,7 @@ from .shared.test_text_protocol import (
     render_test_line_text,
     render_time_range_tag,
 )
-from web_api.utils.srt_utils import build_test_lines_from_text
+from .shared.test_text_io import build_test_lines_from_text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_PI_DIR = PROJECT_ROOT / ".pi"

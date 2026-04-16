@@ -396,7 +396,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         )
         self._assert_progress_principles(rewritten_topics, captions, width=1920, height=1080, min_font_size=22)
 
-    @patch("web_api.services.render_web.list_final_step1_chapters")
+    @patch("web_api.services.render_web.list_final_test_chapters")
     @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
     @patch("web_api.services.render_web.ensure_job_dirs")
     @patch("web_api.services.render_web.get_settings")
@@ -407,11 +407,11 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         mock_get_settings,
         mock_ensure_job_dirs,
         mock_build_cut_srt,
-        mock_list_final_step1_chapters,
+        mock_list_final_test_chapters,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             render_dir = Path(temp_dir)
-            mock_get_job_files.return_value = {"final_step1_srt_path": render_dir / "final_step1.srt"}
+            mock_get_job_files.return_value = {"final_test_srt_path": render_dir / "final_test.srt"}
             mock_get_settings.return_value = _DummySettings()
             mock_get_settings.return_value.cut_merge_gap = 0.0
             mock_ensure_job_dirs.return_value = {"render": render_dir}
@@ -429,7 +429,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
                     {"start": 22.0, "end": 80.0},
                 ],
             }
-            mock_list_final_step1_chapters.return_value = [
+            mock_list_final_test_chapters.return_value = [
                 {"title": "第一部分：为什么短视频创作者总在节奏与效率之间反复失衡", "start": 0.0, "end": 8.0},
                 {"title": "第二部分：如何用AI把繁琐重复的协作工作真正缩短到可接受范围", "start": 8.0, "end": 15.0},
                 {"title": "第三部分：怎样在持续输出时保留真实感受而不是机械生产内容", "start": 15.0, "end": 22.0},
@@ -457,7 +457,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
             ],
         )
 
-    @patch("web_api.services.render_web.list_final_step1_chapters")
+    @patch("web_api.services.render_web.list_final_test_chapters")
     @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
     @patch("web_api.services.render_web.ensure_job_dirs")
     @patch("web_api.services.render_web.get_settings")
@@ -468,11 +468,11 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
         mock_get_settings,
         mock_ensure_job_dirs,
         mock_build_cut_srt,
-        mock_list_final_step1_chapters,
+        mock_list_final_test_chapters,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             render_dir = Path(temp_dir)
-            mock_get_job_files.return_value = {"final_step1_srt_path": render_dir / "final_step1.srt"}
+            mock_get_job_files.return_value = {"final_test_srt_path": render_dir / "final_test.srt"}
             mock_get_settings.return_value = _DummySettings()
             mock_get_settings.return_value.cut_merge_gap = 0.0
             mock_ensure_job_dirs.return_value = {"render": render_dir}
@@ -488,7 +488,7 @@ class RenderWebTopicRewriteTest(unittest.TestCase):
                     {"start": 30.0, "end": 33.0},
                 ],
             }
-            mock_list_final_step1_chapters.return_value = [
+            mock_list_final_test_chapters.return_value = [
                 {"title": "开场", "start": 10.0, "end": 14.0},
                 {"title": "展开", "start": 20.0, "end": 33.0},
             ]

@@ -77,27 +77,27 @@ export const normalizeOverlayScaleControls = (
   controls: OverlayScaleControls
 ): Required<OverlayScaleControls> => ({
   subtitleScale: normalizeOverlayControlNumber(
-    controls.subtitleScale ?? DEFAULT_OVERLAY_CONTROLS.subtitleScale,
+    controls.subtitleScale,
     DEFAULT_OVERLAY_CONTROLS.subtitleScale,
     OVERLAY_SCALE_LIMITS.subtitle
   ),
   subtitleYPercent: normalizeOverlayControlNumber(
-    controls.subtitleYPercent ?? DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
+    controls.subtitleYPercent,
     DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
     OVERLAY_POSITION_LIMITS.subtitleY
   ),
   progressScale: normalizeOverlayControlNumber(
-    controls.progressScale ?? DEFAULT_OVERLAY_CONTROLS.progressScale,
+    controls.progressScale,
     DEFAULT_OVERLAY_CONTROLS.progressScale,
     OVERLAY_SCALE_LIMITS.progress
   ),
   progressYPercent: normalizeOverlayControlNumber(
-    controls.progressYPercent ?? DEFAULT_OVERLAY_CONTROLS.progressYPercent,
+    controls.progressYPercent,
     DEFAULT_OVERLAY_CONTROLS.progressYPercent,
     OVERLAY_POSITION_LIMITS.progressY
   ),
   chapterScale: normalizeOverlayControlNumber(
-    controls.chapterScale ?? DEFAULT_OVERLAY_CONTROLS.chapterScale,
+    controls.chapterScale,
     DEFAULT_OVERLAY_CONTROLS.chapterScale,
     OVERLAY_SCALE_LIMITS.chapter
   ),

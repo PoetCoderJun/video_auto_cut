@@ -1,9 +1,9 @@
 type JobStatus =
   | "CREATED"
   | "UPLOAD_READY"
-  | "STEP1_RUNNING"
-  | "STEP1_READY"
-  | "STEP1_CONFIRMED"
+  | "TEST_RUNNING"
+  | "TEST_READY"
+  | "TEST_CONFIRMED"
   | "SUCCEEDED"
   | "FAILED";
 
@@ -18,9 +18,9 @@ type JobSnapshot = {
 const STATUS_ORDER: JobStatus[] = [
   "CREATED",
   "UPLOAD_READY",
-  "STEP1_RUNNING",
-  "STEP1_READY",
-  "STEP1_CONFIRMED",
+  "TEST_RUNNING",
+  "TEST_READY",
+  "TEST_CONFIRMED",
   "SUCCEEDED",
   "FAILED",
 ];
@@ -28,9 +28,9 @@ const STATUS_ORDER: JobStatus[] = [
 const STATUS_PROGRESS_FLOOR: Record<JobStatus, number> = {
   CREATED: 0,
   UPLOAD_READY: 10,
-  STEP1_RUNNING: 30,
-  STEP1_READY: 60,
-  STEP1_CONFIRMED: 80,
+  TEST_RUNNING: 30,
+  TEST_READY: 60,
+  TEST_CONFIRMED: 80,
   SUCCEEDED: 100,
   FAILED: 0,
 };
@@ -47,7 +47,7 @@ function getProgressFloor(status: JobStatus): number {
 export function shouldPollJobStatus(status: JobStatus): boolean {
   return (
     status === "UPLOAD_READY" ||
-    status === "STEP1_RUNNING"
+    status === "TEST_RUNNING"
   );
 }
 

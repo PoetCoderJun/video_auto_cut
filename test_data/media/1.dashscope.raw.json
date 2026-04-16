@@ -1,0 +1,4469 @@
+{
+  "file_url": "http://dashscope-file-mgr.oss-cn-beijing.aliyuncs.com/dashscope-instant/157995b5a18a80168f77308fa4023fab/2026-04-15/df970704-5a24-9655-844d-ccceca5176d5/1.asr.wav?Expires=1776404977&OSSAccessKeyId=LTAI5t64cnuuVx7xndFH9ULk&Signature=CxcXj7cvq3SomC%2F8A3imIHWRvB8%3D",
+  "audio_info": {
+    "format": "pcm_s16le",
+    "sample_rate": 16000
+  },
+  "transcripts": [
+    {
+      "channel_id": 0,
+      "text": "哟，这里是俊。前段时间我发了续签香港签证的分享，还接受了凤凰卫视的采访，收到了大量的续签相关的私信。那么二五年香港续签签证有四大变化，一分钟给大家总结，非常的重要。首先，嗯，首先如果你不是parent的合同，现在不是是。首先，如果你不是permanent的合同，现在不是，首先如果你不是permanent的合同，现在不再是三加三的形式续签，而是去合同年限和三年的最小值，这个在时间。首先如果你不是permanent的合同，现在不再是三加三的形式续签，而是去合同年限和三年的最小值，这个在时间线上有很大的影响，要非常的注意。第二，怎么才能续签呢？首先对于I N G来说，需要在逗留期限截止日期前的二十八天完成续签，可以看一下来自入境处的截图。第二，续签条件，怎样才能续签呢？首先对ING来说，需要在逗留期限前二十八天完成续签。我们可以看一下入境处最新的截图，续签的考核标准包括但不限于薪酬福利、公司的资质和营运状态，并且从事的工作必须要有学位的持有者担任，以及其薪酬福利必须达到市场的水平。换句话说，对于申请者的学位、现在薪酬福利水平和学位持有都必须有一个要求，避免你去从事一些大家都懂的一些低技术的一些工作去达到续签的目的。第三就是，第三就是续签费现在上调到了申请费六百块钱，加上签证费一千三百块钱，一共是一千九百块钱。第四就是续签现在不再是通过填填表，第四就是续签现在不再是通过填表的方式，而是通过纯电子的网站这。第四就是现在续签变成了纯电子网站的一个方式，不再需要去填表了。很多人都被忽悠了，觉得说续签好复杂，需要找中介，千万不要。网上申请是非常容易的，并且如果你有续签相关的问题，都可以到人才办的网站去查询，会有专人的解答。强烈大家关注香港人才服务办公室的官方小红书账号，那里有更多的实用信息和最新政策的解读。如果你有续签的问题，欢迎点赞收藏评论，在评论里。如果你有续签问题，欢迎点赞收藏在评论区留言交流，下期见。",
+      "sentences": [
+        {
+          "sentence_id": 0,
+          "begin_time": 2588,
+          "end_time": 3308,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "哟，这里是俊。",
+          "words": [
+            {
+              "begin_time": 2588,
+              "end_time": 2668,
+              "text": "哟",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 2668,
+              "end_time": 2828,
+              "text": "这",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 2828,
+              "end_time": 2828,
+              "text": "里",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 2828,
+              "end_time": 2988,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 2988,
+              "end_time": 3308,
+              "text": "俊",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 1,
+          "begin_time": 3788,
+          "end_time": 10988,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "前段时间我发了续签香港签证的分享，还接受了凤凰卫视的采访，收到了大量的续签相关的私信。",
+          "words": [
+            {
+              "begin_time": 3788,
+              "end_time": 4028,
+              "text": "前",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4028,
+              "end_time": 4108,
+              "text": "段",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4108,
+              "end_time": 4268,
+              "text": "时",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4268,
+              "end_time": 4428,
+              "text": "间",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4428,
+              "end_time": 4588,
+              "text": "我",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4588,
+              "end_time": 4908,
+              "text": "发",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4908,
+              "end_time": 4988,
+              "text": "了",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 4988,
+              "end_time": 5228,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 5228,
+              "end_time": 5468,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 5468,
+              "end_time": 5628,
+              "text": "香",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 5628,
+              "end_time": 5708,
+              "text": "港",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 5708,
+              "end_time": 5948,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 5948,
+              "end_time": 6108,
+              "text": "证",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 6108,
+              "end_time": 6188,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 6188,
+              "end_time": 6428,
+              "text": "分",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 6428,
+              "end_time": 6588,
+              "text": "享",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 6668,
+              "end_time": 6748,
+              "text": "还",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 6748,
+              "end_time": 6988,
+              "text": "接",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 6988,
+              "end_time": 7148,
+              "text": "受",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7148,
+              "end_time": 7228,
+              "text": "了",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7228,
+              "end_time": 7388,
+              "text": "凤",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7468,
+              "end_time": 7548,
+              "text": "凰",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7548,
+              "end_time": 7628,
+              "text": "卫",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7628,
+              "end_time": 7788,
+              "text": "视",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7788,
+              "end_time": 7788,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 7868,
+              "end_time": 8028,
+              "text": "采",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8108,
+              "end_time": 8268,
+              "text": "访",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 8748,
+              "end_time": 8908,
+              "text": "收",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 8908,
+              "end_time": 9068,
+              "text": "到",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9068,
+              "end_time": 9148,
+              "text": "了",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9148,
+              "end_time": 9388,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9388,
+              "end_time": 9468,
+              "text": "量",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9548,
+              "end_time": 9628,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 9868,
+              "end_time": 10028,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10028,
+              "end_time": 10108,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10108,
+              "end_time": 10268,
+              "text": "相",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10268,
+              "end_time": 10428,
+              "text": "关",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10428,
+              "end_time": 10428,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10428,
+              "end_time": 10668,
+              "text": "私",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 10668,
+              "end_time": 10988,
+              "text": "信",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 2,
+          "begin_time": 11468,
+          "end_time": 16188,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "那么二五年香港续签签证有四大变化，一分钟给大家总结，非常的重要。",
+          "words": [
+            {
+              "begin_time": 11468,
+              "end_time": 11548,
+              "text": "那",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11548,
+              "end_time": 11628,
+              "text": "么",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11628,
+              "end_time": 11788,
+              "text": "二",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11788,
+              "end_time": 11948,
+              "text": "五",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 11948,
+              "end_time": 12268,
+              "text": "年",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 12268,
+              "end_time": 12428,
+              "text": "香",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 12428,
+              "end_time": 12588,
+              "text": "港",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 12588,
+              "end_time": 12748,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 12748,
+              "end_time": 12908,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 12908,
+              "end_time": 13068,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 13068,
+              "end_time": 13228,
+              "text": "证",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 13228,
+              "end_time": 13388,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 13388,
+              "end_time": 13788,
+              "text": "四",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 13788,
+              "end_time": 14028,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 14028,
+              "end_time": 14188,
+              "text": "变",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 14188,
+              "end_time": 14428,
+              "text": "化",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 14508,
+              "end_time": 14668,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 14668,
+              "end_time": 14828,
+              "text": "分",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 14828,
+              "end_time": 14988,
+              "text": "钟",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 14988,
+              "end_time": 15068,
+              "text": "给",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15068,
+              "end_time": 15148,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15148,
+              "end_time": 15228,
+              "text": "家",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15308,
+              "end_time": 15468,
+              "text": "总",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15468,
+              "end_time": 15628,
+              "text": "结",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 15628,
+              "end_time": 15708,
+              "text": "非",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15708,
+              "end_time": 15868,
+              "text": "常",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15868,
+              "end_time": 15868,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 15868,
+              "end_time": 16028,
+              "text": "重",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 16028,
+              "end_time": 16188,
+              "text": "要",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 3,
+          "begin_time": 16908,
+          "end_time": 23628,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "首先，嗯，首先如果你不是parent的合同，现在不是是。",
+          "words": [
+            {
+              "begin_time": 16908,
+              "end_time": 17068,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 17068,
+              "end_time": 17228,
+              "text": "先",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 18908,
+              "end_time": 19148,
+              "text": "嗯",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 20348,
+              "end_time": 20508,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 20508,
+              "end_time": 20668,
+              "text": "先",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21068,
+              "end_time": 21228,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21228,
+              "end_time": 21308,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21308,
+              "end_time": 21388,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21388,
+              "end_time": 21548,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21548,
+              "end_time": 21708,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 21708,
+              "end_time": 21948,
+              "text": "parent",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22028,
+              "end_time": 22108,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22108,
+              "end_time": 22268,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22268,
+              "end_time": 22508,
+              "text": "同",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 22748,
+              "end_time": 22908,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 22908,
+              "end_time": 23148,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23148,
+              "end_time": 23228,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23228,
+              "end_time": 23388,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 23388,
+              "end_time": 23628,
+              "text": "是",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 4,
+          "begin_time": 28732,
+          "end_time": 40732,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "首先，如果你不是permanent的合同，现在不是，首先如果你不是permanent的合同，现在不再是三加三的形式续签，而是去合同年限和三年的最小值，这个在时间。",
+          "words": [
+            {
+              "begin_time": 28732,
+              "end_time": 28892,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 28892,
+              "end_time": 29132,
+              "text": "先",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 29532,
+              "end_time": 29612,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29612,
+              "end_time": 29692,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29772,
+              "end_time": 29852,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 29932,
+              "end_time": 30012,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30012,
+              "end_time": 30252,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30252,
+              "end_time": 30572,
+              "text": "permanent",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30572,
+              "end_time": 30572,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30652,
+              "end_time": 30812,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 30812,
+              "end_time": 31052,
+              "text": "同",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 31052,
+              "end_time": 31212,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31212,
+              "end_time": 31372,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31452,
+              "end_time": 31532,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 31532,
+              "end_time": 31932,
+              "text": "是",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 32652,
+              "end_time": 32812,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 32812,
+              "end_time": 33052,
+              "text": "先",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33052,
+              "end_time": 33132,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33132,
+              "end_time": 33292,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33292,
+              "end_time": 33372,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33372,
+              "end_time": 33452,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33452,
+              "end_time": 33612,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 33612,
+              "end_time": 34012,
+              "text": "permanent",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34012,
+              "end_time": 34012,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34012,
+              "end_time": 34252,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34252,
+              "end_time": 34492,
+              "text": "同",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 34492,
+              "end_time": 34572,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34572,
+              "end_time": 34732,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34812,
+              "end_time": 34892,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 34892,
+              "end_time": 35132,
+              "text": "再",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35132,
+              "end_time": 35292,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35292,
+              "end_time": 35532,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35532,
+              "end_time": 35612,
+              "text": "加",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35612,
+              "end_time": 35772,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35772,
+              "end_time": 35852,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 35852,
+              "end_time": 36092,
+              "text": "形",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 36092,
+              "end_time": 36252,
+              "text": "式",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 36252,
+              "end_time": 36492,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 36492,
+              "end_time": 36732,
+              "text": "签",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 37052,
+              "end_time": 37132,
+              "text": "而",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37132,
+              "end_time": 37452,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37452,
+              "end_time": 37772,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37772,
+              "end_time": 37852,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 37852,
+              "end_time": 38012,
+              "text": "同",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38012,
+              "end_time": 38172,
+              "text": "年",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38172,
+              "end_time": 38412,
+              "text": "限",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38412,
+              "end_time": 38572,
+              "text": "和",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38572,
+              "end_time": 38732,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38732,
+              "end_time": 38892,
+              "text": "年",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38892,
+              "end_time": 38892,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 38892,
+              "end_time": 39052,
+              "text": "最",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 39052,
+              "end_time": 39292,
+              "text": "小",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 39372,
+              "end_time": 39532,
+              "text": "值",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 39932,
+              "end_time": 40092,
+              "text": "这",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40092,
+              "end_time": 40172,
+              "text": "个",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40172,
+              "end_time": 40332,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40332,
+              "end_time": 40492,
+              "text": "时",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 40492,
+              "end_time": 40732,
+              "text": "间",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 5,
+          "begin_time": 42892,
+          "end_time": 52892,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "首先如果你不是permanent的合同，现在不再是三加三的形式续签，而是去合同年限和三年的最小值，这个在时间线上有很大的影响，要非常的注意。",
+          "words": [
+            {
+              "begin_time": 42892,
+              "end_time": 43052,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43052,
+              "end_time": 43292,
+              "text": "先",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43292,
+              "end_time": 43452,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43452,
+              "end_time": 43532,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43532,
+              "end_time": 43692,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43692,
+              "end_time": 43772,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43772,
+              "end_time": 43932,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 43932,
+              "end_time": 44332,
+              "text": "permanent",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44332,
+              "end_time": 44332,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44332,
+              "end_time": 44492,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 44572,
+              "end_time": 44812,
+              "text": "同",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 44892,
+              "end_time": 45052,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45052,
+              "end_time": 45212,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45212,
+              "end_time": 45372,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45372,
+              "end_time": 45612,
+              "text": "再",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45612,
+              "end_time": 45772,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 45852,
+              "end_time": 46012,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46012,
+              "end_time": 46092,
+              "text": "加",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46092,
+              "end_time": 46252,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46252,
+              "end_time": 46332,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46412,
+              "end_time": 46572,
+              "text": "形",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46572,
+              "end_time": 46732,
+              "text": "式",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46732,
+              "end_time": 46892,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 46892,
+              "end_time": 47132,
+              "text": "签",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 47452,
+              "end_time": 47532,
+              "text": "而",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 47532,
+              "end_time": 47692,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 47692,
+              "end_time": 48012,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48012,
+              "end_time": 48172,
+              "text": "合",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48172,
+              "end_time": 48252,
+              "text": "同",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48252,
+              "end_time": 48412,
+              "text": "年",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48412,
+              "end_time": 48652,
+              "text": "限",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48652,
+              "end_time": 48652,
+              "text": "和",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48732,
+              "end_time": 48892,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 48892,
+              "end_time": 49052,
+              "text": "年",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49052,
+              "end_time": 49132,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49132,
+              "end_time": 49292,
+              "text": "最",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49292,
+              "end_time": 49452,
+              "text": "小",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 49532,
+              "end_time": 49772,
+              "text": "值",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 50172,
+              "end_time": 50252,
+              "text": "这",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 50332,
+              "end_time": 50332,
+              "text": "个",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 50332,
+              "end_time": 50492,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 50492,
+              "end_time": 50732,
+              "text": "时",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 50732,
+              "end_time": 50892,
+              "text": "间",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 50892,
+              "end_time": 51052,
+              "text": "线",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51052,
+              "end_time": 51212,
+              "text": "上",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51212,
+              "end_time": 51292,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51372,
+              "end_time": 51452,
+              "text": "很",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51452,
+              "end_time": 51612,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51612,
+              "end_time": 51692,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51692,
+              "end_time": 51852,
+              "text": "影",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 51852,
+              "end_time": 52012,
+              "text": "响",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 52012,
+              "end_time": 52092,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52092,
+              "end_time": 52252,
+              "text": "非",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52252,
+              "end_time": 52332,
+              "text": "常",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52332,
+              "end_time": 52412,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52492,
+              "end_time": 52732,
+              "text": "注",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 52732,
+              "end_time": 52892,
+              "text": "意",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 6,
+          "begin_time": 53932,
+          "end_time": 55532,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "第二，怎么才能续签呢？",
+          "words": [
+            {
+              "begin_time": 53932,
+              "end_time": 54092,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54092,
+              "end_time": 54252,
+              "text": "二",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 54412,
+              "end_time": 54492,
+              "text": "怎",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54492,
+              "end_time": 54572,
+              "text": "么",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54652,
+              "end_time": 54812,
+              "text": "才",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54812,
+              "end_time": 54892,
+              "text": "能",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 54892,
+              "end_time": 55132,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 55132,
+              "end_time": 55372,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 55372,
+              "end_time": 55532,
+              "text": "呢",
+              "punctuation": "？"
+            }
+          ]
+        },
+        {
+          "sentence_id": 7,
+          "begin_time": 55532,
+          "end_time": 64732,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "首先对于I N G来说，需要在逗留期限截止日期前的二十八天完成续签，可以看一下来自入境处的截图。",
+          "words": [
+            {
+              "begin_time": 55532,
+              "end_time": 55772,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 55772,
+              "end_time": 56012,
+              "text": "先",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56092,
+              "end_time": 56252,
+              "text": "对",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56252,
+              "end_time": 56252,
+              "text": "于",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56332,
+              "end_time": 56652,
+              "text": "I ",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56652,
+              "end_time": 56732,
+              "text": "N ",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56732,
+              "end_time": 56812,
+              "text": "G",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56812,
+              "end_time": 56892,
+              "text": "来",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 56972,
+              "end_time": 57292,
+              "text": "说",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 57372,
+              "end_time": 57532,
+              "text": "需",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 57532,
+              "end_time": 57612,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 57692,
+              "end_time": 58092,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58092,
+              "end_time": 58252,
+              "text": "逗",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58252,
+              "end_time": 58492,
+              "text": "留",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 58812,
+              "end_time": 59052,
+              "text": "期",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59052,
+              "end_time": 59292,
+              "text": "限",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59452,
+              "end_time": 59692,
+              "text": "截",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59692,
+              "end_time": 59852,
+              "text": "止",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 59852,
+              "end_time": 60092,
+              "text": "日",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60092,
+              "end_time": 60332,
+              "text": "期",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60332,
+              "end_time": 60572,
+              "text": "前",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60572,
+              "end_time": 60652,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60652,
+              "end_time": 60812,
+              "text": "二",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60812,
+              "end_time": 60972,
+              "text": "十",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 60972,
+              "end_time": 61132,
+              "text": "八",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61132,
+              "end_time": 61292,
+              "text": "天",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61292,
+              "end_time": 61452,
+              "text": "完",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61452,
+              "end_time": 61612,
+              "text": "成",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61612,
+              "end_time": 61852,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 61852,
+              "end_time": 62092,
+              "text": "签",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 62732,
+              "end_time": 62892,
+              "text": "可",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 62892,
+              "end_time": 62972,
+              "text": "以",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 62972,
+              "end_time": 63132,
+              "text": "看",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63132,
+              "end_time": 63212,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63212,
+              "end_time": 63372,
+              "text": "下",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63452,
+              "end_time": 63532,
+              "text": "来",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63532,
+              "end_time": 63772,
+              "text": "自",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63772,
+              "end_time": 63932,
+              "text": "入",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 63932,
+              "end_time": 64012,
+              "text": "境",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64012,
+              "end_time": 64172,
+              "text": "处",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64172,
+              "end_time": 64252,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64252,
+              "end_time": 64572,
+              "text": "截",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 64572,
+              "end_time": 64732,
+              "text": "图",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 8,
+          "begin_time": 75532,
+          "end_time": 78332,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "第二，续签条件，怎样才能续签呢？",
+          "words": [
+            {
+              "begin_time": 75532,
+              "end_time": 75692,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 75692,
+              "end_time": 75852,
+              "text": "二",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 75852,
+              "end_time": 76012,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 76012,
+              "end_time": 76172,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 76172,
+              "end_time": 76332,
+              "text": "条",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 76492,
+              "end_time": 76812,
+              "text": "件",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 77452,
+              "end_time": 77532,
+              "text": "怎",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 77532,
+              "end_time": 77692,
+              "text": "样",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 77692,
+              "end_time": 77772,
+              "text": "才",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 77772,
+              "end_time": 77852,
+              "text": "能",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 77852,
+              "end_time": 78092,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78092,
+              "end_time": 78252,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78252,
+              "end_time": 78332,
+              "text": "呢",
+              "punctuation": "？"
+            }
+          ]
+        },
+        {
+          "sentence_id": 9,
+          "begin_time": 78412,
+          "end_time": 83212,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "首先对ING来说，需要在逗留期限前二十八天完成续签。",
+          "words": [
+            {
+              "begin_time": 78412,
+              "end_time": 78572,
+              "text": "首",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78572,
+              "end_time": 78812,
+              "text": "先",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78812,
+              "end_time": 78972,
+              "text": "对",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78972,
+              "end_time": 78972,
+              "text": "ING",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 78972,
+              "end_time": 79212,
+              "text": "来",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 79532,
+              "end_time": 79772,
+              "text": "说",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 79772,
+              "end_time": 79932,
+              "text": "需",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 79932,
+              "end_time": 80012,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 80012,
+              "end_time": 80252,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 80252,
+              "end_time": 80412,
+              "text": "逗",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 80412,
+              "end_time": 80572,
+              "text": "留",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 80572,
+              "end_time": 80812,
+              "text": "期",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 80812,
+              "end_time": 81292,
+              "text": "限",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 81292,
+              "end_time": 81612,
+              "text": "前",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 81852,
+              "end_time": 81932,
+              "text": "二",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 81932,
+              "end_time": 82092,
+              "text": "十",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82172,
+              "end_time": 82252,
+              "text": "八",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82252,
+              "end_time": 82492,
+              "text": "天",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82492,
+              "end_time": 82572,
+              "text": "完",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82652,
+              "end_time": 82732,
+              "text": "成",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82732,
+              "end_time": 82972,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 82972,
+              "end_time": 83212,
+              "text": "签",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 10,
+          "begin_time": 83772,
+          "end_time": 97772,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "我们可以看一下入境处最新的截图，续签的考核标准包括但不限于薪酬福利、公司的资质和营运状态，并且从事的工作必须要有学位的持有者担任，以及其薪酬福利必须达到市场的水平。",
+          "words": [
+            {
+              "begin_time": 83772,
+              "end_time": 83772,
+              "text": "我",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 83772,
+              "end_time": 83932,
+              "text": "们",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 83932,
+              "end_time": 84012,
+              "text": "可",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84012,
+              "end_time": 84172,
+              "text": "以",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84172,
+              "end_time": 84252,
+              "text": "看",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84332,
+              "end_time": 84492,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84492,
+              "end_time": 84812,
+              "text": "下",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84812,
+              "end_time": 84892,
+              "text": "入",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 84892,
+              "end_time": 85052,
+              "text": "境",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85052,
+              "end_time": 85212,
+              "text": "处",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85212,
+              "end_time": 85292,
+              "text": "最",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85292,
+              "end_time": 85452,
+              "text": "新",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85452,
+              "end_time": 85532,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85612,
+              "end_time": 85852,
+              "text": "截",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 85852,
+              "end_time": 86092,
+              "text": "图",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 86412,
+              "end_time": 86572,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 86572,
+              "end_time": 86652,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 86652,
+              "end_time": 86732,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 86812,
+              "end_time": 86972,
+              "text": "考",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 86972,
+              "end_time": 87052,
+              "text": "核",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 87052,
+              "end_time": 87292,
+              "text": "标",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 87292,
+              "end_time": 87452,
+              "text": "准",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 87612,
+              "end_time": 87772,
+              "text": "包",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 87772,
+              "end_time": 88012,
+              "text": "括",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 88012,
+              "end_time": 88172,
+              "text": "但",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 88252,
+              "end_time": 88412,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 88412,
+              "end_time": 88812,
+              "text": "限",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 88892,
+              "end_time": 89132,
+              "text": "于",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 89132,
+              "end_time": 89292,
+              "text": "薪",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 89292,
+              "end_time": 89372,
+              "text": "酬",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 89372,
+              "end_time": 89612,
+              "text": "福",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 89612,
+              "end_time": 89772,
+              "text": "利",
+              "punctuation": "、"
+            },
+            {
+              "begin_time": 89772,
+              "end_time": 89932,
+              "text": "公",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90012,
+              "end_time": 90172,
+              "text": "司",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90172,
+              "end_time": 90172,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90172,
+              "end_time": 90412,
+              "text": "资",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90412,
+              "end_time": 90572,
+              "text": "质",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90572,
+              "end_time": 90652,
+              "text": "和",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90652,
+              "end_time": 90732,
+              "text": "营",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90732,
+              "end_time": 90972,
+              "text": "运",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 90972,
+              "end_time": 91212,
+              "text": "状",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 91212,
+              "end_time": 91452,
+              "text": "态",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 91932,
+              "end_time": 92092,
+              "text": "并",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92092,
+              "end_time": 92252,
+              "text": "且",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92252,
+              "end_time": 92412,
+              "text": "从",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92412,
+              "end_time": 92572,
+              "text": "事",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92572,
+              "end_time": 92652,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92652,
+              "end_time": 92812,
+              "text": "工",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92812,
+              "end_time": 92972,
+              "text": "作",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 92972,
+              "end_time": 93132,
+              "text": "必",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 93132,
+              "end_time": 93292,
+              "text": "须",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 93292,
+              "end_time": 93452,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 93452,
+              "end_time": 93612,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 93852,
+              "end_time": 94092,
+              "text": "学",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 94172,
+              "end_time": 94252,
+              "text": "位",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 94252,
+              "end_time": 94412,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 94412,
+              "end_time": 94652,
+              "text": "持",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 94652,
+              "end_time": 94732,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 94732,
+              "end_time": 94892,
+              "text": "者",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 95052,
+              "end_time": 95212,
+              "text": "担",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 95212,
+              "end_time": 95452,
+              "text": "任",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 95532,
+              "end_time": 95532,
+              "text": "以",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 95532,
+              "end_time": 95692,
+              "text": "及",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 95692,
+              "end_time": 95852,
+              "text": "其",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 95852,
+              "end_time": 96092,
+              "text": "薪",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96092,
+              "end_time": 96252,
+              "text": "酬",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96252,
+              "end_time": 96412,
+              "text": "福",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96492,
+              "end_time": 96572,
+              "text": "利",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96572,
+              "end_time": 96652,
+              "text": "必",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96652,
+              "end_time": 96812,
+              "text": "须",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96812,
+              "end_time": 96972,
+              "text": "达",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96972,
+              "end_time": 96972,
+              "text": "到",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 96972,
+              "end_time": 97132,
+              "text": "市",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 97132,
+              "end_time": 97372,
+              "text": "场",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 97372,
+              "end_time": 97372,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 97372,
+              "end_time": 97612,
+              "text": "水",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 97612,
+              "end_time": 97772,
+              "text": "平",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 11,
+          "begin_time": 97772,
+          "end_time": 112492,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "换句话说，对于申请者的学位、现在薪酬福利水平和学位持有都必须有一个要求，避免你去从事一些大家都懂的一些低技术的一些工作去达到续签的目的。",
+          "words": [
+            {
+              "begin_time": 97772,
+              "end_time": 97932,
+              "text": "换",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 97932,
+              "end_time": 98092,
+              "text": "句",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 98092,
+              "end_time": 98252,
+              "text": "话",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 98252,
+              "end_time": 98572,
+              "text": "说",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 99292,
+              "end_time": 99452,
+              "text": "对",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 99452,
+              "end_time": 99532,
+              "text": "于",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 99532,
+              "end_time": 99772,
+              "text": "申",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 99772,
+              "end_time": 99932,
+              "text": "请",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 99932,
+              "end_time": 100092,
+              "text": "者",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 100092,
+              "end_time": 100092,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 100092,
+              "end_time": 100412,
+              "text": "学",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 100412,
+              "end_time": 100652,
+              "text": "位",
+              "punctuation": "、"
+            },
+            {
+              "begin_time": 100652,
+              "end_time": 100972,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 100972,
+              "end_time": 101292,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 101452,
+              "end_time": 101692,
+              "text": "薪",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 101692,
+              "end_time": 101852,
+              "text": "酬",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 101852,
+              "end_time": 102172,
+              "text": "福",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 102172,
+              "end_time": 102332,
+              "text": "利",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 102332,
+              "end_time": 102572,
+              "text": "水",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 102572,
+              "end_time": 102892,
+              "text": "平",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 102892,
+              "end_time": 103292,
+              "text": "和",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 103292,
+              "end_time": 103532,
+              "text": "学",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 103612,
+              "end_time": 103852,
+              "text": "位",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 103852,
+              "end_time": 104172,
+              "text": "持",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 104172,
+              "end_time": 104332,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 104332,
+              "end_time": 104572,
+              "text": "都",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 104572,
+              "end_time": 104652,
+              "text": "必",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 104652,
+              "end_time": 104972,
+              "text": "须",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 104972,
+              "end_time": 105052,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 105212,
+              "end_time": 105292,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 105292,
+              "end_time": 105452,
+              "text": "个",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 105532,
+              "end_time": 105772,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 105772,
+              "end_time": 106092,
+              "text": "求",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 106572,
+              "end_time": 106732,
+              "text": "避",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 106732,
+              "end_time": 106972,
+              "text": "免",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 106972,
+              "end_time": 107052,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 107052,
+              "end_time": 107292,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 107292,
+              "end_time": 107532,
+              "text": "从",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 107532,
+              "end_time": 107772,
+              "text": "事",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 107772,
+              "end_time": 107932,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 107932,
+              "end_time": 108172,
+              "text": "些",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108172,
+              "end_time": 108252,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108252,
+              "end_time": 108332,
+              "text": "家",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108412,
+              "end_time": 108492,
+              "text": "都",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108572,
+              "end_time": 108812,
+              "text": "懂",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108812,
+              "end_time": 108892,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 108892,
+              "end_time": 109052,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 109052,
+              "end_time": 109292,
+              "text": "些",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 109292,
+              "end_time": 109452,
+              "text": "低",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 109452,
+              "end_time": 109692,
+              "text": "技",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 109692,
+              "end_time": 109932,
+              "text": "术",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 109932,
+              "end_time": 110012,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 110092,
+              "end_time": 110172,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 110172,
+              "end_time": 110332,
+              "text": "些",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 110332,
+              "end_time": 110572,
+              "text": "工",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 110572,
+              "end_time": 110892,
+              "text": "作",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111052,
+              "end_time": 111452,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111452,
+              "end_time": 111612,
+              "text": "达",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111612,
+              "end_time": 111692,
+              "text": "到",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111692,
+              "end_time": 111852,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111852,
+              "end_time": 111932,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 111932,
+              "end_time": 112012,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 112012,
+              "end_time": 112252,
+              "text": "目",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 112252,
+              "end_time": 112492,
+              "text": "的",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 12,
+          "begin_time": 117932,
+          "end_time": 127692,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "第三就是，第三就是续签费现在上调到了申请费六百块钱，加上签证费一千三百块钱，一共是一千九百块钱。",
+          "words": [
+            {
+              "begin_time": 117932,
+              "end_time": 118092,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 118092,
+              "end_time": 118332,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 118492,
+              "end_time": 118732,
+              "text": "就",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 118732,
+              "end_time": 118972,
+              "text": "是",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 119452,
+              "end_time": 119532,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 119532,
+              "end_time": 119852,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 119932,
+              "end_time": 120092,
+              "text": "就",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120092,
+              "end_time": 120172,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120172,
+              "end_time": 120412,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120412,
+              "end_time": 120572,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120572,
+              "end_time": 120812,
+              "text": "费",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120812,
+              "end_time": 120972,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 120972,
+              "end_time": 121132,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 121132,
+              "end_time": 121372,
+              "text": "上",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 121452,
+              "end_time": 121772,
+              "text": "调",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 121772,
+              "end_time": 122012,
+              "text": "到",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 122012,
+              "end_time": 122252,
+              "text": "了",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 122252,
+              "end_time": 122412,
+              "text": "申",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 122412,
+              "end_time": 122572,
+              "text": "请",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 122572,
+              "end_time": 122892,
+              "text": "费",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 122892,
+              "end_time": 123052,
+              "text": "六",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 123052,
+              "end_time": 123292,
+              "text": "百",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 123292,
+              "end_time": 123532,
+              "text": "块",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 123532,
+              "end_time": 123692,
+              "text": "钱",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 123692,
+              "end_time": 123932,
+              "text": "加",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 123932,
+              "end_time": 124092,
+              "text": "上",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 124412,
+              "end_time": 124732,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 124732,
+              "end_time": 124892,
+              "text": "证",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 124892,
+              "end_time": 125212,
+              "text": "费",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125212,
+              "end_time": 125212,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125212,
+              "end_time": 125372,
+              "text": "千",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125372,
+              "end_time": 125532,
+              "text": "三",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125532,
+              "end_time": 125612,
+              "text": "百",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125612,
+              "end_time": 125772,
+              "text": "块",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 125772,
+              "end_time": 126012,
+              "text": "钱",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 126012,
+              "end_time": 126012,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126012,
+              "end_time": 126172,
+              "text": "共",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126172,
+              "end_time": 126412,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126492,
+              "end_time": 126652,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126652,
+              "end_time": 126812,
+              "text": "千",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126812,
+              "end_time": 126972,
+              "text": "九",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 126972,
+              "end_time": 127132,
+              "text": "百",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 127132,
+              "end_time": 127292,
+              "text": "块",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 127372,
+              "end_time": 127692,
+              "text": "钱",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 13,
+          "begin_time": 128172,
+          "end_time": 138092,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "第四就是续签现在不再是通过填填表，第四就是续签现在不再是通过填表的方式，而是通过纯电子的网站这。",
+          "words": [
+            {
+              "begin_time": 128172,
+              "end_time": 128332,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 128332,
+              "end_time": 128572,
+              "text": "四",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 128572,
+              "end_time": 128812,
+              "text": "就",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 128812,
+              "end_time": 129052,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 129372,
+              "end_time": 129612,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 129612,
+              "end_time": 129852,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 129932,
+              "end_time": 130092,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 130172,
+              "end_time": 130412,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 130492,
+              "end_time": 130572,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 130572,
+              "end_time": 130732,
+              "text": "再",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 130732,
+              "end_time": 130892,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 130892,
+              "end_time": 131132,
+              "text": "通",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 131132,
+              "end_time": 131212,
+              "text": "过",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 131212,
+              "end_time": 131452,
+              "text": "填",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 131532,
+              "end_time": 131772,
+              "text": "填",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 131772,
+              "end_time": 132012,
+              "text": "表",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 132732,
+              "end_time": 132812,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 132812,
+              "end_time": 133052,
+              "text": "四",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133052,
+              "end_time": 133132,
+              "text": "就",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133132,
+              "end_time": 133292,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133292,
+              "end_time": 133532,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133532,
+              "end_time": 133692,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133772,
+              "end_time": 133852,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 133852,
+              "end_time": 133932,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134012,
+              "end_time": 134092,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134092,
+              "end_time": 134332,
+              "text": "再",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134332,
+              "end_time": 134412,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134412,
+              "end_time": 134572,
+              "text": "通",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134572,
+              "end_time": 134652,
+              "text": "过",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134732,
+              "end_time": 134892,
+              "text": "填",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134892,
+              "end_time": 134972,
+              "text": "表",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 134972,
+              "end_time": 135052,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 135132,
+              "end_time": 135372,
+              "text": "方",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 135372,
+              "end_time": 135612,
+              "text": "式",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 135692,
+              "end_time": 135772,
+              "text": "而",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 135772,
+              "end_time": 135932,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 135932,
+              "end_time": 136252,
+              "text": "通",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 136252,
+              "end_time": 136492,
+              "text": "过",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 136732,
+              "end_time": 136972,
+              "text": "纯",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 137052,
+              "end_time": 137292,
+              "text": "电",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 137292,
+              "end_time": 137372,
+              "text": "子",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 137372,
+              "end_time": 137452,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 137532,
+              "end_time": 137772,
+              "text": "网",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 137772,
+              "end_time": 138012,
+              "text": "站",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 138012,
+              "end_time": 138092,
+              "text": "这",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 14,
+          "begin_time": 139532,
+          "end_time": 144972,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "第四就是现在续签变成了纯电子网站的一个方式，不再需要去填表了。",
+          "words": [
+            {
+              "begin_time": 139532,
+              "end_time": 139612,
+              "text": "第",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 139612,
+              "end_time": 139852,
+              "text": "四",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 139852,
+              "end_time": 140012,
+              "text": "就",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140012,
+              "end_time": 140172,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140172,
+              "end_time": 140332,
+              "text": "现",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140332,
+              "end_time": 140412,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140412,
+              "end_time": 140572,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140572,
+              "end_time": 140812,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140812,
+              "end_time": 140972,
+              "text": "变",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 140972,
+              "end_time": 141052,
+              "text": "成",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141052,
+              "end_time": 141132,
+              "text": "了",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141212,
+              "end_time": 141452,
+              "text": "纯",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141452,
+              "end_time": 141612,
+              "text": "电",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141612,
+              "end_time": 141772,
+              "text": "子",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141772,
+              "end_time": 141932,
+              "text": "网",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 141932,
+              "end_time": 142172,
+              "text": "站",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 142172,
+              "end_time": 142252,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 142252,
+              "end_time": 142332,
+              "text": "一",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 142332,
+              "end_time": 142412,
+              "text": "个",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 142492,
+              "end_time": 142732,
+              "text": "方",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 142732,
+              "end_time": 142972,
+              "text": "式",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 143212,
+              "end_time": 143292,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 143292,
+              "end_time": 143452,
+              "text": "再",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 143532,
+              "end_time": 143692,
+              "text": "需",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 143692,
+              "end_time": 143852,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 143852,
+              "end_time": 144332,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 144332,
+              "end_time": 144572,
+              "text": "填",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 144652,
+              "end_time": 144812,
+              "text": "表",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 144892,
+              "end_time": 144972,
+              "text": "了",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 15,
+          "begin_time": 146892,
+          "end_time": 152332,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "很多人都被忽悠了，觉得说续签好复杂，需要找中介，千万不要。",
+          "words": [
+            {
+              "begin_time": 146892,
+              "end_time": 147052,
+              "text": "很",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 147052,
+              "end_time": 147212,
+              "text": "多",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 147212,
+              "end_time": 147532,
+              "text": "人",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 147852,
+              "end_time": 148012,
+              "text": "都",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 148012,
+              "end_time": 148252,
+              "text": "被",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 148252,
+              "end_time": 148492,
+              "text": "忽",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 148492,
+              "end_time": 148732,
+              "text": "悠",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 148732,
+              "end_time": 148972,
+              "text": "了",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 149372,
+              "end_time": 149532,
+              "text": "觉",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 149532,
+              "end_time": 149612,
+              "text": "得",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 149612,
+              "end_time": 149852,
+              "text": "说",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 149852,
+              "end_time": 150012,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 150092,
+              "end_time": 150252,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 150252,
+              "end_time": 150412,
+              "text": "好",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 150412,
+              "end_time": 150572,
+              "text": "复",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 150572,
+              "end_time": 150812,
+              "text": "杂",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 150812,
+              "end_time": 150972,
+              "text": "需",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 150972,
+              "end_time": 151052,
+              "text": "要",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 151052,
+              "end_time": 151212,
+              "text": "找",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 151212,
+              "end_time": 151372,
+              "text": "中",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 151452,
+              "end_time": 151612,
+              "text": "介",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 151612,
+              "end_time": 151852,
+              "text": "千",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 151852,
+              "end_time": 152012,
+              "text": "万",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 152092,
+              "end_time": 152172,
+              "text": "不",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 152172,
+              "end_time": 152332,
+              "text": "要",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 16,
+          "begin_time": 152972,
+          "end_time": 161692,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "网上申请是非常容易的，并且如果你有续签相关的问题，都可以到人才办的网站去查询，会有专人的解答。",
+          "words": [
+            {
+              "begin_time": 152972,
+              "end_time": 153052,
+              "text": "网",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153052,
+              "end_time": 153132,
+              "text": "上",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153132,
+              "end_time": 153292,
+              "text": "申",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153292,
+              "end_time": 153452,
+              "text": "请",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153452,
+              "end_time": 153612,
+              "text": "是",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153612,
+              "end_time": 153772,
+              "text": "非",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 153772,
+              "end_time": 154012,
+              "text": "常",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 154012,
+              "end_time": 154172,
+              "text": "容",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 154172,
+              "end_time": 154332,
+              "text": "易",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 154332,
+              "end_time": 154412,
+              "text": "的",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 154732,
+              "end_time": 154892,
+              "text": "并",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 154892,
+              "end_time": 155212,
+              "text": "且",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 155212,
+              "end_time": 155372,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 155372,
+              "end_time": 155532,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 155532,
+              "end_time": 155612,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 155612,
+              "end_time": 155772,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 155852,
+              "end_time": 156092,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156092,
+              "end_time": 156252,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156252,
+              "end_time": 156412,
+              "text": "相",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156412,
+              "end_time": 156572,
+              "text": "关",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156572,
+              "end_time": 156652,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156652,
+              "end_time": 156812,
+              "text": "问",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 156812,
+              "end_time": 157132,
+              "text": "题",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 157132,
+              "end_time": 157292,
+              "text": "都",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 157292,
+              "end_time": 157452,
+              "text": "可",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 157452,
+              "end_time": 157612,
+              "text": "以",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 157612,
+              "end_time": 157852,
+              "text": "到",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 158252,
+              "end_time": 158412,
+              "text": "人",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 158412,
+              "end_time": 158652,
+              "text": "才",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 158652,
+              "end_time": 158812,
+              "text": "办",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 158812,
+              "end_time": 158892,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 159132,
+              "end_time": 159292,
+              "text": "网",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 159292,
+              "end_time": 159452,
+              "text": "站",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 159452,
+              "end_time": 159532,
+              "text": "去",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 159532,
+              "end_time": 159852,
+              "text": "查",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 159852,
+              "end_time": 160252,
+              "text": "询",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 160492,
+              "end_time": 160652,
+              "text": "会",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 160652,
+              "end_time": 160732,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 160892,
+              "end_time": 161052,
+              "text": "专",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 161052,
+              "end_time": 161212,
+              "text": "人",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 161212,
+              "end_time": 161212,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 161292,
+              "end_time": 161532,
+              "text": "解",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 161532,
+              "end_time": 161692,
+              "text": "答",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 17,
+          "begin_time": 164204,
+          "end_time": 171964,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "强烈大家关注香港人才服务办公室的官方小红书账号，那里有更多的实用信息和最新政策的解读。",
+          "words": [
+            {
+              "begin_time": 164204,
+              "end_time": 164444,
+              "text": "强",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 164444,
+              "end_time": 164604,
+              "text": "烈",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 164604,
+              "end_time": 164844,
+              "text": "大",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 164844,
+              "end_time": 165004,
+              "text": "家",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 165084,
+              "end_time": 165324,
+              "text": "关",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 165324,
+              "end_time": 165564,
+              "text": "注",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 165644,
+              "end_time": 165884,
+              "text": "香",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 165884,
+              "end_time": 166044,
+              "text": "港",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 166044,
+              "end_time": 166124,
+              "text": "人",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 166124,
+              "end_time": 166364,
+              "text": "才",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 166364,
+              "end_time": 166764,
+              "text": "服",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 166764,
+              "end_time": 166764,
+              "text": "务",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 166844,
+              "end_time": 167004,
+              "text": "办",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167004,
+              "end_time": 167084,
+              "text": "公",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167084,
+              "end_time": 167324,
+              "text": "室",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167324,
+              "end_time": 167404,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167484,
+              "end_time": 167644,
+              "text": "官",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167644,
+              "end_time": 167804,
+              "text": "方",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 167804,
+              "end_time": 168044,
+              "text": "小",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 168044,
+              "end_time": 168124,
+              "text": "红",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 168124,
+              "end_time": 168284,
+              "text": "书",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 168284,
+              "end_time": 168444,
+              "text": "账",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 168524,
+              "end_time": 168764,
+              "text": "号",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 169004,
+              "end_time": 169164,
+              "text": "那",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169164,
+              "end_time": 169244,
+              "text": "里",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169244,
+              "end_time": 169324,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169404,
+              "end_time": 169564,
+              "text": "更",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169564,
+              "end_time": 169644,
+              "text": "多",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169724,
+              "end_time": 169804,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 169804,
+              "end_time": 169964,
+              "text": "实",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170044,
+              "end_time": 170124,
+              "text": "用",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170124,
+              "end_time": 170364,
+              "text": "信",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170364,
+              "end_time": 170604,
+              "text": "息",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170604,
+              "end_time": 170764,
+              "text": "和",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170764,
+              "end_time": 170924,
+              "text": "最",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 170924,
+              "end_time": 171084,
+              "text": "新",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 171084,
+              "end_time": 171324,
+              "text": "政",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 171324,
+              "end_time": 171484,
+              "text": "策",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 171484,
+              "end_time": 171564,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 171564,
+              "end_time": 171804,
+              "text": "解",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 171804,
+              "end_time": 171964,
+              "text": "读",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 18,
+          "begin_time": 172284,
+          "end_time": 176364,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "如果你有续签的问题，欢迎点赞收藏评论，在评论里。",
+          "words": [
+            {
+              "begin_time": 172284,
+              "end_time": 172364,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 172364,
+              "end_time": 172444,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 172524,
+              "end_time": 172604,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 172604,
+              "end_time": 172764,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 172764,
+              "end_time": 172924,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 172924,
+              "end_time": 173084,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 173084,
+              "end_time": 173164,
+              "text": "的",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 173164,
+              "end_time": 173324,
+              "text": "问",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 173404,
+              "end_time": 173564,
+              "text": "题",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 173564,
+              "end_time": 173724,
+              "text": "欢",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 173724,
+              "end_time": 173964,
+              "text": "迎",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 174044,
+              "end_time": 174204,
+              "text": "点",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 174204,
+              "end_time": 174284,
+              "text": "赞",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 174284,
+              "end_time": 174524,
+              "text": "收",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 174524,
+              "end_time": 174764,
+              "text": "藏",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 174764,
+              "end_time": 175004,
+              "text": "评",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 175004,
+              "end_time": 175084,
+              "text": "论",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 175484,
+              "end_time": 175724,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 175724,
+              "end_time": 175884,
+              "text": "评",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 175884,
+              "end_time": 176044,
+              "text": "论",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 176044,
+              "end_time": 176364,
+              "text": "里",
+              "punctuation": "。"
+            }
+          ]
+        },
+        {
+          "sentence_id": 19,
+          "begin_time": 177324,
+          "end_time": 181804,
+          "language": "zh",
+          "emotion": "neutral",
+          "text": "如果你有续签问题，欢迎点赞收藏在评论区留言交流，下期见。",
+          "words": [
+            {
+              "begin_time": 177324,
+              "end_time": 177484,
+              "text": "如",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 177484,
+              "end_time": 177484,
+              "text": "果",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 177484,
+              "end_time": 177644,
+              "text": "你",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 177644,
+              "end_time": 177804,
+              "text": "有",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 177804,
+              "end_time": 177964,
+              "text": "续",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 177964,
+              "end_time": 178124,
+              "text": "签",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 178124,
+              "end_time": 178284,
+              "text": "问",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 178284,
+              "end_time": 178524,
+              "text": "题",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 178524,
+              "end_time": 178684,
+              "text": "欢",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 178684,
+              "end_time": 179084,
+              "text": "迎",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 179084,
+              "end_time": 179324,
+              "text": "点",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 179324,
+              "end_time": 179484,
+              "text": "赞",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 179564,
+              "end_time": 179724,
+              "text": "收",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 179724,
+              "end_time": 179884,
+              "text": "藏",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 179884,
+              "end_time": 180044,
+              "text": "在",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180044,
+              "end_time": 180204,
+              "text": "评",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180204,
+              "end_time": 180284,
+              "text": "论",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180364,
+              "end_time": 180524,
+              "text": "区",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180524,
+              "end_time": 180684,
+              "text": "留",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180684,
+              "end_time": 180844,
+              "text": "言",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 180844,
+              "end_time": 181004,
+              "text": "交",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 181004,
+              "end_time": 181244,
+              "text": "流",
+              "punctuation": "，"
+            },
+            {
+              "begin_time": 181404,
+              "end_time": 181484,
+              "text": "下",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 181564,
+              "end_time": 181644,
+              "text": "期",
+              "punctuation": ""
+            },
+            {
+              "begin_time": 181644,
+              "end_time": 181804,
+              "text": "见",
+              "punctuation": "。"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

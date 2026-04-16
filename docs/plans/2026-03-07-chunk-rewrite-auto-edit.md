@@ -4,7 +4,7 @@
 
 **Goal:** Change auto-edit from line-by-line polish to chunk-level rewrite after removal and short-line merging.
 
-**Architecture:** Keep the existing remove/boundary-review flow, then build merged keep-groups and send each batch of groups to the LLM for contextual rewrite. Convert the rewritten groups back into merged subtitles while preserving removed lines as explicit `<<REMOVE>>` markers for Step1 UI.
+**Architecture:** Keep the existing remove/boundary-review flow, then build merged keep-groups and send each batch of groups to the LLM for contextual rewrite. Convert the rewritten groups back into merged subtitles while preserving removed lines as explicit `<<REMOVE>>` markers for Test UI.
 
 **Tech Stack:** Python, unittest, existing `video_auto_cut` PI-agent modules
 
@@ -20,7 +20,7 @@
 
 Add coverage that:
 - the polish loop can rewrite merged groups instead of single lines
-- `_auto_edit_segments()` rewrites merged keep-groups with contextual prompts and emits merged Step1 lines
+- `_auto_edit_segments()` rewrites merged keep-groups with contextual prompts and emits merged Test lines
 
 **Step 2: Run test to verify it fails**
 

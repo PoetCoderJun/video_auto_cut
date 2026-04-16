@@ -4,9 +4,9 @@
 
 **Goal:** Replace the current fixed two-pass auto-edit flow with a Kimi-driven PI agent that runs `删后置重复 -> 合并短句 -> 逐行润色` as an autonomous `改 + 查 + 改` loop, while keeping chunking mechanical and output state auditable.
 
-**Architecture:** Keep chunking fixed at `30` lines with overlap, but move chunk execution into a dedicated orchestrator that manages explicit skills. Each chunk runs `inspect -> remove draft -> remove critique -> remove revise -> rule merge -> polish draft -> polish critique -> polish revise`, then a boundary pass reconciles overlap regions. Merge remains deterministic, but every merged line stores source line IDs so Step1 editing can stay debuggable.
+**Architecture:** Keep chunking fixed at `30` lines with overlap, but move chunk execution into a dedicated orchestrator that manages explicit skills. Each chunk runs `inspect -> remove draft -> remove critique -> remove revise -> rule merge -> polish draft -> polish critique -> polish revise`, then a boundary pass reconciles overlap regions. Merge remains deterministic, but every merged line stores source line IDs so Test editing can stay debuggable.
 
-**Tech Stack:** Python, `srt`, existing `video_auto_cut.editing.llm_client`, unittest, existing Step1 SRT pipeline.
+**Tech Stack:** Python, `srt`, existing `video_auto_cut.editing.llm_client`, unittest, existing Test SRT pipeline.
 
 ---
 
@@ -263,27 +263,27 @@ git add video_auto_cut/editing/pi_agent_boundary.py video_auto_cut/editing/auto_
 git commit -m "feat(auto-edit): add pi agent boundary reconciliation"
 ```
 
-### Task 7: Wire PI agent into AutoEdit and Step1 outputs
+### Task 7: Wire PI agent into AutoEdit and Test outputs
 
 **Files:**
 - Modify: `video_auto_cut/editing/auto_edit.py`
 - Modify: `video_auto_cut/orchestration/pipeline_service.py`
-- Modify: `web_api/services/step1.py`
+- Modify: `web_api/services/test.py`
 - Modify: `web_api/utils/srt_utils.py`
 - Test: `web_api/tests/test_auto_edit_e2e.py`
-- Test: `web_api/tests/test_step1_srt_utils.py`
+- Test: `web_api/tests/test_test_srt_utils.py`
 
 **Step 1: Write the failing test**
 
 Add end-to-end tests covering:
 - `run_auto_edit()` uses PI agent path
 - `optimized.srt` remains auditable with stable line IDs
-- Step1 can read PI-agent output without losing remove markers
+- Test can read PI-agent output without losing remove markers
 - merged groups keep provenance in debug JSON
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m unittest web_api.tests.test_auto_edit_e2e web_api.tests.test_step1_srt_utils -v`
+Run: `python -m unittest web_api.tests.test_auto_edit_e2e web_api.tests.test_test_srt_utils -v`
 Expected: FAIL until the new output contract is wired through.
 
 **Step 3: Write minimal implementation**
@@ -292,18 +292,18 @@ Integrate the new orchestrator as the main auto-edit path. Keep the public API s
 - `run_auto_edit()` still returns `optimized.srt`
 - debug JSON gains PI-agent execution metadata
 
-Step1 must consume the new SRT format without dropping editability. If merged display lines are produced for export, preserve source line IDs in debug / sidecar data.
+Test must consume the new SRT format without dropping editability. If merged display lines are produced for export, preserve source line IDs in debug / sidecar data.
 
 **Step 4: Run test to verify it passes**
 
-Run: `python -m unittest web_api.tests.test_auto_edit_e2e web_api.tests.test_step1_srt_utils -v`
+Run: `python -m unittest web_api.tests.test_auto_edit_e2e web_api.tests.test_test_srt_utils -v`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add video_auto_cut/editing/auto_edit.py video_auto_cut/orchestration/pipeline_service.py web_api/services/step1.py web_api/utils/srt_utils.py web_api/tests/test_auto_edit_e2e.py web_api/tests/test_step1_srt_utils.py
-git commit -m "feat(auto-edit): wire pi agent into step1 pipeline"
+git add video_auto_cut/editing/auto_edit.py video_auto_cut/orchestration/pipeline_service.py web_api/services/test.py web_api/utils/srt_utils.py web_api/tests/test_auto_edit_e2e.py web_api/tests/test_test_srt_utils.py
+git commit -m "feat(auto-edit): wire pi agent into test pipeline"
 ```
 
 ### Task 8: Verify on real media and compare prompts
@@ -325,14 +325,14 @@ python -m unittest \
   web_api.tests.test_pi_agent_polish \
   web_api.tests.test_pi_agent_boundary \
   web_api.tests.test_auto_edit_e2e \
-  web_api.tests.test_step1_srt_utils -v
+  web_api.tests.test_test_srt_utils -v
 ```
 
 Expected: PASS.
 
 **Step 2: Run real-media verification**
 
-Run the actual Step1 auto-edit flow against:
+Run the actual Test auto-edit flow against:
 - `/Users/huzujun/Downloads/dji_export_20260302_122707_1772425627574_compose_0.MOV`
 
 Compare:
@@ -340,7 +340,7 @@ Compare:
 - kept line count
 - kept duration
 - whether the `不用反复重复` class of error survives
-- whether manual Step1 editing is easier because provenance is preserved
+- whether manual Test editing is easier because provenance is preserved
 
 **Step 3: Record findings**
 

@@ -365,32 +365,112 @@ class DashScopeFiletransClient:
         comma_pause_ms: float,
         max_seg_ms: float,
     ) -> bool:
-        has_strong_punc = any(ch in strong_punc for ch in punct)
-        if has_strong_punc:
+        if self._should_split_on_strong_punctuation(punct, strong_punc):
             return True
 
-        has_comma_punc = any(ch in comma_punc for ch in punct)
-        if (
-            bool(self._config.word_split_on_comma)
-            and has_comma_punc
-            and (
-                seg_ms >= min_seg_ms_for_comma
-                or seg_chars >= min_chars_for_comma
-                or gap_ms >= comma_pause_ms
-            )
+        if self._should_split_on_comma(
+            punct=punct,
+            comma_punc=comma_punc,
+            seg_ms=seg_ms,
+            seg_chars=seg_chars,
+            gap_ms=gap_ms,
+            min_seg_ms_for_comma=min_seg_ms_for_comma,
+            min_chars_for_comma=min_chars_for_comma,
+            comma_pause_ms=comma_pause_ms,
         ):
             return True
 
-        if gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad:
+        if self._should_split_on_vad_gap(
+            gap_ms=gap_ms,
+            seg_chars=seg_chars,
+            seg_ms=seg_ms,
+            min_chars=min_chars,
+            min_seg_ms_for_vad=min_seg_ms_for_vad,
+            vad_gap_ms=vad_gap_ms,
+        ):
             return True
 
-        if seg_ms >= max_seg_ms and punct in strong_punc:
+        if self._should_split_on_max_segment_guardrail(
+            punct=punct,
+            strong_punc=strong_punc,
+            seg_ms=seg_ms,
+            max_seg_ms=max_seg_ms,
+        ):
             return True
 
-        if seg_punct_count >= SEGMENT_PUNCT_LIMIT and punct in comma_punc.union(strong_punc):
+        if self._should_split_on_punctuation_cap(
+            punct=punct,
+            comma_punc=comma_punc,
+            strong_punc=strong_punc,
+            seg_punct_count=seg_punct_count,
+        ):
             return True
 
         return False
+
+    @staticmethod
+    def _should_split_on_strong_punctuation(
+        punct: str,
+        strong_punc: set[str],
+    ) -> bool:
+        return any(ch in strong_punc for ch in punct)
+
+    def _should_split_on_comma(
+        self,
+        *,
+        punct: str,
+        comma_punc: set[str],
+        seg_ms: float,
+        seg_chars: int,
+        gap_ms: float,
+        min_seg_ms_for_comma: float,
+        min_chars_for_comma: int,
+        comma_pause_ms: float,
+    ) -> bool:
+        if not bool(self._config.word_split_on_comma):
+            return False
+        has_comma_punc = any(ch in comma_punc for ch in punct)
+        if not has_comma_punc:
+            return False
+        return (
+            seg_ms >= min_seg_ms_for_comma
+            or seg_chars >= min_chars_for_comma
+            or gap_ms >= comma_pause_ms
+        )
+
+    @staticmethod
+    def _should_split_on_vad_gap(
+        *,
+        gap_ms: float,
+        seg_chars: int,
+        seg_ms: float,
+        min_chars: int,
+        min_seg_ms_for_vad: float,
+        vad_gap_ms: float,
+    ) -> bool:
+        return gap_ms >= vad_gap_ms and seg_chars >= min_chars and seg_ms >= min_seg_ms_for_vad
+
+    @staticmethod
+    def _should_split_on_max_segment_guardrail(
+        *,
+        punct: str,
+        strong_punc: set[str],
+        seg_ms: float,
+        max_seg_ms: float,
+    ) -> bool:
+        return seg_ms >= max_seg_ms and punct in strong_punc
+
+    @staticmethod
+    def _should_split_on_punctuation_cap(
+        *,
+        punct: str,
+        comma_punc: set[str],
+        strong_punc: set[str],
+        seg_punct_count: int,
+    ) -> bool:
+        if seg_punct_count < SEGMENT_PUNCT_LIMIT:
+            return False
+        return punct in comma_punc.union(strong_punc)
 
     @staticmethod
     def _compose_word_text(items: list[dict[str, Any]]) -> str:

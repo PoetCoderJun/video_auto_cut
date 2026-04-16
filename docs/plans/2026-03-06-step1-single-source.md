@@ -1,50 +1,50 @@
-# Step1 Single Source Implementation Plan
+# Test Single Source Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Make Step1, Step1.5, and Step2 each consume only the previous step's output, with Step1 lines built directly from `optimized_srt`.
+**Goal:** Make Test, Test.5, and Step2 each consume only the previous step's output, with Test lines built directly from `optimized_srt`.
 
-**Architecture:** Remove the legacy Step1 "original SRT vs optimized SRT alignment" assumption. Treat `optimized_srt` as the sole source of truth for Step1 editable lines, preserving `<<REMOVE>>` lines as recoverable rows and keeping downstream `final_step1.srt` / Step2 behavior unchanged.
+**Architecture:** Remove the legacy Test "original SRT vs optimized SRT alignment" assumption. Treat `optimized_srt` as the sole source of truth for Test editable lines, preserving `<<REMOVE>>` lines as recoverable rows and keeping downstream `final_test.srt` / Step2 behavior unchanged.
 
 **Tech Stack:** Python, FastAPI service layer, `srt`, unittest
 
 ---
 
-### Task 1: Replace Step1 line-builder contract
+### Task 1: Replace Test line-builder contract
 
 **Files:**
 - Modify: `web_api/utils/srt_utils.py`
-- Modify: `web_api/services/step1.py`
-- Test: `web_api/tests/test_step1_srt_utils.py`
+- Modify: `web_api/services/test.py`
+- Test: `web_api/tests/test_test_srt_utils.py`
 
 **Step 1: Write the failing test**
 
 Add tests that prove:
-- Step1 lines can be built from a single `optimized_srt`
+- Test lines can be built from a single `optimized_srt`
 - merged lines stay merged instead of expanding back to original ASR granularity
 - `<<REMOVE>>` lines remain present and recoverable
 
 **Step 2: Run test to verify it fails**
 
-Run: `python -m unittest web_api.tests.test_step1_srt_utils -v`
+Run: `python -m unittest web_api.tests.test_test_srt_utils -v`
 Expected: FAIL because the current API still expects `original_srt` + `optimized_srt`.
 
 **Step 3: Write minimal implementation**
 
 - Add a single-source builder in `web_api/utils/srt_utils.py`
-- Update `web_api/services/step1.py` to call it with `optimized_srt_path`
+- Update `web_api/services/test.py` to call it with `optimized_srt_path`
 - Keep the existing output schema so frontend and Step2 do not need protocol changes
 
 **Step 4: Run test to verify it passes**
 
-Run: `python -m unittest web_api.tests.test_step1_srt_utils -v`
+Run: `python -m unittest web_api.tests.test_test_srt_utils -v`
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add web_api/utils/srt_utils.py web_api/services/step1.py web_api/tests/test_step1_srt_utils.py
-git commit -m "fix(web): make step1 consume optimized srt only"
+git add web_api/utils/srt_utils.py web_api/services/test.py web_api/tests/test_test_srt_utils.py
+git commit -m "fix(web): make test consume optimized srt only"
 ```
 
 ### Task 2: Verify downstream compatibility
@@ -56,7 +56,7 @@ git commit -m "fix(web): make step1 consume optimized srt only"
 
 **Step 1: Write or adjust the failing test**
 
-Only if needed, add a regression assertion that Step2 still consumes `final_step1.srt` / kept `line_id`s without requiring original ASR rows.
+Only if needed, add a regression assertion that Step2 still consumes `final_test.srt` / kept `line_id`s without requiring original ASR rows.
 
 **Step 2: Run test to verify it fails**
 
@@ -65,7 +65,7 @@ Expected: FAIL only if downstream still depends on original-row alignment.
 
 **Step 3: Write minimal implementation**
 
-Adjust only the minimum downstream code required by the new Step1 source-of-truth model.
+Adjust only the minimum downstream code required by the new Test source-of-truth model.
 
 **Step 4: Run test to verify it passes**
 
@@ -76,7 +76,7 @@ Expected: PASS
 
 ```bash
 git add web_api web_frontend
-git commit -m "test(web): verify step1 single-source downstream flow"
+git commit -m "test(web): verify test single-source downstream flow"
 ```
 
 ### Task 3: Verify frontend/build impact
@@ -102,5 +102,5 @@ Expected:
 
 ```bash
 git add web_frontend
-git commit -m "chore(web): verify step1 single-source build flow"
+git commit -m "chore(web): verify test single-source build flow"
 ```

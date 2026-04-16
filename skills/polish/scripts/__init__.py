@@ -1,1 +1,0 @@
-"""Polish skill scripts."""

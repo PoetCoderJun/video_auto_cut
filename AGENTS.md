@@ -33,7 +33,7 @@
 - For web changes, always run:
   - `cd web_frontend && npx tsc --noEmit`
   - `npm --prefix web_frontend run build`
-- No strict coverage gate yet; include manual verification steps (upload, Step1/Step2, render/export).
+- No strict coverage gate yet; include manual verification steps (upload, Test/Step2, render/export).
 - For overlay / export UI work, use `web_frontend/app/dev-export-preview/page.tsx` as the reusable mock lab:
   - The mock lab uses a plain white background instead of a real source video so overlay density and wrapping are easier to inspect.
   - Switch scenario presets to inspect long chapter titles, compact single-line titles, and landscape progress labels.

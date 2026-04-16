@@ -1,0 +1,13 @@
+{
+  "active": false,
+  "mode": "ralplan",
+  "current_phase": "cancelled",
+  "started_at": "2026-04-14T12:56:28.709Z",
+  "updated_at": "2026-04-14T13:54:22.468Z",
+  "session_id": "omx-1776170879118-vt1ddh",
+  "thread_id": "019d8c43-6ab7-71b1-b252-57ca7ac42dad",
+  "turn_id": "019d8c43-6b6a-73a3-938f-93e375a7a5ea",
+  "iteration": 25,
+  "last_turn_at": "2026-04-14T14:15:08.301Z",
+  "completed_at": "2026-04-15T17:32:11.008Z"
+}

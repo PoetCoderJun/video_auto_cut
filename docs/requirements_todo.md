@@ -31,10 +31,10 @@
 
 ## In Progress
 - 2026-04-16: **B4/B2/B3/B6 执行中**（branch: `work/2026-04-16-b-batch-ralplan`）
-  - [ ] **B4 收敛 DB/Repository/Task Queue 的兼容胶水与重复工具**：已完成 `repository.py` / `task_queue.py` 的时间/row helper 收口、成功作业列表扫描合并，以及 OSS uploader factory 收口；`db.py` 内 sqlite/libsql 私有 shim 仍暂留待后续是否继续处理。相关路径：`web_api/repository.py`、`web_api/task_queue.py`、`web_api/utils/persistence_helpers.py`、`web_api/services/test.py`、`web_api/services/oss_presign.py`、`video_auto_cut/asr/oss_uploader.py`、`video_auto_cut/asr/transcribe.py`
+  - [ ] **B4 收敛 DB/Repository/Task Queue 的兼容胶水与重复工具**：已完成 `repository.py` / `task_queue.py` 的时间/row helper 收口、成功作业列表扫描合并、OSS uploader factory 收口，以及 `task_queue.get_queue_db_path()` 对 DB 模式判断的复用；`db.py` 内 sqlite/libsql 私有 shim 仍暂留待后续是否继续处理。相关路径：`web_api/repository.py`、`web_api/task_queue.py`、`web_api/utils/persistence_helpers.py`、`web_api/db.py`、`web_api/services/test.py`、`web_api/services/oss_presign.py`、`video_auto_cut/asr/oss_uploader.py`、`video_auto_cut/asr/transcribe.py`
   - [ ] **B2 拉直剪辑与字幕数据模型**：按用户最新要求，全项目保留并统一到现有轻量文本契约（delete/polish 为 `【time】句子` / `【time】<remove>句子`，chapter 为 `【start-end】标题`）；不再引入额外的重 JSON/内部归一化契约，后续继续删除 `<<REMOVE>>` 旧兼容中间态，只保留 `<remove>` 这套轻量契约。相关路径：`video_auto_cut/shared/test_text_protocol.py`、`video_auto_cut/asr/transcribe_stage.py`、`web_api/utils/srt_utils.py`、`video_auto_cut/pi_agent_runner.py`
-  - [ ] **B3 简化切句与 ffmpeg 封装**：已确认 `Cutter` 无运行时消费者，并先删除 `rendering/__init__.py` 的旧导出面/大类主体，仅保留 cut helper；`dashscope_filetrans.py` 的规则函数拆分仍待继续。相关路径：`video_auto_cut/rendering/cut.py`、`video_auto_cut/rendering/__init__.py`、`video_auto_cut/asr/dashscope_filetrans.py`
-  - [ ] **B6 重新设计任务队列，但先不预设答案**：已起草 ADR 草案，明确 durable queue 的当前不变量与未来方向比较；后续需评审并决定是否继续落地实现。相关路径：`.omx/drafts/2026-04-16-b6-task-queue-adr.md`、`web_api/task_queue.py`、`web_api/services/tasks.py`
+  - [ ] **B3 简化切句与 ffmpeg 封装**：已确认 `Cutter` 无运行时消费者，并先删除 `rendering/__init__.py` 的旧导出面/大类主体，仅保留 cut helper；同时已把 `dashscope_filetrans.py` 的词级切句判定继续拆成命名规则函数（强标点 / 逗号 / VAD gap / 最大时长 guardrail / 标点上限），后续若要再调语义应另挂边界分层方案。相关路径：`video_auto_cut/rendering/cut.py`、`video_auto_cut/rendering/__init__.py`、`video_auto_cut/asr/dashscope_filetrans.py`
+  - [ ] **B6 重新设计任务队列，但先不预设答案**：ADR 已获 architect sign-off，并正式收口为当前选择 A：保留 Test-only durable execution layer，同时明确其“可恢复但非 fenced”的限制；B/C 仅保留为未来触发条件。后续可按该决策继续实现或维持文档决策状态。相关路径：`.omx/drafts/2026-04-16-b6-task-queue-adr.md`、`web_api/task_queue.py`、`web_api/services/tasks.py`、`web_api/worker/runner.py`
 
 - 2026-04-16: **A 主路径与模块边界批次**（branch: `work/2026-04-16-a-batch-ralplan`，plan: `.omx/plans/2026-04-16-a-batch-module-boundaries.md`）
   - [ ] **A6 补齐容器内 Test 编辑运行前提**：先完成 Step 0 gate，明确容器内 PI/Test 是支持还是 fail-fast，并用单一 capability probe 收口。相关路径：`Dockerfile`、`.pi/`、`skills/`、`video_auto_cut/orchestration/pi_capability.py`

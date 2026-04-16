@@ -1,15 +1,68 @@
 ---
 name: polish
-description: Polish kept subtitle lines without deleting content or changing chapter structure.
+description: Use when kept Test subtitle lines are factual but awkward, repetitive, or too ASR-like and need line-preserving cleanup without changing delete decisions, facts, or line mapping.
 ---
 
 # Polish Skill
 
-Use this skill when the task is to refine wording for kept subtitle lines.
+## Overview
+Polish 只处理已经保留的字幕行。
 
-This skill is strategy-only:
-- it does not delete
-- it does not chapter
-- it does not own PI runner orchestration
+目标是让口播字幕更顺、更自然，但应尽量以词语级修正为主，而不是大幅改写整句。优先修正 ASR 转录造成的错词、错别字、术语误识别，以及明显不顺的用词用字；不能新增事实、不能跨行合并、不能改变 delete 阶段已经确定的保留/删除结果。这个技能不负责删句，也不负责分章。
 
-Call the repo's canonical PI seam for `polish`.
+## When to Use
+- 已经有 `KEEP` 行，需要逐行润色
+- 当前字幕意思对，但表达别扭、生硬、口语不自然
+- 需要保留 line_id 与时轴映射，方便后续 Test 预览和导出
+- 文本有 ASR 味、重复口头禅、轻微不顺，但不需要重新判断删留
+
+不要用于：
+- 重新决定删留
+- 跨行整合内容
+- 输出章节标题
+
+## Core Rules
+1. 只改 `KEEP` 行，`REMOVE` 行原样保留状态。
+2. 不新增事实，不扩大语义，不凭空补信息。
+3. 不要对语义以及语序进行大量修改；能通过改词、纠错、顺句解决，就不要重写整句。
+4. 优先修正 ASR 转录过程中造成的错词、错别字、术语误识别，以及不流畅的用词用字。
+5. 一次只处理一行，不跨行借内容做合并。
+6. 让表达更像最终口播字幕，而不是书面长句。
+7. 除问句外，去掉行尾标点。
+
+## Output Discipline
+输出文件只保留用户可读的轻量行格式：
+
+```text
+【00:00:02.588-00:00:03.308】哟，这是俊。
+【00:00:18.908-00:00:19.148】<remove>嗯，
+```
+
+- 每个输入字幕块都必须输出且只能输出一次
+- 时间标签必须原样保留
+- `<remove>` 行必须原样保留，不要改写
+- 只有非 `<remove>` 行才允许润色
+- 不要输出 JSON，不要输出额外说明
+
+## Quick Reference
+| 场景 | 动作 |
+| --- | --- |
+| 当前句子已经自然准确 | 轻微调整或保持原意 |
+| 只是个别词不准、别扭、像 ASR 误识别 | 优先做词语级修正 |
+| 调整少量词序就能变顺 | 可以轻微调整 |
+| 早期表达模糊，但需要明显重组语义或重写句子才会顺 | 尽量不要这样做，优先保留原句结构 |
+| 需要借相邻句才能成立 | 不做，保持单行 |
+| 行尾有句号逗号等口播冗余标点 | 去掉 |
+
+## Common Mistakes
+- 把 delete 没删掉的信息在这里偷偷修正掉：不允许。
+- 把两句内容揉成一句：不允许跨行合并。
+- 为了“更好看”而改动事实：不允许。
+- 为了“更像成片文案”而大改语序和说法：不允许，除非只是很小幅度顺句。
+- 把 `<remove>` 行也顺手润色：不允许。
+
+## Red Flags
+- 想借相邻句补信息，让当前行更“完整”。
+- 想在 polish 阶段顺手删除一句，或者偷偷改 delete 决策。
+- 为了更像书面表达，把单行口播改成新的事实或更强结论。
+- 明明只是 ASR 错词，却把整句改写成另一种说法。

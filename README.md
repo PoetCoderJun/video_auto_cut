@@ -44,6 +44,41 @@ set +a
 
 当前仓库的 Python 依赖仍通过 `requirements.txt` 安装，尚未切换到 `uv sync` 项目结构。
 
+## 本地启动 PI 并直接执行四步剪辑
+
+仓库已经通过 `.pi/settings.json` 配好自动加载 `skills/`，所以只要从仓库根目录启动，PI 会自动发现本地 skills。
+
+最简单的命令是：
+
+```bash
+./scripts/run_pi_test.sh test_data/media/1.wav
+```
+
+它会自动执行：
+
+1. `asr-transcribe`
+2. `delete`
+3. `polish`
+4. `chapter`
+
+输出默认落到 `workdir/pi_runs/<时间戳>_<文件名>/`，其中：
+
+- `test.summary.json`：本次运行汇总
+- `*.raw.test.json`：原始转录后的 Test 行
+- `*.test.json`：最终字幕行
+- `*.test.srt`：最终字幕 SRT
+- `*.chapters.json`：最终章节
+
+如果要直接进 PI 交互模式，也可以：
+
+```bash
+cd /path/to/video_auto_cut
+set -a && source .env && set +a
+pi
+```
+
+然后让它按项目里的 `test-agent-editing` 工作流做四步剪辑。
+
 ## 本地开发
 
 ```bash
@@ -87,7 +122,7 @@ Railway 不会读取本地 `.env`，必须在服务 Variables 中配置。
 - `TURSO_DATABASE_URL`
 - `TURSO_AUTH_TOKEN`
 - `BETTER_AUTH_SECRET`（>= 32 字符）
-- `ASR_DASHSCOPE_API_KEY`（或 `DASHSCOPE_API_KEY`）
+- `DASHSCOPE_ASR_API_KEY`（或 `DASHSCOPE_API_KEY`）
 - `OSS_ENDPOINT`
 - `OSS_BUCKET`
 - `OSS_ACCESS_KEY_ID`

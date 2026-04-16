@@ -16,19 +16,19 @@ import {
   createJob,
   Job,
   RenderMeta,
-  Step1ConfirmChapter,
-  Step1Line,
+  TestConfirmChapter,
+  TestLine,
   WebRenderConfig,
-  confirmStep1,
+  confirmTest,
   getJob,
-  getStep1,
+  getTest,
   getWebRenderConfigWithMeta,
   getRenderCompletionPending,
   clearRenderCompletionPending,
   setRenderCompletionPending,
   markRenderSucceeded,
   reportClientUploadIssue,
-  runStep1,
+  runTest,
   uploadAudio,
 } from "../lib/api";
 import { extractAudioForAsr } from "../lib/audio-extract";
@@ -276,25 +276,24 @@ const JOB_LOAD_RETRY_DELAY_MS = 4000;
 const STEP_DRAFT_RETRY_DELAY_MS = 3000;
 const RENDER_COMPLETE_RETRY_BASE_MS = 3000;
 const RENDER_COMPLETE_RETRY_MAX_MS = 120000;
-const STEP1_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
+const TEST_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
   UPLOAD_COMPLETE: 8,
-  STEP1_QUEUED: 12,
+  TEST_QUEUED: 12,
   TRANSCRIBING_AUDIO: 34,
   OPTIMIZING_TEXT: 56,
   REMOVING_REDUNDANT_LINES: 56,
-  MERGING_SHORT_LINES: 72,
   POLISHING_EXPRESSION: 84,
-  PREPARING_STEP1_REVIEW: 92,
+  PREPARING_TEST_REVIEW: 92,
   GENERATING_CHAPTERS: 96,
-  STEP1_READY: 100,
+  TEST_READY: 100,
 };
 
 const ACTIVE_STEP_BY_STATUS: Partial<Record<Job["status"], number>> = {
   [STATUS.CREATED]: 1,
   [STATUS.UPLOAD_READY]: 1,
-  [STATUS.STEP1_RUNNING]: 2,
-  [STATUS.STEP1_READY]: 2,
-  [STATUS.STEP1_CONFIRMED]: 3,
+  [STATUS.TEST_RUNNING]: 2,
+  [STATUS.TEST_READY]: 2,
+  [STATUS.TEST_CONFIRMED]: 3,
   [STATUS.SUCCEEDED]: 3,
 };
 
@@ -523,7 +522,7 @@ function getRenderConfigTotalDuration(config: WebRenderConfig): number {
   );
 }
 
-function getOriginalDurationFromLines(lines: Step1Line[]): number {
+function getOriginalDurationFromLines(lines: TestLine[]): number {
   return lines.reduce((max, line) => {
     const end = Number(line.end);
     if (!Number.isFinite(end) || end <= max) return max;
@@ -531,7 +530,7 @@ function getOriginalDurationFromLines(lines: Step1Line[]): number {
   }, 0);
 }
 
-function getEstimatedDurationFromLines(lines: Step1Line[]): number {
+function getEstimatedDurationFromLines(lines: TestLine[]): number {
   const intervals = lines
     .filter((line) => !line.user_final_remove)
     .filter((line) => String(line.optimized_text || "").trim().length > 0)
@@ -570,7 +569,7 @@ function getEstimatedDurationFromLines(lines: Step1Line[]): number {
   return Math.max(0, total);
 }
 
-function areStep1LinesEqual(left: Step1Line[], right: Step1Line[]): boolean {
+function areTestLinesEqual(left: TestLine[], right: TestLine[]): boolean {
   if (left === right) return true;
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
@@ -591,8 +590,8 @@ function areStep1LinesEqual(left: Step1Line[], right: Step1Line[]): boolean {
   return true;
 }
 
-function getStep1PreviewLines(
-  lines: Step1Line[],
+function getTestPreviewLines(
+  lines: TestLine[],
 ): Array<{ time: string; text: string; removed: boolean }> {
   const visible = lines
     .map((line) => {
@@ -637,7 +636,7 @@ function getStep1PreviewLines(
     .map((index) => visible[index]);
 }
 
-function getKeptStep1Lines(lines: Step1Line[]): Step1Line[] {
+function getKeptTestLines(lines: TestLine[]): TestLine[] {
   return lines
     .filter((line) => !line.user_final_remove)
     .sort((a, b) => a.line_id - b.line_id);
@@ -671,8 +670,8 @@ function formatBlockRange(start: number, end: number): string {
 
 function getChapterLinesFromRange(
   chapter: Chapter,
-  keptLines: Step1Line[],
-): Step1Line[] {
+  keptLines: TestLine[],
+): TestLine[] {
   const parsed = parseBlockRange(chapter.block_range);
   if (!parsed) return [];
   return keptLines.slice(parsed.start - 1, parsed.end);
@@ -793,7 +792,7 @@ function normalizeChapterTitle(title: string, index: number): string {
 
 function materializeChapterRanges(
   chapters: Chapter[],
-  keptLines: Step1Line[],
+  keptLines: TestLine[],
 ): Chapter[] {
   if (keptLines.length === 0) return [];
   return chapters
@@ -815,7 +814,7 @@ function materializeChapterRanges(
 
 function syncChaptersWithKeptLines(
   chapters: Chapter[],
-  keptLines: Step1Line[],
+  keptLines: TestLine[],
 ): Chapter[] {
   const keptCount = keptLines.length;
   if (keptCount === 0) return [];
@@ -851,7 +850,7 @@ function syncChaptersWithKeptLines(
 function deleteChapterAndRebalance(
   chapters: Chapter[],
   chapterId: number,
-  keptLines: Step1Line[],
+  keptLines: TestLine[],
 ): Chapter[] {
   if (chapters.length <= 1) {
     return syncChaptersWithKeptLines(chapters.slice(0, 1), keptLines);
@@ -860,10 +859,10 @@ function deleteChapterAndRebalance(
   return syncChaptersWithKeptLines(remaining, keptLines);
 }
 
-function buildStep1ConfirmChapters(
+function buildTestConfirmChapters(
   chapters: Chapter[],
-  keptLines: Step1Line[],
-): Step1ConfirmChapter[] {
+  keptLines: TestLine[],
+): TestConfirmChapter[] {
   const normalizedChapters = materializeChapterRanges(chapters, keptLines);
   if (normalizedChapters.length === 0) {
     throw new Error("当前没有可用章节，请至少保留一句字幕。");
@@ -875,20 +874,20 @@ function buildStep1ConfirmChapters(
   }));
 }
 
-function getStep1VisualProgress(job: Job): number {
-  if (job.status === STATUS.STEP1_READY) {
+function getTestVisualProgress(job: Job): number {
+  if (job.status === STATUS.TEST_READY) {
     return 100;
   }
 
   const stageCode = String(job.stage?.code || "").trim();
-  const stageProgress = STEP1_VISUAL_PROGRESS_BY_STAGE[stageCode];
+  const stageProgress = TEST_VISUAL_PROGRESS_BY_STAGE[stageCode];
   if (typeof stageProgress === "number") {
     return stageProgress;
   }
 
   if (
     job.status === STATUS.UPLOAD_READY ||
-    job.status === STATUS.STEP1_RUNNING
+    job.status === STATUS.TEST_RUNNING
   ) {
     const normalized =
       ((Math.max(30, Math.min(35, job.progress)) - 30) / 5) * 100;
@@ -900,96 +899,91 @@ function getStep1VisualProgress(job: Job): number {
   return clampPercent(job.progress);
 }
 
-function shouldShowStep1SubtitlePreview(
+function shouldShowTestSubtitlePreview(
   stageCode: string | null | undefined,
 ): boolean {
   switch (String(stageCode || "").trim()) {
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
-    case "MERGING_SHORT_LINES":
     case "POLISHING_EXPRESSION":
-    case "PREPARING_STEP1_REVIEW":
+    case "PREPARING_TEST_REVIEW":
     case "GENERATING_CHAPTERS":
-    case "STEP1_READY":
+    case "TEST_READY":
       return true;
     default:
       return false;
   }
 }
 
-function getStep1ProcessingNote(stageCode: string | null | undefined): string {
+function getTestProcessingNote(stageCode: string | null | undefined): string {
   switch (String(stageCode || "").trim()) {
-    case "STEP1_QUEUED":
+    case "TEST_QUEUED":
       return "任务已入队，马上开始识别语音并整理字幕。";
     case "TRANSCRIBING_AUDIO":
       return "先生成初版字幕，完成后会继续自动处理。";
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
       return "正在筛掉口误、重复句和回头修正。";
-    case "MERGING_SHORT_LINES":
-      return "正在把相邻短句合成更完整的句子。";
     case "POLISHING_EXPRESSION":
       return "正在按上下文润色字幕，让表达更自然。";
-    case "PREPARING_STEP1_REVIEW":
+    case "PREPARING_TEST_REVIEW":
       return "正在整理成可编辑字幕。";
     case "GENERATING_CHAPTERS":
       return "正在把章节整理成时间线分隔符。";
-    case "STEP1_READY":
+    case "TEST_READY":
       return "字幕和章节已经整理完成，正在进入编辑页面。";
     default:
       return "任务已启动，正在进入字幕处理流程。";
   }
 }
 
-function getStep1ProcessingTitle(
+function getTestProcessingTitle(
   stageCode: string | null | undefined,
   stageMessage: string | null | undefined,
 ): string {
   const trimmedMessage = String(stageMessage || "").trim();
   switch (String(stageCode || "").trim()) {
-    case "STEP1_QUEUED":
+    case "TEST_QUEUED":
       return "正在启动字幕任务";
     case "TRANSCRIBING_AUDIO":
       return "正在识别语音";
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
       return "正在筛除冗余字幕";
-    case "MERGING_SHORT_LINES":
-      return "正在合并短句";
     case "POLISHING_EXPRESSION":
       return "正在润色字幕";
-    case "PREPARING_STEP1_REVIEW":
+    case "PREPARING_TEST_REVIEW":
       return "正在整理字幕结果";
     case "GENERATING_CHAPTERS":
       return "正在生成章节分隔";
-    case "STEP1_READY":
+    case "TEST_READY":
       return "正在进入编辑页";
     default:
       return trimmedMessage || "正在提取字幕";
   }
 }
 
-function Step1ProcessingState({
+function TestProcessingState({
   job,
   lines,
   busy,
-  autoStep1Triggered,
+  autoTestTriggered,
   draftError,
   onRetry,
   onRetryDraft,
 }: {
   job: Job;
-  lines: Step1Line[];
+  lines: TestLine[];
   busy: boolean;
-  autoStep1Triggered: boolean;
+  autoTestTriggered: boolean;
   draftError: string;
   onRetry: () => void;
   onRetryDraft: () => void;
 }) {
-  const visualProgress = getStep1VisualProgress(job);
-  const previewLines = useMemo(() => getStep1PreviewLines(lines), [lines]);
+  const visualProgress = getTestVisualProgress(job);
+  const previewLines = useMemo(() => getTestPreviewLines(lines), [lines]);
   const showSubtitlePreview =
-    shouldShowStep1SubtitlePreview(job.stage?.code) && previewLines.length > 0;
+    shouldShowTestSubtitlePreview(job.stage?.code) && previewLines.length > 0;
 
   return (
     <div className="mx-auto max-w-5xl py-6 md:py-10">
@@ -1041,10 +1035,10 @@ function Step1ProcessingState({
             </div>
 
             <h2 className="relative mt-3 text-[17px] font-semibold tracking-tight text-slate-900 md:text-[19px]">
-              {getStep1ProcessingTitle(job.stage?.code, job.stage?.message)}
+              {getTestProcessingTitle(job.stage?.code, job.stage?.message)}
             </h2>
             <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-slate-500">
-              {getStep1ProcessingNote(job.stage?.code)}
+              {getTestProcessingNote(job.stage?.code)}
             </p>
             {draftError && (
               <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-red-600">
@@ -1071,7 +1065,7 @@ function Step1ProcessingState({
 
             {job.status === STATUS.UPLOAD_READY &&
               !busy &&
-              autoStep1Triggered && (
+              autoTestTriggered && (
                 <Button
                   type="button"
                   variant="outline"
@@ -1098,9 +1092,9 @@ export default function JobWorkspace({
   onSwitchJob?: (jobId: string) => void;
 }) {
   const [job, setJob] = useState<Job | null>(null);
-  const [lines, setLines] = useState<Step1Line[]>([]);
+  const [lines, setLines] = useState<TestLine[]>([]);
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const keptLines = useMemo(() => getKeptStep1Lines(lines), [lines]);
+  const keptLines = useMemo(() => getKeptTestLines(lines), [lines]);
   const keptLinePositionById = useMemo(
     () =>
       new Map(
@@ -1112,7 +1106,7 @@ export default function JobWorkspace({
   const [renderNote, setRenderNote] = useState("");
   const [jobLoadError, setJobLoadError] = useState("");
   const [isLoadingJob, setIsLoadingJob] = useState(true);
-  const [step1DraftError, setStep1DraftError] = useState("");
+  const [testDraftError, setTestDraftError] = useState("");
   const [documentRevision, setDocumentRevision] = useState("");
   const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] =
     useState("");
@@ -1146,9 +1140,9 @@ export default function JobWorkspace({
   const [transcodeProgress, setTranscodeProgress] = useState(0);
   const [draggedLineId, setDraggedLineId] = useState<number | null>(null);
   const [uploadStageMessage, setUploadStageMessage] = useState("");
-  const [autoStep1Triggered, setAutoStep1Triggered] = useState(false);
-  const [step1ReadyHandoffActive, setStep1ReadyHandoffActive] = useState(false);
-  const [step1ReadyLinesLoaded, setStep1ReadyLinesLoaded] = useState(false);
+  const [autoTestTriggered, setAutoTestTriggered] = useState(false);
+  const [testReadyHandoffActive, setTestReadyHandoffActive] = useState(false);
+  const [testReadyLinesLoaded, setTestReadyLinesLoaded] = useState(false);
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
   const renderSourceInputRef = useRef<HTMLInputElement>(null);
   const isMountedRef = useRef(true);
@@ -1390,64 +1384,64 @@ export default function JobWorkspace({
   }, [isLoadingJob, job, jobLoadError, loadJob]);
 
   useEffect(() => {
-    if (!job || job.status !== STATUS.STEP1_READY) {
-      setStep1ReadyHandoffActive(false);
-      setStep1ReadyLinesLoaded(false);
-      setStep1DraftError("");
+    if (!job || job.status !== STATUS.TEST_READY) {
+      setTestReadyHandoffActive(false);
+      setTestReadyLinesLoaded(false);
+      setTestDraftError("");
       setDocumentRevision("");
       return;
     }
-    if (step1ReadyLinesLoaded) {
+    if (testReadyLinesLoaded) {
       return;
     }
 
-    setStep1ReadyHandoffActive(true);
+    setTestReadyHandoffActive(true);
     let cancelled = false;
-    const pollStep1Document = () => {
-      getStep1(jobId)
+    const pollTestDocument = () => {
+      getTest(jobId)
         .then((document) => {
           if (cancelled) return;
-          setStep1DraftError("");
+          setTestDraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, document.lines) ? previous : document.lines,
+            areTestLinesEqual(previous, document.lines) ? previous : document.lines,
           );
           setChapters(document.chapters);
           setDocumentRevision(document.document_revision || "");
-          setStep1ReadyLinesLoaded(document.lines.length > 0);
+          setTestReadyLinesLoaded(document.lines.length > 0);
         })
         .catch((err) => {
           if (cancelled) return;
-          setStep1DraftError(
+          setTestDraftError(
             `编辑文档加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
-    pollStep1Document();
+    pollTestDocument();
     const intervalId = window.setInterval(
-      pollStep1Document,
+      pollTestDocument,
       STEP_DRAFT_RETRY_DELAY_MS,
     );
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [job?.status, jobId, step1ReadyLinesLoaded]);
+  }, [job?.status, jobId, testReadyLinesLoaded]);
 
   useEffect(() => {
-    if (!job || job.status !== STATUS.STEP1_RUNNING) {
+    if (!job || job.status !== STATUS.TEST_RUNNING) {
       return;
     }
 
     let cancelled = false;
-    const pollStep1Document = () => {
-      getStep1(jobId)
+    const pollTestDocument = () => {
+      getTest(jobId)
         .then((document) => {
           if (cancelled) return;
           if (document.lines.length === 0) return;
-          setStep1DraftError("");
+          setTestDraftError("");
           setLines((previous) =>
-            areStep1LinesEqual(previous, document.lines) ? previous : document.lines,
+            areTestLinesEqual(previous, document.lines) ? previous : document.lines,
           );
           if (document.chapters.length > 0) {
             setChapters(document.chapters);
@@ -1456,15 +1450,15 @@ export default function JobWorkspace({
         })
         .catch((err) => {
           if (cancelled) return;
-          setStep1DraftError(
+          setTestDraftError(
             `字幕草稿加载失败：${getFriendlyError(err)}，已自动重试。`,
           );
         });
     };
 
-    pollStep1Document();
+    pollTestDocument();
     const intervalId = window.setInterval(
-      pollStep1Document,
+      pollTestDocument,
       STEP_DRAFT_RETRY_DELAY_MS,
     );
     return () => {
@@ -1476,25 +1470,25 @@ export default function JobWorkspace({
   useEffect(() => {
     if (
       !job ||
-      job.status !== STATUS.STEP1_READY ||
-      !step1ReadyHandoffActive ||
-      !step1ReadyLinesLoaded
+      job.status !== STATUS.TEST_READY ||
+      !testReadyHandoffActive ||
+      !testReadyLinesLoaded
     ) {
       return;
     }
 
     const timerId = window.setTimeout(() => {
-      setStep1ReadyHandoffActive(false);
+      setTestReadyHandoffActive(false);
     }, 900);
     return () => {
       window.clearTimeout(timerId);
     };
-  }, [job?.status, step1ReadyHandoffActive, step1ReadyLinesLoaded]);
+  }, [job?.status, testReadyHandoffActive, testReadyLinesLoaded]);
 
-  const handleRetryStep1DraftLoad = useCallback(() => {
-    if (!job || job.status !== STATUS.STEP1_READY) return;
-    setStep1DraftError("");
-    setStep1ReadyLinesLoaded(false);
+  const handleRetryTestDraftLoad = useCallback(() => {
+    if (!job || job.status !== STATUS.TEST_READY) return;
+    setTestDraftError("");
+    setTestReadyLinesLoaded(false);
   }, [job?.status]);
 
   useEffect(() => {
@@ -1517,11 +1511,11 @@ export default function JobWorkspace({
     setLines([]);
     setChapters([]);
     setDocumentRevision("");
-    setStep1ReadyLinesLoaded(false);
-    setStep1DraftError("");
+    setTestReadyLinesLoaded(false);
+    setTestDraftError("");
     setError("");
     setRenderNote("");
-    setAutoStep1Triggered(false);
+    setAutoTestTriggered(false);
     setDraggedLineId(null);
     setRenderDownloadUrl((previous) => {
       if (previous) URL.revokeObjectURL(previous);
@@ -1622,7 +1616,7 @@ export default function JobWorkspace({
       setSelectedFile(file);
       setRenderSetupError("");
       setRenderCompletionMarkerMessage("");
-      setStep1DraftError("");
+      setTestDraftError("");
       if (
         selectedFile?.name !== file.name ||
         selectedFile?.size !== file.size
@@ -1642,7 +1636,7 @@ export default function JobWorkspace({
       clearRenderCompletionPending(jobId);
       return;
     }
-    if (job.status !== STATUS.STEP1_CONFIRMED) {
+    if (job.status !== STATUS.TEST_CONFIRMED) {
       return;
     }
 
@@ -1692,7 +1686,7 @@ export default function JobWorkspace({
 
   useEffect(() => {
     const exportReady =
-      job?.status === STATUS.STEP1_CONFIRMED ||
+      job?.status === STATUS.TEST_CONFIRMED ||
       job?.status === STATUS.SUCCEEDED;
     if (!exportReady) return;
     if (renderConfig) return;
@@ -1821,19 +1815,19 @@ export default function JobWorkspace({
     if (
       !job ||
       job.status !== STATUS.UPLOAD_READY ||
-      autoStep1Triggered ||
+      autoTestTriggered ||
       busy
     )
       return;
 
     let cancelled = false;
-    setAutoStep1Triggered(true);
+    setAutoTestTriggered(true);
     setError("");
     setBusy(true);
-    runStep1(jobId)
-      .then((step1Result) => {
+    runTest(jobId)
+      .then((testResult) => {
         if (cancelled) return;
-        setJob((previous) => mergeJobSnapshot(previous, step1Result.job));
+        setJob((previous) => mergeJobSnapshot(previous, testResult.job));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -1846,12 +1840,12 @@ export default function JobWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [job, autoStep1Triggered, jobId, busy]);
+  }, [job, autoTestTriggered, jobId, busy]);
 
-  const handleRetryStep1AutoRun = useCallback(() => {
+  const handleRetryTestAutoRun = useCallback(() => {
     if (!job || job.status !== STATUS.UPLOAD_READY || busy) return;
     setError("");
-    setAutoStep1Triggered(false);
+    setAutoTestTriggered(false);
   }, [job, busy]);
 
   useEffect(() => {
@@ -1879,7 +1873,7 @@ export default function JobWorkspace({
     }
   };
 
-  const handleConfirmStep1 = async () => {
+  const handleConfirmTest = async () => {
     if (keptLines.length === 0) {
       setError("请至少保留一句字幕后再进入导出。");
       return;
@@ -1887,9 +1881,9 @@ export default function JobWorkspace({
     setError("");
     setBusy(true);
     try {
-      const status = await confirmStep1(jobId, {
+      const status = await confirmTest(jobId, {
         lines,
-        chapters: buildStep1ConfirmChapters(chapters, keptLines),
+        chapters: buildTestConfirmChapters(chapters, keptLines),
         expectedRevision: documentRevision,
       });
       setJob((previous) => mergeJobStatus(previous, status));
@@ -2233,14 +2227,14 @@ export default function JobWorkspace({
     subtitleTheme,
   ]);
 
-  const updateLine = (lineId: number, patch: Partial<Step1Line>) => {
+  const updateLine = (lineId: number, patch: Partial<TestLine>) => {
     setLines((prev) => {
       const nextLines = prev.map((line) =>
         line.line_id === lineId ? { ...line, ...patch } : line,
       );
       if (Object.prototype.hasOwnProperty.call(patch, "user_final_remove")) {
         setChapters((previous) =>
-          syncChaptersWithKeptLines(previous, getKeptStep1Lines(nextLines)),
+          syncChaptersWithKeptLines(previous, getKeptTestLines(nextLines)),
         );
       }
       return nextLines;
@@ -2461,21 +2455,21 @@ export default function JobWorkspace({
 
       {/* Loading States */}
       {(job.status === STATUS.UPLOAD_READY ||
-        job.status === STATUS.STEP1_RUNNING ||
-        (job.status === STATUS.STEP1_READY && step1ReadyHandoffActive)) && (
-          <Step1ProcessingState
+        job.status === STATUS.TEST_RUNNING ||
+        (job.status === STATUS.TEST_READY && testReadyHandoffActive)) && (
+          <TestProcessingState
             job={job}
             lines={lines}
             busy={busy}
-            autoStep1Triggered={autoStep1Triggered}
-            draftError={step1DraftError}
-            onRetry={handleRetryStep1AutoRun}
-            onRetryDraft={handleRetryStep1DraftLoad}
+            autoTestTriggered={autoTestTriggered}
+            draftError={testDraftError}
+            onRetry={handleRetryTestAutoRun}
+            onRetryDraft={handleRetryTestDraftLoad}
           />
         )}
 
       {/* Editor */}
-      {job.status === STATUS.STEP1_READY && !step1ReadyHandoffActive && (
+      {job.status === STATUS.TEST_READY && !testReadyHandoffActive && (
         <div className="space-y-8">
           {lines.length === 0 ? (
             <div className="space-y-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
@@ -2484,17 +2478,17 @@ export default function JobWorkspace({
               <p className="text-sm text-slate-500">
                 字幕和章节整理完成后，这里会显示可编辑内容。
               </p>
-              {step1DraftError && (
+              {testDraftError && (
                 <p className="mx-auto max-w-md text-sm text-red-600">
-                  {step1DraftError}
+                  {testDraftError}
                 </p>
               )}
-              {step1DraftError && (
+              {testDraftError && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={handleRetryStep1DraftLoad}
+                  onClick={handleRetryTestDraftLoad}
                   className="mx-auto"
                 >
                   重新加载字幕草稿
@@ -2707,7 +2701,7 @@ export default function JobWorkspace({
                     </div>
                     <Button
                       size="lg"
-                      onClick={handleConfirmStep1}
+                      onClick={handleConfirmTest}
                       disabled={lines.length === 0 || keptLines.length === 0 || displayChapters.length === 0 || busy}
                     >
                       {busy ? (
@@ -2728,7 +2722,7 @@ export default function JobWorkspace({
       )}
 
       {/* Export */}
-      {(job.status === STATUS.STEP1_CONFIRMED ||
+      {(job.status === STATUS.TEST_CONFIRMED ||
         job.status === STATUS.SUCCEEDED) && (
         <div className="space-y-4">
           <div className="mx-auto grid max-w-[1400px] gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(420px,0.92fr)] xl:items-start 2xl:max-w-[1520px] 2xl:grid-cols-[minmax(0,1.72fr)_minmax(456px,0.94fr)]">

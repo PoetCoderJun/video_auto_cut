@@ -1,0 +1,90 @@
+{
+  "pid": 34137,
+  "parent_pid": 33885,
+  "started_at": "2026-04-16T03:05:55.876Z",
+  "cwd": "/Users/huzujun/Desktop/video_auto_cut",
+  "notify_script": "/Users/huzujun/.npm-global/lib/node_modules/oh-my-codex/dist/scripts/notify-hook.js",
+  "authority_only": false,
+  "poll_ms": 250,
+  "effective_poll_ms": 1000,
+  "idle_max_poll_ms": 1000,
+  "pid_file": "/Users/huzujun/Desktop/video_auto_cut/.omx/state/notify-fallback.pid",
+  "max_lifetime_ms": 21600000,
+  "tracked_files": 59,
+  "seen_turns": 24,
+  "dispatch_drain": {
+    "enabled": true,
+    "max_per_tick": 5,
+    "run_count": 10254,
+    "leader_only": true,
+    "last_tick_at": "2026-04-16T05:37:34.407Z",
+    "last_result": {
+      "processed": 0,
+      "skipped": 0,
+      "failed": 0
+    },
+    "last_error": null
+  },
+  "leader_nudge": {
+    "enabled": true,
+    "leader_only": true,
+    "stale_threshold_ms": 180000,
+    "precomputed_leader_stale": false,
+    "last_tick_at": "2026-04-16T05:37:34.408Z",
+    "last_error": null,
+    "run_count": 10254
+  },
+  "ralph_continue_steer": {
+    "enabled": true,
+    "cadence_ms": 60000,
+    "message": "Ralph loop active continue",
+    "active": false,
+    "last_state_check_at": "2026-04-16T05:37:35.032Z",
+    "last_sent_at": "2026-04-16T05:14:15.920Z",
+    "cooldown_anchor_at": "2026-04-16T05:14:15.920Z",
+    "last_reason": "terminal",
+    "last_error": null,
+    "state_path": "/Users/huzujun/Desktop/video_auto_cut/.omx/state/sessions/omx-1776308755643-zhwonm/ralph-state.json",
+    "pane_id": "%23",
+    "pane_current_command": "",
+    "current_phase": "complete",
+    "subagent_session_id": "",
+    "active_subagent_thread_ids": [],
+    "shared_timestamp_path": "/Users/huzujun/Desktop/video_auto_cut/.omx/state/ralph-last-steer-at",
+    "shared_last_sent_at": "2026-04-16T05:14:15.920Z",
+    "singleton_lock_path": "/Users/huzujun/Desktop/video_auto_cut/.omx/state/ralph-continue-steer.lock"
+  },
+  "fallback_auto_nudge": {
+    "enabled": true,
+    "stall_ms": 5000,
+    "last_tick_at": "2026-04-16T05:37:34.649Z",
+    "last_turn_at": "2026-04-16T05:37:11.015Z",
+    "last_turn_count": 104,
+    "last_message": "已经切到 `merge` 分支了。\n\n当前状态：\n- 当前分支：`merge`\n- 你的未提交改动都还在，没有丢\n\n如果你下一步要我：\n- 直接提交这些改动到 `merge`\n- 或者再从别的分支 m",
+    "last_reason": "eligible_but_not_sent",
+    "last_error": null,
+    "last_nudged_signature": "",
+    "last_nudged_at": ""
+  },
+  "authority_backoff": {
+    "active": false,
+    "reason": "",
+    "primary_pid": null,
+    "primary_last_tick_at": "",
+    "freshness_ms": null,
+    "threshold_ms": null
+  },
+  "adaptive_poll": {
+    "enabled": true,
+    "base_ms": 250,
+    "max_ms": 1000,
+    "current_ms": 1000,
+    "idle_streak": 26,
+    "last_tick_at": "2026-04-16T05:37:35.032Z",
+    "last_activity_at": "2026-04-16T05:36:58.091Z",
+    "last_activity_reason": "eligible_but_not_sent"
+  },
+  "stop_reason": "signal",
+  "stop_signal": "SIGTERM",
+  "stopping": true
+}

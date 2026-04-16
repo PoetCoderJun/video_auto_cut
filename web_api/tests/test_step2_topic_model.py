@@ -36,9 +36,12 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             asr_dashscope_api_key = "asr-key"
             asr_dashscope_poll_seconds = 2.0
             asr_dashscope_timeout_seconds = 3600.0
+            asr_dashscope_language = "zh"
             asr_dashscope_language_hints = ()
             asr_dashscope_context = ""
+            asr_dashscope_enable_itn = False
             asr_dashscope_enable_words = True
+            asr_dashscope_channel_ids = (0,)
             asr_dashscope_sentence_rule_with_punc = True
             asr_dashscope_word_split_enabled = True
             asr_dashscope_word_split_on_comma = True
@@ -55,7 +58,6 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             asr_oss_access_key_secret = None
             asr_oss_prefix = "video-auto-cut/asr"
             asr_oss_signed_url_ttl_seconds = 86400
-            use_dashscope_temp_oss = False
             llm_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
             llm_model = "kimi-k2.5"
             llm_api_key = "llm-key"
