@@ -118,6 +118,33 @@ def is_retryable_turso_error(exc: Exception) -> bool:
     )
 
 
+def is_retryable_turso_connect_error(exc: Exception) -> bool:
+    if not _is_turso_enabled():
+        return False
+
+    normalized = str(exc or "").strip().lower()
+    if not normalized:
+        return False
+
+    if is_retryable_turso_error(exc):
+        return True
+
+    transient_signals = (
+        "broken pipe",
+        "connection closed",
+        "connection reset",
+        "deadline has elapsed",
+        "error trying to connect",
+        "network error",
+        "temporarily unavailable",
+        "timed out",
+        "timeout",
+        "tls handshake eof",
+        "unexpected eof",
+    )
+    return any(signal in normalized for signal in transient_signals)
+
+
 def retry_turso_operation(
     operation_name: str,
     fn: _RetryFn | None = None,
@@ -210,6 +237,13 @@ def _create_conn() -> Any:
             _sync_best_effort(conn, stage="open", raise_on_error=True)
             return conn
         except Exception as exc:
+            if is_retryable_turso_connect_error(exc):
+                logging.warning(
+                    "[web_api] Turso sync unavailable at open; continuing with local replica %s: %s",
+                    settings.turso_local_replica_path,
+                    exc,
+                )
+                return conn
             conn.close()
             if not _is_wal_conflict_error(exc):
                 raise RuntimeError(f"Turso connect failed: {exc}") from exc
