@@ -107,27 +107,3 @@ def canonicalize_test_chapters(
         )
     ensure_full_block_coverage(normalized, total_blocks=len(canonical_kept_lines))
     return normalized
-
-
-canonicalize_test_chapters = canonicalize_test_chapters
-
-
-def line_ids_to_block_range(
-    line_ids: list[int],
-    kept_lines: list[dict[str, Any]],
-) -> tuple[int, int] | None:
-    if not line_ids or not kept_lines:
-        return None
-    position_by_line_id = {
-        int(item["line_id"]): index + 1 for index, item in enumerate(kept_lines)
-    }
-    positions = sorted(
-        {
-            position_by_line_id[int(line_id)]
-            for line_id in line_ids
-            if int(line_id) in position_by_line_id
-        }
-    )
-    if not positions:
-        return None
-    return positions[0], positions[-1]

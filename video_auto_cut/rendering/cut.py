@@ -1,19 +1,16 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 import srt
 
+from video_auto_cut.shared.srt_parser import parse_decision_and_text
+
 REMOVE_TOKEN = "<remove>"
-
-
-def parse_decision_and_text(content: str) -> Tuple[Optional[str], str]:
-    text = "\n".join(line.strip() for line in (content or "").splitlines() if line.strip()).strip()
-    return None, text
 
 
 def filter_kept_subtitles(subs: List[srt.Subtitle]) -> List[srt.Subtitle]:
     kept: List[srt.Subtitle] = []
     for sub in subs:
-        _, text = parse_decision_and_text(sub.content or "")
+        text = parse_decision_and_text(sub.content or "")
         if text.startswith(REMOVE_TOKEN):
             continue
         if not text or sub.end <= sub.start:

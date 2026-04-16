@@ -5,7 +5,6 @@ import logging
 import re
 import threading
 import time
-import uuid
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -18,11 +17,9 @@ from .config import ensure_work_dirs, get_settings
 from .db import init_db
 from .errors import ApiError
 from .services.cleanup import cleanup_on_startup
-from .task_queue import init_task_queue_db
+from .services.test_runner import recover_interrupted_test_runs
+from .utils.common import new_request_id
 
-
-def _request_id() -> str:
-    return f"req_{uuid.uuid4().hex[:10]}"
 
 
 _JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
@@ -95,7 +92,7 @@ def _rate_limited_response() -> JSONResponse:
     return JSONResponse(
         status_code=429,
         content={
-            "request_id": _request_id(),
+            "request_id": new_request_id(),
             "error": {"code": "RATE_LIMITED", "message": "请求过于频繁，请稍后再试"},
         },
     )
@@ -105,7 +102,7 @@ def _payload_too_large_response() -> JSONResponse:
     return JSONResponse(
         status_code=413,
         content={
-            "request_id": _request_id(),
+            "request_id": new_request_id(),
             "error": {"code": "PAYLOAD_TOO_LARGE", "message": "请求内容过大，请精简后重试"},
         },
     )
@@ -284,7 +281,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={
-                "request_id": _request_id(),
+                "request_id": new_request_id(),
                 "error": {"code": exc.code, "message": exc.message},
             },
         )
@@ -296,7 +293,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=400,
             content={
-                "request_id": _request_id(),
+                "request_id": new_request_id(),
                 "error": {"code": "BAD_REQUEST", "message": message},
             },
         )
@@ -307,7 +304,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={
-                "request_id": _request_id(),
+                "request_id": new_request_id(),
                 "error": {"code": "INTERNAL_ERROR", "message": "服务内部错误，请稍后重试"},
             },
         )
@@ -322,7 +319,7 @@ def create_app() -> FastAPI:
     def startup_event() -> None:
         ensure_work_dirs()
         init_db()
-        init_task_queue_db()
+        recover_interrupted_test_runs()
         try:
             cleanup_on_startup()
         except Exception:

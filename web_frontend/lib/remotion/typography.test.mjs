@@ -15,10 +15,9 @@ import {
   normalizeCaptionDisplayText,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
-  getSubtitleThemeFitWidth,
-  getSubtitleThemeRenderFontSize,
 } from "./typography.ts";
 import {applyOverlayScaleToTypography} from "./overlay-controls.ts";
+import {getSubtitleThemeFitWidth, getSubtitleThemeRenderFontSize} from "./overlay-presentation.ts";
 
 test("uses an explicit cross-platform Chinese font stack for overlays", () => {
   assert.match(OVERLAY_FONT_FAMILY, /Noto Sans SC/);

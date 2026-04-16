@@ -54,7 +54,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
 
     def test_test_run_endpoint_accepts_and_marks_job_running(self) -> None:
         with (
-            patch("web_api.api.routes.require_active_user", return_value=None),
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
             patch("web_api.api.routes.run_test_job_background", return_value=None) as mock_run_test_job_background,
             TestClient(create_app()) as client,
         ):

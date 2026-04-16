@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from video_auto_cut.editing.auto_edit import AutoEdit
+from web_api.tests.utils import extract_labeled_path
 
 
 class DummyArgs:
@@ -38,20 +37,13 @@ def _sample_segments() -> list[dict[str, object]]:
     ]
 
 
-def _extract_path(prompt: str, label: str) -> Path:
-    match = re.search(rf"{label}: (.+)", prompt)
-    if not match:
-        raise AssertionError(f"missing {label} in prompt: {prompt}")
-    return Path(match.group(1).strip())
-
-
 class AutoEditCanonicalRunnerTest(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_stage_and_preview_callbacks_follow_delete_then_polish(self, mock_run) -> None:
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            input_path = _extract_path(prompt, "输入文件")
-            output_path = _extract_path(prompt, "输出文件")
+            input_path = extract_labeled_path(prompt, "输入文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             if "delete skill" in prompt:
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
@@ -73,7 +65,7 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
         args.auto_edit_stage_callback = lambda code, msg: stage_events.append((code, msg))
         args.auto_edit_preview_callback = lambda lines: preview_batches.append(lines)
 
-        result = AutoEdit(args)._auto_edit_segments(_sample_segments(), total_length=10.0)
+        result = AutoEdit.from_args(args)._auto_edit_segments(_sample_segments(), total_length=10.0)
 
         self.assertEqual([code for code, _ in stage_events], ["REMOVING_REDUNDANT_LINES", "POLISHING_EXPRESSION"])
         self.assertEqual(len(preview_batches), 2)
@@ -85,8 +77,8 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
     def test_polish_output_must_cover_all_kept_lines(self, mock_run) -> None:
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            input_path = _extract_path(prompt, "输入文件")
-            output_path = _extract_path(prompt, "输出文件")
+            input_path = extract_labeled_path(prompt, "输入文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             if "delete skill" in prompt:
                 output = (
                     "【00:00:00.000-00:00:01.000】这是前一句的表达内容，我先说错了一些信息。\n"
@@ -100,7 +92,7 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
         mock_run.side_effect = fake_run
 
         with self.assertRaisesRegex(RuntimeError, "Polish output must cover all input subtitle lines exactly once"):
-            AutoEdit(DummyArgs())._auto_edit_segments(_sample_segments(), total_length=10.0)
+            AutoEdit.from_args(DummyArgs())._auto_edit_segments(_sample_segments(), total_length=10.0)
 
 
 if __name__ == "__main__":

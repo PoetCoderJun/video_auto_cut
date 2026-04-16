@@ -18,14 +18,11 @@ import {
   ApiClientError,
   activateInviteCode,
   type ClientUploadIssueStage,
-  createJob,
   getMe,
   invalidateTokenCache,
   reportClientUploadIssue,
   setApiAuthTokenProvider,
-  uploadAudio,
 } from "../lib/api";
-import { extractAudioForAsr } from "../lib/audio-extract";
 import {
   isUnsupportedLocalVideoBrowser,
   isUnsupportedMobileUploadDevice,
@@ -35,9 +32,13 @@ import {
   isLikelyAppExportFileName,
 } from "../lib/source-video-guard";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
-import { validateBrowserRenderCapability } from "../lib/upload-render-validation";
-import { prepareUploadSourceFile } from "../lib/upload-source-preflight";
-import { saveCachedJobSourceVideo } from "../lib/video-cache";
+import {
+  getVideoDurationLimitMessage,
+  MAX_VIDEO_DURATION_SEC,
+  readVideoDurationSec,
+  runUploadPipeline,
+  UploadPipelineError,
+} from "../lib/upload-pipeline";
 import { authClient } from "../lib/auth-client";
 import {
   ACTIVE_JOB_ID_KEY,
@@ -97,8 +98,6 @@ const FLOW_STEPS = [
     icon: <Play className="h-5 w-5 text-rose-600" />,
   },
 ];
-
-const MAX_VIDEO_DURATION_SEC = 10 * 60;
 
 type UserStatus = "UNKNOWN" | "ACTIVE" | "PENDING_COUPON";
 
@@ -262,26 +261,9 @@ export default function HomePageClient() {
     let uploadStage: ClientUploadIssueStage = "session_check";
     try {
       // 0. Check video duration — reject anything >= 10 minutes.
-      const durationSec = await new Promise<number>((resolve) => {
-        const url = URL.createObjectURL(file);
-        const video = document.createElement("video");
-        video.preload = "metadata";
-        video.onloadedmetadata = () => {
-          URL.revokeObjectURL(url);
-          resolve(video.duration);
-        };
-        video.onerror = () => {
-          URL.revokeObjectURL(url);
-          resolve(0);
-        };
-        video.src = url;
-      });
+      const durationSec = await readVideoDurationSec(file);
       if (durationSec >= MAX_VIDEO_DURATION_SEC) {
-        const mins = Math.floor(durationSec / 60);
-        const secs = Math.round(durationSec % 60);
-        setError(
-          `视频时长 ${mins} 分 ${secs} 秒，已达到 10 分钟限制，请上传更短的视频。`
-        );
+        setError(getVideoDurationLimitMessage(durationSec));
         return;
       }
 
@@ -361,41 +343,15 @@ export default function HomePageClient() {
         return;
       }
 
-      uploadStage = "source_preflight";
-      setUploadStageMessage("正在检查源视频兼容性...");
-      const preparedSource = await prepareUploadSourceFile(file, {
-        onStageChange: (stage) => {
-          if (stage === "checking") {
-            setUploadStageMessage("正在检查源视频兼容性...");
-            return;
-          }
-          if (stage === "transcoding") {
-            setUploadStageMessage("正在转码兼容 MP4...");
-            return;
-          }
-          setUploadStageMessage("");
-        },
-        onTranscodeProgress: (progress) => {
-          setUploadStageMessage(`正在转码兼容 MP4（${Math.round(progress * 100)}%）...`);
-        },
+      const result = await runUploadPipeline({
+        file,
+        onStageMessage: setUploadStageMessage,
       });
-      uploadStage = "render_validation";
-      setUploadStageMessage("正在校验浏览器导出能力...");
-      await validateBrowserRenderCapability(preparedSource.file);
-      // 4. Create job and upload through backend; backend forwards to OSS.
-      uploadStage = "job_create";
-      const job = await createJob();
-      uploadStage = "audio_extract";
-      setUploadStageMessage("正在提取音频...");
-      const audioFile = await extractAudioForAsr(preparedSource.file);
-      uploadStage = "audio_upload";
-      setUploadStageMessage("正在上传音频...");
-      await uploadAudio(job.job_id, audioFile);
-      uploadStage = "source_cache";
-      // 必须等本地缓存写入完成再切到任务页，否则任务页 mount 时 loadCachedJobSourceVideo 可能还没写到 IndexedDB，导出时会报「缺少本地原始视频」
-      await saveCachedJobSourceVideo(job.job_id, preparedSource.file).catch(() => undefined);
-      saveJobId(job.job_id);
+      saveJobId(result.job.job_id);
     } catch (err) {
+      if (err instanceof UploadPipelineError) {
+        uploadStage = err.stage;
+      }
       const friendlyMessage = getFriendlyUploadErrorMessage(err);
       void reportClientUploadIssue({
         stage: uploadStage,

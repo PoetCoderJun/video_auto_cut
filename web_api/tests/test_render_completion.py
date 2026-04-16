@@ -62,7 +62,7 @@ class RenderCompletionRouteTests(unittest.TestCase):
             conn.commit()
 
         current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
-        with patch("web_api.api.routes.require_active_user", return_value=None):
+        with patch("web_api.api.routes.ensure_active_user", return_value=None):
             first = render_complete(job_id, current_user=current_user)["data"]["billing"]
             second = render_complete(job_id, current_user=current_user)["data"]["billing"]
 
@@ -106,7 +106,7 @@ class RenderCompletionRouteTests(unittest.TestCase):
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 
         current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
-        with patch("web_api.api.routes.require_active_user", return_value=None):
+        with patch("web_api.api.routes.ensure_active_user", return_value=None):
             with self.assertRaises(ApiError) as ctx:
                 render_complete(job_id, current_user=current_user)
 

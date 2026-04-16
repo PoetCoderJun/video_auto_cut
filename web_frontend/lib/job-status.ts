@@ -1,11 +1,5 @@
-type JobStatus =
-  | "CREATED"
-  | "UPLOAD_READY"
-  | "TEST_RUNNING"
-  | "TEST_READY"
-  | "TEST_CONFIRMED"
-  | "SUCCEEDED"
-  | "FAILED";
+import type { JobStatus } from "./api";
+
 
 type JobSnapshot = {
   job_id: string;

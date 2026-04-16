@@ -66,15 +66,6 @@ class TestRunDraftSyncTests(unittest.TestCase):
             srt_path.write_text("placeholder", encoding="utf-8")
             optimized_srt_path = test_dir / "transcribed.optimized.srt"
             optimized_srt_path.write_text("placeholder", encoding="utf-8")
-            optimized_srt_path.with_suffix(".test.txt").write_text(
-                "\n".join(
-                    [
-                        "【00:00:00.000-00:00:01.000】润色后的第一句",
-                    ]
-                )
-                + "\n",
-                encoding="utf-8",
-            )
 
             def fake_run_auto_edit(source_srt, options, stage_callback=None, preview_callback=None):
                 self.assertEqual(source_srt, srt_path)
@@ -85,7 +76,7 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 return SimpleNamespace(
                     optimized_srt_path=optimized_srt_path,
                     test_lines=polish_lines,
-                    test_text_path=optimized_srt_path.with_suffix(".test.txt"),
+                    test_json_path=optimized_srt_path.with_suffix(".test.json"),
                 )
 
             with (
@@ -103,11 +94,11 @@ class TestRunDraftSyncTests(unittest.TestCase):
                     return_value={"audio_path": str(input_dir / "audio.wav"), "video_path": str(input_dir / "video.mp4")},
                 ),
                 patch(
-                    "web_api.services.test.build_pipeline_options",
+                    "web_api.services.test.build_pipeline_options_from_settings",
                     return_value=SimpleNamespace(asr_backend="test", encoding="utf-8"),
                 ),
                 patch("web_api.services.test.get_job_owner_user_id", return_value="user-1"),
-                patch("web_api.services.test.has_available_credits", return_value=True),
+                patch("web_api.services.test.get_credit_balance", return_value=1),
                 patch(
                     "web_api.services.test.run_asr_transcription_stage",
                     return_value=SimpleNamespace(srt_path=srt_path, test_lines=raw_lines),

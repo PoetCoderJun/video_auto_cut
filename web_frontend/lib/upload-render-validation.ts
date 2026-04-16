@@ -12,11 +12,6 @@ type RenderValidationMetadata = {
   height: number;
 };
 
-type RenderValidationAttempt = {
-  options: CanRenderMediaOnWebOptions;
-  label: string;
-};
-
 async function loadSourceMetadata(
   sourceFile: File,
 ): Promise<RenderValidationMetadata> {
@@ -39,33 +34,6 @@ async function loadSourceMetadata(
   } finally {
     URL.revokeObjectURL(sourceUrl);
   }
-}
-
-function buildValidationAttempts(
-  metadata: RenderValidationMetadata,
-): RenderValidationAttempt[] {
-  return [
-    {
-      label: "mp4-aac",
-      options: {
-        width: metadata.width,
-        height: metadata.height,
-        container: "mp4",
-        videoCodec: "h264",
-        audioCodec: "aac",
-      },
-    },
-    {
-      label: "webm-opus",
-      options: {
-        width: metadata.width,
-        height: metadata.height,
-        container: "webm",
-        videoCodec: "vp8",
-        audioCodec: "opus",
-      },
-    },
-  ];
 }
 
 export function getFriendlyCanRenderIssueMessage(
@@ -131,10 +99,35 @@ export async function validateBrowserRenderCapability(
 
   const metadata = await loadSourceMetadata(sourceFile);
   const { canRenderMediaOnWeb } = await import("@remotion/web-renderer");
+  const validationAttempts: Array<{
+    label: string;
+    options: CanRenderMediaOnWebOptions;
+  }> = [
+    {
+      label: "mp4-aac",
+      options: {
+        width: metadata.width,
+        height: metadata.height,
+        container: "mp4",
+        videoCodec: "h264",
+        audioCodec: "aac",
+      },
+    },
+    {
+      label: "webm-opus",
+      options: {
+        width: metadata.width,
+        height: metadata.height,
+        container: "webm",
+        videoCodec: "vp8",
+        audioCodec: "opus",
+      },
+    },
+  ];
 
   let lastIssues: CanRenderIssue[] = [];
   let lastThrownError: unknown = null;
-  for (const attempt of buildValidationAttempts(metadata)) {
+  for (const attempt of validationAttempts) {
     try {
       const result = await canRenderMediaOnWeb(attempt.options);
       if (result.canRender) {

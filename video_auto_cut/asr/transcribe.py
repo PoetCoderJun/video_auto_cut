@@ -6,21 +6,49 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 import srt
 
-from ..shared import media
+from ..shared.interfaces import PipelineOptions
 from .dashscope_filetrans import DashScopeFiletransClient, DashScopeFiletransConfig
 from .filetrans_like import FiletransSegment, FiletransTask, segments_to_tokens
 from .oss_uploader import OSSAudioUploader, create_oss_uploader_from_config
 
 
 class Transcribe:
-    def __init__(self, args):
-        self.args = args
+    def __init__(
+        self,
+        args_or_input: Any,
+        options: PipelineOptions | None = None,
+        *,
+        oss_object_key: str | None = None,
+        progress_callback=None,
+    ):
+        self.options = options
+        self.args = args_or_input if options is None else None
+        if options is None:
+            self.inputs = [str(path) for path in getattr(args_or_input, "inputs", [])]
+            self.force = bool(getattr(args_or_input, "force", False))
+            self.encoding = str(getattr(args_or_input, "encoding", "utf-8"))
+            self.lang = getattr(args_or_input, "lang", None)
+            self.prompt = str(getattr(args_or_input, "prompt", ""))
+            self.oss_object_key = getattr(args_or_input, "oss_object_key", None) or None
+            self.progress_callback = getattr(args_or_input, "asr_progress_callback", None)
+        else:
+            self.inputs = [str(Path(args_or_input))]
+            self.force = bool(options.force)
+            self.encoding = options.encoding
+            self.lang = options.lang
+            self.prompt = options.prompt
+            self.oss_object_key = oss_object_key
+            self.progress_callback = progress_callback
         self.asr_backend = (
-            getattr(self.args, "asr_backend", "dashscope_filetrans")
+            (
+                options.asr_backend
+                if options is not None
+                else getattr(args_or_input, "asr_backend", "dashscope_filetrans")
+            )
             or "dashscope_filetrans"
         ).strip().lower()
         if self.asr_backend != "dashscope_filetrans":
@@ -34,49 +62,45 @@ class Transcribe:
         self._init_dashscope_filetrans()
 
     def _init_dashscope_filetrans(self) -> None:
+        source = self.options or self.args
         config = DashScopeFiletransConfig(
-            base_url=(getattr(self.args, "asr_dashscope_base_url", "") or "").strip(),
-            api_key=(getattr(self.args, "asr_dashscope_api_key", "") or "").strip(),
-            model=(
-                getattr(self.args, "asr_dashscope_model", "qwen3-asr-flash-filetrans")
-                or ""
-            ).strip(),
-            task=(getattr(self.args, "asr_dashscope_task", "") or "").strip() or None,
-            poll_seconds=max(0.5, float(getattr(self.args, "asr_dashscope_poll_seconds", 2.0))),
-            timeout_seconds=max(
-                30.0, float(getattr(self.args, "asr_dashscope_timeout_seconds", 3600.0))
-            ),
-            language=(getattr(self.args, "asr_dashscope_language", "") or "").strip() or None,
-            language_hints=tuple(getattr(self.args, "asr_dashscope_language_hints", []) or []),
-            text=(getattr(self.args, "asr_dashscope_context", "") or "").strip(),
-            enable_itn=bool(getattr(self.args, "asr_dashscope_enable_itn", False)),
-            enable_words=bool(getattr(self.args, "asr_dashscope_enable_words", False)),
+            base_url=(getattr(source, "asr_dashscope_base_url", "") or "").strip(),
+            api_key=(getattr(source, "asr_dashscope_api_key", "") or "").strip(),
+            model=(getattr(source, "asr_dashscope_model", "qwen3-asr-flash-filetrans") or "").strip(),
+            task=(getattr(source, "asr_dashscope_task", "") or "").strip() or None,
+            poll_seconds=max(0.5, float(getattr(source, "asr_dashscope_poll_seconds", 2.0))),
+            timeout_seconds=max(30.0, float(getattr(source, "asr_dashscope_timeout_seconds", 3600.0))),
+            language=(getattr(source, "asr_dashscope_language", "") or "").strip() or None,
+            language_hints=tuple(getattr(source, "asr_dashscope_language_hints", []) or []),
+            text=(getattr(source, "asr_dashscope_context", "") or "").strip(),
+            enable_itn=bool(getattr(source, "asr_dashscope_enable_itn", False)),
+            enable_words=bool(getattr(source, "asr_dashscope_enable_words", False)),
             channel_ids=tuple(
                 int(max(0, int(item)))
-                for item in (getattr(self.args, "asr_dashscope_channel_ids", [0]) or [0])
+                for item in (getattr(source, "asr_dashscope_channel_ids", [0]) or [0])
             ),
-            word_split_enabled=bool(getattr(self.args, "asr_dashscope_word_split_enabled", True)),
-            word_split_on_comma=bool(getattr(self.args, "asr_dashscope_word_split_on_comma", True)),
+            word_split_enabled=bool(getattr(source, "asr_dashscope_word_split_enabled", True)),
+            word_split_on_comma=bool(getattr(source, "asr_dashscope_word_split_on_comma", True)),
             word_split_comma_pause_s=float(
-                max(0.0, float(getattr(self.args, "asr_dashscope_word_split_comma_pause_s", 0.4)))
+                max(0.0, float(getattr(source, "asr_dashscope_word_split_comma_pause_s", 0.4)))
             ),
             word_split_min_chars=int(
-                max(1, int(getattr(self.args, "asr_dashscope_word_split_min_chars", 18)))
+                max(1, int(getattr(source, "asr_dashscope_word_split_min_chars", 18)))
             ),
-            word_vad_gap_s=float(max(0.0, float(getattr(self.args, "asr_dashscope_word_vad_gap_s", 0.6)))),
+            word_vad_gap_s=float(max(0.0, float(getattr(source, "asr_dashscope_word_vad_gap_s", 0.6)))),
             word_max_segment_s=float(
-                max(1.0, float(getattr(self.args, "asr_dashscope_word_max_segment_s", 8.0))
+                max(1.0, float(getattr(source, "asr_dashscope_word_max_segment_s", 8.0))
             )),
         )
         self.filetrans_client = DashScopeFiletransClient(config)
         oss_ok = bool(
-            (getattr(self.args, "asr_oss_endpoint", "") or "").strip()
-            and (getattr(self.args, "asr_oss_bucket", "") or "").strip()
-            and (getattr(self.args, "asr_oss_access_key_id", "") or "").strip()
-            and (getattr(self.args, "asr_oss_access_key_secret", "") or "").strip()
+            (getattr(source, "asr_oss_endpoint", "") or "").strip()
+            and (getattr(source, "asr_oss_bucket", "") or "").strip()
+            and (getattr(source, "asr_oss_access_key_id", "") or "").strip()
+            and (getattr(source, "asr_oss_access_key_secret", "") or "").strip()
         )
         if oss_ok:
-            self.oss_uploader = create_oss_uploader_from_config(self.args)
+            self.oss_uploader = create_oss_uploader_from_config(source)
             logging.info("[asr] using own OSS bucket for upload")
         else:
             logging.info("[asr] own OSS upload is unavailable because OSS config is incomplete")
@@ -95,31 +119,30 @@ class Transcribe:
             logging.info("[asr] sentence rule with punctuation follows cloud sentence boundaries (enable_words=true)")
 
     def run(self):
-        for input_path in self.args.inputs:
+        for input_path in self.inputs:
             logging.info("Transcribing %s", input_path)
             base, _ = os.path.splitext(input_path)
             output_srt = base + ".srt"
-            if media.check_exists(output_srt, bool(getattr(self.args, "force", False))):
-                continue
+            if os.path.exists(output_srt):
+                if self.force:
+                    logging.info("%s exists. Will overwrite it", output_srt)
+                else:
+                    logging.info("%s exists, skipping... Use --force to overwrite", output_srt)
+                    continue
 
             tic = time.time()
-            language = getattr(self.args, "lang", None)
-            prompt = getattr(self.args, "prompt", "")
-            asr_progress_callback = getattr(self.args, "asr_progress_callback", None)
-
-            oss_object_key = getattr(self.args, "oss_object_key", None) or None
             tokens = self._dashscope_filetrans_transcribe(
                 media_path=input_path,
-                lang=language,
-                prompt=prompt,
-                progress_callback=asr_progress_callback,
-                oss_object_key=oss_object_key,
+                lang=self.lang,
+                prompt=self.prompt,
+                progress_callback=self.progress_callback,
+                oss_object_key=self.oss_object_key,
             )
             logging.info("Done transcription in %.1f sec", time.time() - tic)
 
             subs = self._tokens_to_subtitles(tokens)
             with open(output_srt, "wb") as f:
-                f.write(srt.compose(subs).encode(getattr(self.args, "encoding", "utf-8"), "replace"))
+                f.write(srt.compose(subs).encode(self.encoding, "replace"))
             logging.info("Transcribed %s to %s", input_path, output_srt)
 
     def _dashscope_filetrans_transcribe(
@@ -192,16 +215,17 @@ class Transcribe:
         self._emit_progress(progress_callback, 1.0)
 
         segments = result.segments
-        if bool(getattr(self.args, "asr_dashscope_insert_no_speech", True)):
+        source = self.options or self.args
+        if bool(getattr(source, "asr_dashscope_insert_no_speech", True)):
             segments = self._insert_no_speech_segments(
                 segments,
-                min_gap_s=float(getattr(self.args, "asr_dashscope_no_speech_gap_s", 1.0)),
-                include_head=bool(getattr(self.args, "asr_dashscope_insert_head_no_speech", True)),
+                min_gap_s=float(getattr(source, "asr_dashscope_no_speech_gap_s", 1.0)),
+                include_head=bool(getattr(source, "asr_dashscope_insert_head_no_speech", True)),
             )
         sentence_rule_with_punc = bool(
-            getattr(self.args, "asr_dashscope_sentence_rule_with_punc", True)
+            getattr(source, "asr_dashscope_sentence_rule_with_punc", True)
         )
-        enable_words = bool(getattr(self.args, "asr_dashscope_enable_words", False))
+        enable_words = bool(getattr(source, "asr_dashscope_enable_words", False))
         if sentence_rule_with_punc and not enable_words:
             segments = self._split_segments_by_punctuation(segments)
         return segments_to_tokens(segments)

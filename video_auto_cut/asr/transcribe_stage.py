@@ -7,12 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from video_auto_cut.orchestration.pipeline_service import (
-    ASRProgressCallback,
-    PipelineOptions,
-    run_transcribe,
-)
+from video_auto_cut.orchestration.pipeline_service import ASRProgressCallback, run_transcribe
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
+from video_auto_cut.shared.interfaces import PipelineOptions
 from video_auto_cut.shared.test_text_io import build_test_lines_from_srt, write_test_text
 
 

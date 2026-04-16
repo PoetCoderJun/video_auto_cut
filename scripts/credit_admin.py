@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -17,23 +16,7 @@ if str(SCRIPTS_DIR) not in sys.path:
 
 from coupon_admin import load_env_file
 from web_api.db import get_conn
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _row_get(row: Any, key: str, index: int) -> Any:
-    if row is None:
-        return None
-    if isinstance(row, (tuple, list)):
-        if 0 <= index < len(row):
-            return row[index]
-        return None
-    try:
-        return row[key]
-    except Exception:
-        return None
+from web_api.utils.persistence_helpers import now_iso
 
 
 def normalize_email(raw: str) -> str:
@@ -48,7 +31,7 @@ def current_balance(conn: Any, user_id: str) -> int:
         "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
         (user_id,),
     ).fetchone()
-    return int(_row_get(row, "balance", 0) or 0)
+    return int(row["balance"] or 0)
 
 
 def resolve_user(conn: Any, *, email: str | None, user_id: str | None) -> dict[str, Any]:
@@ -65,10 +48,10 @@ def resolve_user(conn: Any, *, email: str | None, user_id: str | None) -> dict[s
         if not row:
             raise LookupError("user not found")
         return {
-            "user_id": str(_row_get(row, "user_id", 0)),
-            "email": _row_get(row, "email", 1),
-            "status": _row_get(row, "status", 2),
-            "activated_at": _row_get(row, "activated_at", 3),
+            "user_id": str(row["user_id"]),
+            "email": row["email"],
+            "status": row["status"],
+            "activated_at": row["activated_at"],
         }
 
     normalized_email = normalize_email(email or "")
@@ -86,15 +69,15 @@ def resolve_user(conn: Any, *, email: str | None, user_id: str | None) -> dict[s
     if len(rows) > 1:
         raise LookupError(
             "multiple users found for this email: "
-            + ", ".join(str(_row_get(row, "user_id", 0)) for row in rows)
+            + ", ".join(str(row["user_id"]) for row in rows)
         )
 
     row = rows[0]
     return {
-        "user_id": str(_row_get(row, "user_id", 0)),
-        "email": _row_get(row, "email", 1),
-        "status": _row_get(row, "status", 2),
-        "activated_at": _row_get(row, "activated_at", 3),
+        "user_id": str(row["user_id"]),
+        "email": row["email"],
+        "status": row["status"],
+        "activated_at": row["activated_at"],
     }
 
 
@@ -133,12 +116,12 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(
             "\t".join(
                 [
-                    str(_row_get(row, "entry_id", 0)),
-                    str(_row_get(row, "delta", 1)),
-                    str(_row_get(row, "reason", 2) or ""),
-                    str(_row_get(row, "job_id", 3) or ""),
-                    str(_row_get(row, "idempotency_key", 4) or ""),
-                    str(_row_get(row, "created_at", 5) or ""),
+                    str(row["entry_id"]),
+                    str(row["delta"]),
+                    str(row["reason"] or ""),
+                    str(row["job_id"] or ""),
+                    str(row["idempotency_key"] or ""),
+                    str(row["created_at"] or ""),
                 ]
             )
         )
@@ -179,11 +162,11 @@ def cmd_grant(args: argparse.Namespace) -> int:
         if existing:
             after_balance = current_balance(conn, str(user["user_id"]))
             print("grant skipped: idempotency key already exists")
-            print(f"entry_id: {_row_get(existing, 'entry_id', 0)}")
-            print(f"user_id: {_row_get(existing, 'user_id', 1)}")
-            print(f"delta: {_row_get(existing, 'delta', 2)}")
-            print(f"reason: {_row_get(existing, 'reason', 3)}")
-            print(f"created_at: {_row_get(existing, 'created_at', 4)}")
+            print(f"entry_id: {existing['entry_id']}")
+            print(f"user_id: {existing['user_id']}")
+            print(f"delta: {existing['delta']}")
+            print(f"reason: {existing['reason']}")
+            print(f"created_at: {existing['created_at']}")
             print(f"balance_before: {before_balance}")
             print(f"balance_after: {after_balance}")
             return 0

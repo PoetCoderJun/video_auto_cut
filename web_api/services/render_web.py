@@ -21,9 +21,7 @@ def build_web_render_config(
     width: int | None = None,
     height: int | None = None,
     duration_sec: float | None = None,
-    chat_completion_fn: Any | None = None,
 ) -> dict[str, Any]:
-    _ = chat_completion_fn
     files = get_job_files(job_id)
     if not files:
         raise RuntimeError("job files not found for render")

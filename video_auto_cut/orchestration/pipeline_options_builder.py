@@ -78,128 +78,104 @@ def _build_common_values() -> dict[str, Any]:
         "lang": _env(
             "WEB_LANG",
             "DASHSCOPE_ASR_LANGUAGE",
-            "ASR_DASHSCOPE_LANGUAGE",
             default="Chinese",
         ),
         "prompt": "",
         "asr_backend": _env("ASR_BACKEND", default="dashscope_filetrans"),
         "asr_dashscope_base_url": _env(
             "DASHSCOPE_ASR_BASE_URL",
-            "ASR_DASHSCOPE_BASE_URL",
             default=PipelineOptions.asr_dashscope_base_url,
         ),
         "asr_dashscope_model": _env(
             "DASHSCOPE_ASR_MODEL",
-            "ASR_DASHSCOPE_MODEL",
             default=PipelineOptions.asr_dashscope_model,
         ),
-        "asr_dashscope_task": _env("DASHSCOPE_ASR_TASK", "ASR_DASHSCOPE_TASK", default="") or "",
+        "asr_dashscope_task": _env("DASHSCOPE_ASR_TASK", default="") or "",
         "asr_dashscope_api_key": _env(
             "DASHSCOPE_ASR_API_KEY",
-            "ASR_DASHSCOPE_API_KEY",
             "DASHSCOPE_API_KEY",
         ),
         "asr_dashscope_poll_seconds": _env_float(
             "DASHSCOPE_ASR_POLL_SECONDS",
-            "ASR_DASHSCOPE_POLL_SECONDS",
             default=2.0,
         ),
         "asr_dashscope_timeout_seconds": _env_float(
             "DASHSCOPE_ASR_TIMEOUT_SECONDS",
-            "ASR_DASHSCOPE_TIMEOUT_SECONDS",
             default=3600.0,
         ),
-        "asr_dashscope_language": _env("DASHSCOPE_ASR_LANGUAGE", "ASR_DASHSCOPE_LANGUAGE"),
+        "asr_dashscope_language": _env("DASHSCOPE_ASR_LANGUAGE"),
         "asr_dashscope_language_hints": tuple(
             item.strip()
             for item in (
                 _env(
                     "DASHSCOPE_ASR_LANGUAGE_HINTS",
-                    "ASR_DASHSCOPE_LANGUAGE_HINTS",
                     default="",
                 )
                 or ""
             ).split(",")
             if item.strip()
         ),
-        "asr_dashscope_context": _env("DASHSCOPE_ASR_TEXT", "ASR_DASHSCOPE_CONTEXT", default="") or "",
+        "asr_dashscope_context": _env("DASHSCOPE_ASR_TEXT", default="") or "",
         "asr_dashscope_enable_itn": _env_bool("DASHSCOPE_ASR_ENABLE_ITN", default=False),
         "asr_dashscope_enable_words": _env_bool(
             "DASHSCOPE_ASR_ENABLE_WORDS",
-            "ASR_DASHSCOPE_ENABLE_WORDS",
             default=True,
         ),
         "asr_dashscope_channel_ids": _env_int_csv(
             "DASHSCOPE_ASR_CHANNEL_IDS",
-            "ASR_DASHSCOPE_CHANNEL_IDS",
             default=(0,),
         ),
         "asr_dashscope_sentence_rule_with_punc": _env_bool(
             "ASR_SENTENCE_RULE_WITH_PUNC",
-            "ASR_DASHSCOPE_SENTENCE_RULE_WITH_PUNC",
             default=True,
         ),
         "asr_dashscope_word_split_enabled": _env_bool(
             "ASR_WORD_SPLIT_ENABLED",
-            "ASR_DASHSCOPE_WORD_SPLIT_ENABLED",
             default=True,
         ),
         "asr_dashscope_word_split_on_comma": _env_bool(
             "ASR_WORD_SPLIT_ON_COMMA",
-            "ASR_DASHSCOPE_WORD_SPLIT_ON_COMMA",
             default=True,
         ),
         "asr_dashscope_word_split_comma_pause_s": _env_float(
             "ASR_WORD_SPLIT_COMMA_PAUSE_S",
-            "ASR_DASHSCOPE_WORD_SPLIT_COMMA_PAUSE_S",
             default=0.4,
         ),
         "asr_dashscope_word_split_min_chars": _env_int(
             "ASR_WORD_SPLIT_MIN_CHARS",
-            "ASR_DASHSCOPE_WORD_SPLIT_MIN_CHARS",
             default=12,
         ),
         "asr_dashscope_word_vad_gap_s": _env_float(
             "ASR_WORD_VAD_GAP_S",
-            "ASR_DASHSCOPE_WORD_VAD_GAP_S",
             default=1.0,
         ),
         "asr_dashscope_word_max_segment_s": _env_float(
             "ASR_WORD_MAX_SEGMENT_S",
-            "ASR_DASHSCOPE_WORD_MAX_SEGMENT_S",
             default=8.0,
         ),
         "asr_dashscope_no_speech_gap_s": _env_float(
             "ASR_NO_SPEECH_GAP_S",
-            "ASR_DASHSCOPE_NO_SPEECH_GAP_S",
             default=1.0,
         ),
         "asr_dashscope_insert_no_speech": _env_bool(
             "ASR_INSERT_NO_SPEECH",
-            "ASR_DASHSCOPE_INSERT_NO_SPEECH",
             default=True,
         ),
         "asr_dashscope_insert_head_no_speech": _env_bool(
             "ASR_INSERT_HEAD_NO_SPEECH",
-            "ASR_DASHSCOPE_INSERT_HEAD_NO_SPEECH",
             default=True,
         ),
-        "asr_oss_endpoint": _env("ASR_OSS_ENDPOINT", "OSS_ENDPOINT"),
-        "asr_oss_bucket": _env("ASR_OSS_BUCKET", "OSS_BUCKET"),
-        "asr_oss_access_key_id": _env("ASR_OSS_ACCESS_KEY_ID", "OSS_ACCESS_KEY_ID"),
-        "asr_oss_access_key_secret": _env(
-            "ASR_OSS_ACCESS_KEY_SECRET",
-            "OSS_ACCESS_KEY_SECRET",
-        ),
+        "asr_oss_endpoint": _env("ASR_OSS_ENDPOINT"),
+        "asr_oss_bucket": _env("ASR_OSS_BUCKET"),
+        "asr_oss_access_key_id": _env("ASR_OSS_ACCESS_KEY_ID"),
+        "asr_oss_access_key_secret": _env("ASR_OSS_ACCESS_KEY_SECRET"),
         "asr_oss_prefix": _env(
             "ASR_OSS_PREFIX",
-            "OSS_AUDIO_PREFIX",
             default="video-auto-cut/asr",
         )
         or "video-auto-cut/asr",
         "asr_oss_signed_url_ttl_seconds": _env_int(
             "ASR_OSS_SIGNED_URL_TTL_SECONDS",
-            "OSS_SIGNED_URL_TTL_SECONDS",
             default=86400,
         ),
         "llm_base_url": _env("LLM_BASE_URL"),

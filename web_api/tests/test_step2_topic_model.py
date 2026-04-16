@@ -10,6 +10,7 @@ import srt
 from video_auto_cut.editing.topic_segment import (
     PiAgentTopicLoop,
     TopicSegment,
+    TopicSegmenter,
     _build_candidate_blocks,
     _build_segmentation_prompt,
     _find_topic_plan_issues,
@@ -18,16 +19,13 @@ from video_auto_cut.editing.topic_segment import (
     _recommended_topic_budget,
     _topic_count_range,
 )
-from video_auto_cut.orchestration.pipeline_service import PipelineOptions, build_topic_args
+from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_settings
 from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
-from web_api.services.pipeline_options import build_pipeline_options
+from video_auto_cut.shared.interfaces import PipelineOptions
 
 
 class Step2TopicModelConfigTest(unittest.TestCase):
-    @patch("web_api.services.pipeline_options.get_settings")
-    def test_build_pipeline_options_defaults_topic_model_to_main_model_and_caps_topic_count(
-        self, mock_get_settings
-    ) -> None:
+    def test_build_pipeline_options_defaults_topic_model_to_main_model_and_caps_topic_count(self) -> None:
         class DummySettings:
             lang = "Chinese"
             asr_dashscope_base_url = "https://dashscope.aliyuncs.com"
@@ -69,15 +67,13 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             topic_title_max_chars = 6
             topic_llm_model = "qwen-flash"
 
-        mock_get_settings.return_value = DummySettings()
-
-        options = build_pipeline_options()
+        options = build_pipeline_options_from_settings(DummySettings())
 
         self.assertEqual(options.llm_model, "kimi-k2.5")
         self.assertEqual(options.topic_llm_model, "kimi-k2.5")
         self.assertEqual(options.topic_max_topics, 6)
 
-    def test_build_topic_args_uses_main_llm_model(self) -> None:
+    def test_topic_segmenter_direct_options_uses_main_llm_model(self) -> None:
         options = PipelineOptions(
             llm_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             llm_model="kimi-k2.5",
@@ -85,13 +81,13 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             llm_api_key="llm-key",
         )
 
-        args = build_topic_args(
-            srt_path=Path("/tmp/input.srt"),
+        segmenter = TopicSegmenter(
+            Path("/tmp/input.srt"),
+            options,
             output_path=Path("/tmp/topics.json"),
-            options=options,
         )
 
-        self.assertEqual(args.llm_model, "kimi-k2.5")
+        self.assertEqual(segmenter.llm_config["model"], "kimi-k2.5")
 
     def test_build_candidate_blocks_skips_pre_chunking_when_target_blocks_exceed_segments(self) -> None:
         segments = [
@@ -131,20 +127,6 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         self.assertEqual(blocks[0].segment_ids[0], 1)
         self.assertEqual(blocks[-1].segment_ids[-1], 48)
 
-    def test_parse_segment_plan_reads_segment_ids_only(self) -> None:
-        plan = _parse_segment_plan(
-            """
-            {
-              "topics": [
-                {"segment_ids": [1, 2], "title": "开场"},
-                {"segment_ids": [3, 4], "title": "打法"}
-              ]
-            }
-            """
-        )
-
-        self.assertEqual(plan, [[1, 2], [3, 4]])
-
     def test_parse_segment_plan_reads_block_ranges(self) -> None:
         plan = _parse_segment_plan(
             """
@@ -159,19 +141,44 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         self.assertEqual(plan, [[1, 2], [3, 4]])
 
-    def test_parse_segment_plan_reads_segment_ranges(self) -> None:
-        plan = _parse_segment_plan(
-            """
-            {
-              "topics": [
-                {"segment_range": "1-2", "title": "开场"},
-                {"segment_range": "3-4", "title": "打法"}
-              ]
-            }
-            """
-        )
+    def test_parse_segment_plan_rejects_legacy_segment_ranges(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "empty segmentation plan"):
+            _parse_segment_plan(
+                """
+                {
+                  "topics": [
+                    {"segment_range": "1-2", "title": "开场"},
+                    {"segment_range": "3-4", "title": "打法"}
+                  ]
+                }
+                """
+            )
 
-        self.assertEqual(plan, [[1, 2], [3, 4]])
+    def test_parse_segment_plan_rejects_legacy_segment_ids(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "empty segmentation plan"):
+            _parse_segment_plan(
+                """
+                {
+                  "topics": [
+                    {"segment_ids": [1, 2], "title": "开场"},
+                    {"segment_ids": [3, 4], "title": "打法"}
+                  ]
+                }
+                """
+            )
+
+    def test_parse_segment_plan_rejects_legacy_range_alias(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "empty segmentation plan"):
+            _parse_segment_plan(
+                """
+                {
+                  "topics": [
+                    {"range": "1-2", "title": "开场"},
+                    {"range": "3-4", "title": "打法"}
+                  ]
+                }
+                """
+            )
 
     def test_topic_segmentation_uses_simple_duration_bands(self) -> None:
         self.assertEqual(_recommended_topic_budget(90.0), 4)
@@ -183,12 +190,12 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         self.assertEqual(_topic_count_range(240.0), (4, 5, 6))
         self.assertEqual(_topic_count_range(420.0), (4, 6, 6))
 
-    def test_topic_plan_issues_flag_placeholder_titles(self) -> None:
+    def test_topic_plan_issues_allow_non_empty_placeholder_titles(self) -> None:
         issues = _find_topic_plan_issues(
             {
                 "topics": [
-                    {"segment_ids": [1, 2, 3], "title": "剪辑耗时长的问题与解决方案"},
-                    {"segment_ids": [4], "title": "章节2"},
+                    {"block_range": "1-3", "title": "剪辑耗时长的问题与解决方案"},
+                    {"block_range": "4", "title": "章节2"},
                 ]
             },
             segments=[
@@ -197,41 +204,16 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 TopicSegment(segment_id=3, start=2.0, end=3.0, text="c"),
                 TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
             ],
-            min_topics=1,
-            max_topics=5,
-            title_max_chars=6,
         )
 
-        self.assertTrue(any("占位词" in issue["message"] for issue in issues))
+        self.assertEqual(issues, [])
 
-    def test_topic_plan_issues_flag_short_chapters(self) -> None:
+    def test_topic_plan_issues_allow_short_chapters(self) -> None:
         issues = _find_topic_plan_issues(
             {
                 "topics": [
-                    {"segment_ids": [1, 2], "title": "开场说明"},
-                    {"segment_ids": [3, 4, 5], "title": "解决方法"},
-                ]
-            },
-            segments=[
-                TopicSegment(segment_id=1, start=0.0, end=1.0, text="a"),
-                TopicSegment(segment_id=2, start=1.0, end=2.0, text="b"),
-                TopicSegment(segment_id=3, start=2.0, end=3.0, text="c"),
-                TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
-                TopicSegment(segment_id=5, start=4.0, end=5.0, text="e"),
-            ],
-            min_topics=1,
-            max_topics=5,
-            title_max_chars=6,
-        )
-
-        self.assertTrue(any("至少需要 3 句字幕" in issue["message"] for issue in issues))
-
-    def test_topic_plan_issues_can_skip_short_chapter_validation(self) -> None:
-        issues = _find_topic_plan_issues(
-            {
-                "topics": [
-                    {"segment_ids": [1, 2], "title": "开场说明"},
-                    {"segment_ids": [3, 4, 5], "title": "解决方法"},
+                    {"block_range": "1-2", "title": "开场说明"},
+                    {"block_range": "3-5", "title": "解决方法"},
                 ]
             },
             segments=[
@@ -241,18 +223,33 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
                 TopicSegment(segment_id=5, start=4.0, end=5.0, text="e"),
             ],
-            min_topics=1,
-            max_topics=5,
-            title_max_chars=6,
-            enforce_min_segments_per_topic=False,
         )
 
-        self.assertFalse(any("至少需要 3 句字幕" in issue["message"] for issue in issues))
+        self.assertEqual(issues, [])
+
+    def test_topic_plan_issues_flag_empty_titles(self) -> None:
+        issues = _find_topic_plan_issues(
+            {
+                "topics": [
+                    {"block_range": "1-2", "title": "开场说明"},
+                    {"block_range": "3-5", "title": ""},
+                ]
+            },
+            segments=[
+                TopicSegment(segment_id=1, start=0.0, end=1.0, text="a"),
+                TopicSegment(segment_id=2, start=1.0, end=2.0, text="b"),
+                TopicSegment(segment_id=3, start=2.0, end=3.0, text="c"),
+                TopicSegment(segment_id=4, start=3.0, end=4.0, text="d"),
+                TopicSegment(segment_id=5, start=4.0, end=5.0, text="e"),
+            ],
+        )
+
+        self.assertTrue(any("标题为空" in issue["message"] for issue in issues))
 
     def test_topic_plan_does_not_hard_fail_for_long_titles(self) -> None:
         payload = {
             "topics": [
-                {"segment_ids": [1, 2], "title": "这是一个很长的标题"},
+                {"block_range": "1-2", "title": "这是一个很长的标题"},
             ]
         }
         segments = [
@@ -264,9 +261,6 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             _is_topic_plan_valid(
                 payload,
                 segments,
-                min_topics=1,
-                max_topics=5,
-                title_max_chars=6,
             )
         )
 
@@ -290,8 +284,9 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         )
 
         self.assertIn("基于当前共 10 句字幕、每章至少 3 句，本次最多只能分成 3 章", messages[0]["content"])
+        self.assertIn("block_range 虽沿用旧字段名，但这里必须填写连续字幕 segment 编号范围", messages[0]["content"])
 
-    def test_pi_agent_topic_loop_fails_after_validation_failure(self) -> None:
+    def test_pi_agent_topic_loop_allows_single_chapter_when_coverage_is_valid(self) -> None:
         segments = [
             TopicSegment(segment_id=1, start=0.0, end=5.0, text="先讲开场"),
             TopicSegment(segment_id=2, start=5.0, end=10.0, text="继续开场"),
@@ -303,7 +298,7 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"segment_ids": [1, 2, 3, 4, 5, 6], "title": "整体方案"}
+            {"block_range": "1-6", "title": "整体方案"}
           ]
         }
         """
@@ -317,8 +312,9 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             chat_completion_fn=lambda _config, _messages: response,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "分章数量过少"):
-            loop.run(segments)
+        result = loop.run(segments)
+
+        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-6"])
 
     def test_pi_agent_topic_loop_allows_short_generated_chapter(self) -> None:
         segments = [
@@ -328,9 +324,9 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"segment_ids": [1, 2, 3, 4], "title": "开场说明"},
-            {"segment_ids": [5, 6, 7, 8], "title": "中段推进"},
-            {"segment_ids": [9, 10], "title": "最后动作"}
+            {"block_range": "1-4", "title": "开场说明"},
+            {"block_range": "5-8", "title": "中段推进"},
+            {"block_range": "9-10", "title": "最后动作"}
           ]
         }
         """
@@ -349,11 +345,11 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-4", "5-8", "9-10"])
         self.assertEqual(result.debug["final_source"], "draft")
 
-    def test_topic_plan_issues_flag_too_few_topics_for_long_video(self) -> None:
+    def test_topic_plan_issues_allow_too_few_topics_for_long_video(self) -> None:
         issues = _find_topic_plan_issues(
             {
                 "topics": [
-                    {"segment_ids": [1, 2, 3, 4, 5, 6], "title": "整体方案"},
+                    {"block_range": "1-6", "title": "整体方案"},
                 ]
             },
             segments=[
@@ -364,23 +360,20 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 TopicSegment(segment_id=5, start=180.0, end=225.0, text="e"),
                 TopicSegment(segment_id=6, start=225.0, end=270.0, text="f"),
             ],
-            min_topics=4,
-            max_topics=6,
-            title_max_chars=6,
         )
 
-        self.assertTrue(any("过少" in issue["message"] for issue in issues))
+        self.assertEqual(issues, [])
 
     def test_topic_plan_can_exceed_max_topics_without_hard_failure(self) -> None:
         issues = _find_topic_plan_issues(
             {
                 "topics": [
-                    {"segment_ids": [1], "title": "开场说明"},
-                    {"segment_ids": [2], "title": "第一重点"},
-                    {"segment_ids": [3], "title": "第二重点"},
-                    {"segment_ids": [4], "title": "第三重点"},
-                    {"segment_ids": [5], "title": "第四重点"},
-                    {"segment_ids": [6], "title": "收尾总结"},
+                    {"block_range": "1", "title": "开场说明"},
+                    {"block_range": "2", "title": "第一重点"},
+                    {"block_range": "3", "title": "第二重点"},
+                    {"block_range": "4", "title": "第三重点"},
+                    {"block_range": "5", "title": "第四重点"},
+                    {"block_range": "6", "title": "收尾总结"},
                 ]
             },
             segments=[
@@ -391,14 +384,11 @@ class Step2TopicModelConfigTest(unittest.TestCase):
                 TopicSegment(segment_id=5, start=40.0, end=50.0, text="e"),
                 TopicSegment(segment_id=6, start=50.0, end=60.0, text="f"),
             ],
-            min_topics=4,
-            max_topics=5,
-            title_max_chars=6,
         )
 
-        self.assertFalse(any("过多" in issue["message"] for issue in issues))
+        self.assertEqual(issues, [])
 
-    def test_topic_loop_fails_when_draft_payload_cannot_be_coerced(self) -> None:
+    def test_topic_loop_fails_when_draft_payload_has_invalid_range_syntax(self) -> None:
         segments = [
             TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
             for index in range(1, 7)
@@ -406,7 +396,7 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"block_ids": [1, 4], "title": "坏计划"}
+            {"block_range": "1,4", "title": "坏计划"}
           ]
         }
         """
@@ -420,7 +410,34 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             chat_completion_fn=lambda _config, _messages: response,
         )
 
-        with self.assertRaisesRegex(RuntimeError, "block plan invalid"):
+        with self.assertRaisesRegex(RuntimeError, "empty segmentation plan"):
+            loop.run(segments)
+
+    def test_topic_loop_rejects_block_numbered_draft_when_blocks_are_compacted(self) -> None:
+        segments = [
+            TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
+            for index in range(1, 49)
+        ]
+        block_count = len(_build_candidate_blocks(segments, recommended_topics=4))
+        response = f"""
+        {{
+          "topics": [
+            {{"block_range": "1-{block_count}", "title": "按 block 编号误返回"}}
+          ]
+        }}
+        """
+
+        loop = PiAgentTopicLoop(
+            llm_config={"base_url": "https://example.com", "model": "test-model"},
+            min_topics=2,
+            max_topics=6,
+            recommended_topics=4,
+            title_max_chars=6,
+            strict=True,
+            chat_completion_fn=lambda _config, _messages: response,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "does not fully cover input"):
             loop.run(segments)
 
     def test_topic_loop_accepts_valid_draft_without_retry(self) -> None:
@@ -431,8 +448,8 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"segment_ids": [1, 2, 3], "title": "切入话题"},
-            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+            {"block_range": "1-3", "title": "切入话题"},
+            {"block_range": "4-6", "title": "解决方法"}
           ]
         }
         """
@@ -480,7 +497,7 @@ class Step2TopicModelConfigTest(unittest.TestCase):
 
         self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
 
-    def test_topic_loop_fails_when_invalid_json_cannot_be_repaired(self) -> None:
+    def test_topic_loop_fails_immediately_when_invalid_json_is_returned(self) -> None:
         segments = [
             TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
             for index in range(1, 7)
@@ -488,11 +505,17 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"segment_ids": [1, 2, 3], "title": "切入话题"}
-            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+            {"block_range": "1-3", "title": "切入话题"}
+            {"block_range": "4-6", "title": "解决方法"}
           ]
         }
         """
+        calls = 0
+
+        def fake_chat(_config, _messages):
+            nonlocal calls
+            calls += 1
+            return response
 
         loop = PiAgentTopicLoop(
             llm_config={"base_url": "https://example.com", "model": "test-model", "repair_retries": 2},
@@ -500,37 +523,43 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             max_topics=6,
             recommended_topics=2,
             title_max_chars=6,
-            chat_completion_fn=lambda _config, _messages: response,
+            chat_completion_fn=fake_chat,
         )
 
         with self.assertRaisesRegex(RuntimeError, "Failed to parse LLM JSON payload"):
             loop.run(segments)
+        self.assertEqual(calls, 1)
 
-    def test_topic_loop_repairs_invalid_json_before_fallback(self) -> None:
+    def test_topic_loop_non_strict_mode_no_longer_attempts_repair_follow_up_call(self) -> None:
         segments = [
             TopicSegment(segment_id=index, start=(index - 1) * 5.0, end=index * 5.0, text=f"句子{index}")
             for index in range(1, 7)
         ]
-        responses = iter(
-            [
-                """
-                {
-                  "topics": [
-                    {"segment_ids": [1, 2, 3], "title": "切入话题"}
-                    {"segment_ids": [4, 5, 6], "title": "解决方法"}
-                  ]
-                }
-                """,
-                """
-                {
-                  "topics": [
-                    {"block_range": "1-3", "title": "切入话题"},
-                    {"block_range": "4-6", "title": "解决方法"}
-                  ]
-                }
-                """,
-            ]
-        )
+        responses = [
+            """
+            {
+              "topics": [
+                {"block_range": "1-3", "title": "切入话题"}
+                {"block_range": "4-6", "title": "解决方法"}
+              ]
+            }
+            """,
+            """
+            {
+              "topics": [
+                {"block_range": "1-3", "title": "切入话题"},
+                {"block_range": "4-6", "title": "解决方法"}
+              ]
+            }
+            """,
+        ]
+        calls = 0
+
+        def fake_chat(_config, _messages):
+            nonlocal calls
+            reply = responses[calls]
+            calls += 1
+            return reply
 
         loop = PiAgentTopicLoop(
             llm_config={"base_url": "https://example.com", "model": "test-model", "repair_retries": 1},
@@ -538,13 +567,12 @@ class Step2TopicModelConfigTest(unittest.TestCase):
             max_topics=6,
             recommended_topics=2,
             title_max_chars=6,
-            chat_completion_fn=lambda _config, _messages: next(responses),
+            chat_completion_fn=fake_chat,
         )
 
-        result = loop.run(segments)
-
-        self.assertEqual(result.debug["final_source"], "repair")
-        self.assertEqual([topic["block_range"] for topic in result.payload["topics"]], ["1-3", "4-6"])
+        with self.assertRaisesRegex(RuntimeError, "Failed to parse LLM JSON payload"):
+            loop.run(segments)
+        self.assertEqual(calls, 1)
 
     def test_topic_loop_keeps_strict_mode_for_invalid_json(self) -> None:
         segments = [
@@ -554,8 +582,8 @@ class Step2TopicModelConfigTest(unittest.TestCase):
         response = """
         {
           "topics": [
-            {"segment_ids": [1, 2, 3], "title": "切入话题"}
-            {"segment_ids": [4, 5, 6], "title": "解决方法"}
+            {"block_range": "1-3", "title": "切入话题"}
+            {"block_range": "4-6", "title": "解决方法"}
           ]
         }
         """

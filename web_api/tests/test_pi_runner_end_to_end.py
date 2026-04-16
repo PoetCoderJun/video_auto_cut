@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import tempfile
 import unittest
@@ -9,7 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from video_auto_cut.pi_agent_runner import main as run_pi_task
-from web_api.utils.srt_utils import build_test_chapters_from_text, build_test_lines_from_text, write_final_test_srt
+from video_auto_cut.shared.test_text_io import (
+    build_test_chapters_from_text,
+    build_test_lines_from_text,
+    write_final_test_srt,
+)
+from web_api.tests.utils import extract_labeled_path
 
 
 SRT_SAMPLE = """1
@@ -26,12 +30,6 @@ SRT_SAMPLE = """1
 """
 
 
-def _extract_path(prompt: str, label: str) -> Path:
-    match = re.search(rf"{label}: (.+)", prompt)
-    if not match:
-        raise AssertionError(f"missing {label} in prompt: {prompt}")
-    return Path(match.group(1).strip())
-
 class PiRunnerEndToEndTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_raw_srt_to_final_srt_and_chapters_via_three_task_contracts(self, mock_run) -> None:
@@ -39,7 +37,7 @@ class PiRunnerEndToEndTests(unittest.TestCase):
             self.assertIn("--tools", command)
             self.assertIn("read,write,ls", command)
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
 
             if "delete skill" in prompt:
                 self.assertIn("不要探索仓库", prompt)
@@ -110,7 +108,7 @@ class PiRunnerEndToEndTests(unittest.TestCase):
     def test_polish_and_chapter_accept_json_line_sidecar(self, mock_run) -> None:
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             if "polish skill" in prompt:
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"

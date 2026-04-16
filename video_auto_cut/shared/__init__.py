@@ -1,3 +1,1 @@
-from .media import load_audio
-
-__all__ = ["load_audio"]
+"""Shared helpers for the video_auto_cut package."""

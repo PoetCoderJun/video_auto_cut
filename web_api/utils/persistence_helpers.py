@@ -8,19 +8,6 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def row_get(row: Any, key: str, index: int) -> Any:
-    if row is None:
-        return None
-    if isinstance(row, (tuple, list)):
-        if 0 <= index < len(row):
-            return row[index]
-        return None
-    try:
-        return row[key]
-    except Exception:
-        return None
-
-
 def parse_iso_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None

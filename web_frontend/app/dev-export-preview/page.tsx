@@ -9,6 +9,7 @@ import {Card, CardContent} from "@/components/ui/card";
 import {Checkbox} from "@/components/ui/checkbox";
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
 import type {ProgressLabelMode, SubtitleTheme} from "@/lib/api";
+import {clamp} from "@/lib/utils";
 import {
   buildMockRenderConfig,
   DEFAULT_COMPARE_RESOLUTION_IDS,
@@ -27,26 +28,14 @@ import {
   type OverlayScaleControls,
 } from "@/lib/remotion/overlay-controls";
 import {
+  PROGRESS_LABEL_MODE_OPTIONS,
+  SUBTITLE_THEME_OPTIONS,
+} from "@/lib/remotion/constants";
+import {
   WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
   getFriendlyWebRenderErrorMessage,
 } from "@/lib/remotion/rendering";
 import {StitchVideoWeb} from "@/lib/remotion/stitch-video-web";
-
-const PROGRESS_LABEL_MODE_OPTIONS: Array<{value: ProgressLabelMode; label: string}> = [
-  {value: "auto", label: "自动"},
-  {value: "double", label: "双行"},
-  {value: "single", label: "单行"},
-];
-
-const SUBTITLE_THEME_OPTIONS: Array<{value: SubtitleTheme; label: string}> = [
-  {value: "box-white-on-black", label: "黑底白字"},
-  {value: "box-black-on-white", label: "白底黑字"},
-  {value: "text-white", label: "白字透明"},
-  {value: "text-black", label: "黑字透明"},
-];
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, value));
 
 type ExtractedFrame = {
   timeSec: number;

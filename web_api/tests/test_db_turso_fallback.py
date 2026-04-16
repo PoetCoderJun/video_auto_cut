@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from web_api.config import get_settings
-from web_api.db import _create_conn, is_retryable_turso_connect_error
+from web_api.db import _create_conn, is_retryable_turso_connect_error, is_retryable_turso_error
 
 
 class DbTursoFallbackTest(unittest.TestCase):
@@ -40,6 +40,10 @@ class DbTursoFallbackTest(unittest.TestCase):
                 ValueError("sync error: http dispatch error: error trying to connect: tls handshake eof")
             )
         )
+
+    def test_retryable_turso_error_requires_turso_marker_for_generic_transient_signals(self) -> None:
+        self.assertTrue(is_retryable_turso_error(ValueError("libsql remote returned 503 service unavailable")))
+        self.assertFalse(is_retryable_turso_error(ValueError("503 service unavailable")))
 
     def test_create_conn_keeps_local_replica_when_open_sync_temporarily_fails(self) -> None:
         fake_conn = unittest.mock.Mock()

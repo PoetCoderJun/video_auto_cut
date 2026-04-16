@@ -21,10 +21,6 @@ def not_found(message: str) -> ApiError:
 def upload_too_large(message: str) -> ApiError:
     return ApiError(code="UPLOAD_TOO_LARGE", message=message, status_code=413)
 
-
-def unsupported_video_format(message: str) -> ApiError:
-    return ApiError(code="UNSUPPORTED_VIDEO_FORMAT", message=message, status_code=422)
-
 def unsupported_audio_format(message: str) -> ApiError:
     return ApiError(code="UNSUPPORTED_AUDIO_FORMAT", message=message, status_code=422)
 

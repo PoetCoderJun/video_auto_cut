@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import datetime
 import json
 import os
@@ -13,9 +12,7 @@ from typing import Any, Literal
 
 import srt
 
-from .asr.transcribe_stage import run_asr_transcription_stage
 from .editing.chapter_domain import canonicalize_test_chapters, kept_test_lines
-from .orchestration.pipeline_options_builder import build_pipeline_options_from_env
 from .shared.test_text_protocol import (
     parse_chapter_line,
     parse_timed_lines,
@@ -23,6 +20,7 @@ from .shared.test_text_protocol import (
     render_test_line_text,
     render_time_range_tag,
 )
+from .shared.test_text_io import load_test_lines
 from .shared.test_text_io import build_test_lines_from_text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +55,58 @@ class TestPiArtifacts:
     lines: list[dict[str, Any]] = field(default_factory=list)
     chapters: list[dict[str, Any]] = field(default_factory=list)
     debug: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PiTextBridge:
+    request: TestPiRequest
+
+    @property
+    def task(self) -> TestTask:
+        return self.request.task
+
+    def input_filename(self) -> str:
+        return {
+            "delete": "input_segments.txt",
+            "polish": "input_lines.txt",
+            "chapter": "input_lines.txt",
+        }[self.task]
+
+    def output_filename(self) -> str:
+        return {
+            "delete": "delete_output.txt",
+            "polish": "polish_output.txt",
+            "chapter": "chapter_output.txt",
+        }[self.task]
+
+    def render_input(self) -> str:
+        if self.task == "delete":
+            return _build_delete_input_text(self.request.segments)
+        if self.task == "polish":
+            return _build_polish_input_text(self.request.lines)
+        return _build_chapter_input_text(self.request.lines)
+
+    def build_prompt(self, *, input_path: Path, output_path: Path) -> str:
+        if self.task == "delete":
+            return _build_delete_prompt(input_path=input_path, output_path=output_path)
+        if self.task == "polish":
+            return _build_polish_prompt(input_path=input_path, output_path=output_path)
+        return _build_chapter_prompt(
+            input_path=input_path,
+            output_path=output_path,
+            title_max_chars=self.request.title_max_chars,
+        )
+
+    def parse_output(self, text: str) -> TestPiArtifacts:
+        if self.task == "delete":
+            return TestPiArtifacts(task="delete", lines=_parse_delete_output(text, self.request))
+        if self.task == "polish":
+            return TestPiArtifacts(task="polish", lines=_parse_polish_output(text, self.request))
+        return TestPiArtifacts(
+            task="chapter",
+            lines=list(self.request.lines),
+            chapters=_parse_chapter_output(text, self.request),
+        )
 
 
 def build_pi_command(*, pi_bin: str = "pi", pi_args: list[str] | None = None) -> list[str]:
@@ -256,7 +306,8 @@ def _build_delete_prompt(*, input_path: Path, output_path: Path) -> str:
         "4. 输出文件也必须逐行保持这个轻量格式：`【time】句子` 或 `【time】<remove>句子`。\n"
         "5. 必须覆盖全部输入行且只能输出一次；时间标签必须原样保留。\n"
         "6. delete 阶段只允许决定是否加 `<remove>`，不允许改写句子内容。\n"
-        "7. 不要输出 markdown，不要输出解释；只把结果行写入输出文件，写完后立即结束。"
+        "7. 唯一删除原则：只要后一句和前一句属于重复语义，必须删除前面的重复部分，保留后面的句子；后面的句子一律视为纠正后的最终版本，绝不能删后面的保留前面的。\n"
+        "8. 不要输出 markdown，不要输出解释；只把结果行写入输出文件，写完后立即结束。"
     )
 
 
@@ -379,62 +430,28 @@ def _parse_chapter_output(text: str, request: TestPiRequest) -> list[dict[str, A
     return canonicalize_test_chapters(chapters, kept)
 
 
-def _run_delete_via_pi(request: TestPiRequest) -> TestPiArtifacts:
-    with tempfile.TemporaryDirectory(prefix="pi-delete-") as tmpdir:
+def _run_via_pi(request: TestPiRequest) -> TestPiArtifacts:
+    bridge = PiTextBridge(request)
+    with tempfile.TemporaryDirectory(prefix=f"pi-{request.task}-") as tmpdir:
         root = Path(tmpdir)
-        input_path = root / "input_segments.txt"
-        output_path = root / "delete_output.txt"
-        _write_text(input_path, _build_delete_input_text(request.segments))
+        input_path = root / bridge.input_filename()
+        output_path = root / bridge.output_filename()
+        _write_text(input_path, bridge.render_input())
         completed = _run_pi_prompt(
             llm_config=request.llm_config,
-            prompt=_build_delete_prompt(input_path=input_path, output_path=output_path),
+            prompt=bridge.build_prompt(input_path=input_path, output_path=output_path),
         )
-        lines = _parse_delete_output(output_path.read_text(encoding="utf-8"), request)
+        artifacts = bridge.parse_output(output_path.read_text(encoding="utf-8"))
         return TestPiArtifacts(
-            task="delete",
-            lines=lines,
-            debug={"task": "delete", "pi_stdout": completed.stdout, "pi_stderr": completed.stderr},
-        )
-
-
-def _run_polish_via_pi(request: TestPiRequest) -> TestPiArtifacts:
-    with tempfile.TemporaryDirectory(prefix="pi-polish-") as tmpdir:
-        root = Path(tmpdir)
-        input_path = root / "input_lines.txt"
-        output_path = root / "polish_output.txt"
-        _write_text(input_path, _build_polish_input_text(request.lines))
-        completed = _run_pi_prompt(
-            llm_config=request.llm_config,
-            prompt=_build_polish_prompt(input_path=input_path, output_path=output_path),
-        )
-        lines = _parse_polish_output(output_path.read_text(encoding="utf-8"), request)
-        return TestPiArtifacts(
-            task="polish",
-            lines=lines,
-            debug={"task": "polish", "pi_stdout": completed.stdout, "pi_stderr": completed.stderr},
-        )
-
-
-def _run_chapter_via_pi(request: TestPiRequest) -> TestPiArtifacts:
-    with tempfile.TemporaryDirectory(prefix="pi-chapter-") as tmpdir:
-        root = Path(tmpdir)
-        input_path = root / "input_lines.txt"
-        output_path = root / "chapter_output.txt"
-        _write_text(input_path, _build_chapter_input_text(request.lines))
-        completed = _run_pi_prompt(
-            llm_config=request.llm_config,
-            prompt=_build_chapter_prompt(
-                input_path=input_path,
-                output_path=output_path,
-                title_max_chars=request.title_max_chars,
-            ),
-        )
-        chapters = _parse_chapter_output(output_path.read_text(encoding="utf-8"), request)
-        return TestPiArtifacts(
-            task="chapter",
-            lines=list(request.lines),
-            chapters=chapters,
-            debug={"task": "chapter", "pi_stdout": completed.stdout, "pi_stderr": completed.stderr},
+            task=artifacts.task,
+            lines=artifacts.lines,
+            chapters=artifacts.chapters,
+            debug={
+                "task": request.task,
+                "bridge": "PiTextBridge",
+                "pi_stdout": completed.stdout,
+                "pi_stderr": completed.stderr,
+            },
         )
 
 
@@ -443,11 +460,9 @@ def run_test_pi(request: TestPiRequest) -> TestPiArtifacts:
         raise RuntimeError(f"Unsupported Test PI task: {request.task}")
     if request.task == "delete":
         _require_line_budget(len(request.segments), max_lines=request.max_lines)
-        return _run_delete_via_pi(request)
+        return _run_via_pi(request)
     _require_line_budget(len(request.lines), max_lines=request.max_lines)
-    if request.task == "polish":
-        return _run_polish_via_pi(request)
-    return _run_chapter_via_pi(request)
+    return _run_via_pi(request)
 
 
 def build_subtitles_from_lines(lines: list[dict[str, Any]]) -> list[srt.Subtitle]:
@@ -491,223 +506,10 @@ def build_edl_from_lines(lines: list[dict[str, Any]], *, merge_gap_s: float, tot
     return edl
 
 
-def _load_segments_from_path(input_path: Path, encoding: str) -> list[dict[str, Any]]:
-    if input_path.suffix.lower() == ".srt":
-        segments: list[dict[str, Any]] = []
-        for sub in srt.parse(input_path.read_text(encoding=encoding)):
-            segments.append(
-                {
-                    "id": int(sub.index),
-                    "start": float(sub.start.total_seconds()),
-                    "end": float(sub.end.total_seconds()),
-                    "duration": max(0.0, float(sub.end.total_seconds() - sub.start.total_seconds())),
-                    "text": str(sub.content or "").strip(),
-                }
-            )
-        return segments
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
-    if isinstance(payload, dict) and isinstance(payload.get("segments"), list):
-        payload = payload["segments"]
-    if not isinstance(payload, list):
-        raise RuntimeError(f"Unsupported input payload for {input_path}")
-    result: list[dict[str, Any]] = []
-    for index, item in enumerate(payload, start=1):
-        if not isinstance(item, dict):
-            continue
-        result.append(
-            {
-                "id": int(item.get("id") or item.get("line_id") or index),
-                "start": float(item.get("start") or 0.0),
-                "end": float(item.get("end") or 0.0),
-                "duration": max(0.0, float(item.get("end") or 0.0) - float(item.get("start") or 0.0)),
-                "text": str(item.get("text") or item.get("original_text") or "").strip(),
-            }
-        )
-    return result
-
-
-def _load_lines_from_test_json(input_path: Path) -> list[dict[str, Any]]:
-    try:
-        payload = json.loads(input_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return _sort_runtime_lines(build_test_lines_from_text(input_path))
-    lines = payload.get("lines") if isinstance(payload, dict) else payload
-    if not isinstance(lines, list):
-        raise RuntimeError(f"Invalid Test lines payload: {input_path}")
-    return _sort_runtime_lines([dict(item) for item in lines if isinstance(item, dict)])
-
-
-def _build_cli_llm_config(args: argparse.Namespace) -> dict[str, Any]:
-    cfg = {
-        "base_url": (args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip(),
-        "model": (args.llm_model or os.environ.get("LLM_MODEL") or "").strip(),
-        "api_key": (args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or "").strip(),
-        "timeout": int(args.llm_timeout),
-        "max_tokens": args.llm_max_tokens,
-    }
-    if not cfg.get("base_url") or not cfg.get("model"):
-        raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model.")
-    return cfg
-
-
-def _build_cli_pipeline_options(args: argparse.Namespace):
-    return build_pipeline_options_from_env(
-        force=True,
-        lang=(args.lang or None),
-        prompt=str(args.prompt or ""),
-    )
-
-
-def _write_srt(path: Path, subtitles: list[srt.Subtitle], encoding: str) -> None:
-    path.write_text(srt.compose(subtitles, reindex=False), encoding=encoding)
-
-
-def _run_cli_test(args: argparse.Namespace) -> int:
-    llm_config = _build_cli_llm_config(args)
-    input_path = Path(args.input).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    if input_path.suffix.lower() == ".json":
-        raise RuntimeError("`--task test` currently expects media or .srt input, not .json")
-
-    raw_srt_path: Path
-    raw_lines: list[dict[str, Any]]
-    if input_path.suffix.lower() == ".srt":
-        raw_srt_path = input_path
-        segments = _load_segments_from_path(input_path, args.encoding)
-        raw_lines = [
-            _build_runtime_line(
-                line_id=int(segment["id"]),
-                start=float(segment.get("start") or 0.0),
-                end=float(segment.get("end") or 0.0),
-                original_text=str(segment.get("text") or "").strip(),
-            )
-            for segment in segments
-        ]
-    else:
-        asr_artifacts = run_asr_transcription_stage(
-            input_path,
-            _build_cli_pipeline_options(args),
-        )
-        raw_srt_path = asr_artifacts.srt_path
-        raw_lines = asr_artifacts.test_lines
-        segments = [
-            {
-                "id": int(line["line_id"]),
-                "start": float(line["start"]),
-                "end": float(line["end"]),
-                "duration": max(0.0, float(line["end"]) - float(line["start"])),
-                "text": str(line["original_text"]),
-            }
-            for line in raw_lines
-        ]
-
-    delete_artifacts = run_test_pi(
-        TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)
-    )
-    polish_artifacts = run_test_pi(
-        TestPiRequest(task="polish", llm_config=llm_config, lines=delete_artifacts.lines, max_lines=args.max_lines)
-    )
-    chapter_artifacts = run_test_pi(
-        TestPiRequest(
-            task="chapter",
-            llm_config=llm_config,
-            lines=polish_artifacts.lines,
-            title_max_chars=args.title_max_chars,
-            max_lines=args.max_lines,
-        )
-    )
-
-    raw_test_json_path = output_path.with_suffix(".raw.test.json")
-    final_test_text_path = output_path.with_suffix(".test.json")
-    final_test_srt_path = output_path.with_suffix(".test.srt")
-    chapters_json_path = output_path.with_suffix(".chapters.json")
-
-    _write_json(raw_test_json_path, {"lines": raw_lines})
-    _write_json(final_test_text_path, {"lines": polish_artifacts.lines})
-    _write_srt(final_test_srt_path, build_subtitles_from_lines(polish_artifacts.lines), args.encoding)
-    _write_json(chapters_json_path, {"topics": chapter_artifacts.chapters})
-
-    payload = {
-        "input_path": str(input_path),
-        "raw_srt_path": str(raw_srt_path),
-        "raw_test_json_path": str(raw_test_json_path),
-        "final_test_text_path": str(final_test_text_path),
-        "final_test_srt_path": str(final_test_srt_path),
-        "chapters_json_path": str(chapters_json_path),
-        "line_count": len(polish_artifacts.lines),
-        "chapter_count": len(chapter_artifacts.chapters),
-    }
-    _write_json(output_path, payload)
-    return 0
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run PI agent with project auto-loaded skills/system prompt or execute canonical PI tasks directly.")
-    parser.add_argument("--pi-bin", default="pi")
-    parser.add_argument("--input", default=None)
-    parser.add_argument("--task", choices=["delete", "polish", "chapter", "test"], default=None)
-    parser.add_argument("--output", default=None)
-    parser.add_argument("--encoding", default="utf-8")
-    parser.add_argument("--llm-base-url", default=None)
-    parser.add_argument("--llm-model", default=None)
-    parser.add_argument("--llm-api-key", default=None)
-    parser.add_argument("--llm-timeout", type=int, default=300)
-    parser.add_argument("--llm-max-tokens", type=int, default=None)
-    parser.add_argument("--title-max-chars", type=int, default=6)
-    parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
-    parser.add_argument("--lang", default=None)
-    parser.add_argument("--prompt", default="")
-    parser.add_argument("pi_args", nargs=argparse.REMAINDER)
-    return parser.parse_args(argv)
-
-
-def _run_cli_task(args: argparse.Namespace) -> int:
-    if args.task == "test":
-        return _run_cli_test(args)
-
-    llm_config = _build_cli_llm_config(args)
-    input_path = Path(args.input).expanduser().resolve()
-    output_path = Path(args.output).expanduser().resolve()
-
-    if args.task == "delete":
-        segments = _load_segments_from_path(input_path, args.encoding)
-        artifacts = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines))
-        _write_text(output_path, _render_test_text_from_lines(artifacts.lines) + "\n")
-        return 0
-
-    if args.task == "polish":
-        if input_path.suffix.lower().endswith(".json"):
-            lines = _load_lines_from_test_json(input_path)
-        else:
-            segments = _load_segments_from_path(input_path, args.encoding)
-            lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
-        artifacts = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines))
-        _write_text(output_path, _render_test_text_from_lines(artifacts.lines) + "\n")
-        return 0
-
-    if input_path.suffix.lower().endswith(".json"):
-        lines = _load_lines_from_test_json(input_path)
-    else:
-        segments = _load_segments_from_path(input_path, args.encoding)
-        lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
-        lines = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines)).lines
-    artifacts = run_test_pi(
-        TestPiRequest(task="chapter", llm_config=llm_config, lines=lines, title_max_chars=args.title_max_chars, max_lines=args.max_lines)
-    )
-    _write_text(output_path, _render_chapters_text(artifacts.chapters) + "\n")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    if args.task:
-        if not args.input or not args.output:
-            raise RuntimeError("--input and --output are required when --task is used")
-        return _run_cli_task(args)
-    completed = subprocess.run(build_pi_command(pi_bin=args.pi_bin, pi_args=list(args.pi_args or [])), env=dict(os.environ), cwd=str(PROJECT_ROOT), check=False)
-    return int(completed.returncode)
+    from .orchestration.test_cli import main as test_cli_main
+
+    return test_cli_main(argv)
 
 
 if __name__ == "__main__":

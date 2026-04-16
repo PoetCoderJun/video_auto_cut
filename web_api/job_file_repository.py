@@ -83,32 +83,24 @@ def _test_lines_draft_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "lines_draft.json"
 
 
-def _legacy_test_lines_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "lines_draft.txt"
-
-
 def _test_chapters_draft_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "chapters_draft.json"
-
-
-def _legacy_test_chapters_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "chapters_draft.txt"
 
 
 def _test_final_lines_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_test.json"
 
 
-def _legacy_test_final_lines_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "final_test.txt"
-
-
 def _test_final_chapters_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_chapters.json"
 
 
-def _legacy_test_final_chapters_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "final_chapters.txt"
+def _existing_test_lines_path(job_id: str, *, final: bool) -> Path:
+    return _test_final_lines_path(job_id) if final else _test_lines_draft_path(job_id)
+
+
+def _existing_test_chapters_path(job_id: str, *, final: bool) -> Path:
+    return _test_final_chapters_path(job_id) if final else _test_chapters_draft_path(job_id)
 
 
 def _read_json(path: Path) -> Any:
@@ -141,12 +133,6 @@ def _read_files_manifest(job_id: str) -> dict[str, Any]:
 
 def _write_files_manifest(job_id: str, payload: dict[str, Any]) -> None:
     _write_json(_files_path(job_id), payload)
-
-
-def _existing_artifact_path(primary: Path, legacy: Path) -> Path:
-    if primary.exists():
-        return primary
-    return legacy
 
 
 def _existing_video_path(job_id: str) -> str | None:
@@ -202,24 +188,15 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     if test_srt.exists():
         result["final_test_srt_path"] = str(test_srt)
 
-    chapters_draft = _existing_artifact_path(
-        _test_chapters_draft_path(job_id),
-        _legacy_test_chapters_draft_path(job_id),
-    )
+    chapters_draft = _existing_test_chapters_path(job_id, final=False)
     if chapters_draft.exists():
         result["chapters_draft_path"] = str(chapters_draft)
 
-    final_test_text = _existing_artifact_path(
-        _test_final_lines_path(job_id),
-        _legacy_test_final_lines_path(job_id),
-    )
+    final_test_text = _existing_test_lines_path(job_id, final=True)
     if final_test_text.exists():
         result["final_test_text_path"] = str(final_test_text)
 
-    final_chapters = _existing_artifact_path(
-        _test_final_chapters_path(job_id),
-        _legacy_test_final_chapters_path(job_id),
-    )
+    final_chapters = _existing_test_chapters_path(job_id, final=True)
     if final_chapters.exists():
         result["final_chapters_path"] = str(final_chapters)
 
@@ -245,13 +222,10 @@ def _infer_job_status(job_id: str) -> str:
         and files.get("final_chapters_path")
     ):
         return JOB_STATUS_TEST_CONFIRMED
-    if _existing_artifact_path(
-        _test_lines_draft_path(job_id),
-        _legacy_test_lines_draft_path(job_id),
-    ).exists() and _existing_artifact_path(
-        _test_chapters_draft_path(job_id),
-        _legacy_test_chapters_draft_path(job_id),
-    ).exists():
+    if (
+        _existing_test_lines_path(job_id, final=False).exists()
+        and _existing_test_chapters_path(job_id, final=False).exists()
+    ):
         return JOB_STATUS_TEST_READY
     if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
@@ -317,13 +291,10 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
         }
 
     if status == JOB_STATUS_TEST_READY:
-        if _existing_artifact_path(
-            _test_lines_draft_path(job_id),
-            _legacy_test_lines_draft_path(job_id),
-        ).exists() and _existing_artifact_path(
-            _test_chapters_draft_path(job_id),
-            _legacy_test_chapters_draft_path(job_id),
-        ).exists():
+        if (
+            _existing_test_lines_path(job_id, final=False).exists()
+            and _existing_test_chapters_path(job_id, final=False).exists()
+        ):
             return None
         return {
             "code": JOB_ERROR_CODE_FILES_MISSING,
@@ -538,13 +509,9 @@ def upsert_job_files(job_id: str, **kwargs: Any) -> None:
 
 def clear_step_data(job_id: str) -> None:
     _test_lines_draft_path(job_id).unlink(missing_ok=True)
-    _legacy_test_lines_draft_path(job_id).unlink(missing_ok=True)
     _test_chapters_draft_path(job_id).unlink(missing_ok=True)
-    _legacy_test_chapters_draft_path(job_id).unlink(missing_ok=True)
     _test_final_lines_path(job_id).unlink(missing_ok=True)
-    _legacy_test_final_lines_path(job_id).unlink(missing_ok=True)
     _test_final_chapters_path(job_id).unlink(missing_ok=True)
-    _legacy_test_final_chapters_path(job_id).unlink(missing_ok=True)
     _test_confirmed_path(job_id).unlink(missing_ok=True)
 
 
@@ -629,14 +596,8 @@ def replace_test_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
 
 
 def list_test_lines(job_id: str) -> list[dict[str, Any]]:
-    final_path = _existing_artifact_path(
-        _test_final_lines_path(job_id),
-        _legacy_test_final_lines_path(job_id),
-    )
-    draft_path = _existing_artifact_path(
-        _test_lines_draft_path(job_id),
-        _legacy_test_lines_draft_path(job_id),
-    )
+    final_path = _existing_test_lines_path(job_id, final=True)
+    draft_path = _existing_test_lines_path(job_id, final=False)
     path = final_path if _test_confirmed_path(job_id).exists() and final_path.exists() else draft_path
     if not path.exists():
         path = final_path
@@ -649,34 +610,26 @@ def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
     write_topics_json(chapters, _test_chapters_draft_path(job_id))
 
 
-def _list_chapters_from_path(path: Path) -> list[dict[str, Any]]:
+def _list_test_chapters_from_path(job_id: str, path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    lines = list_test_lines(path.parents[1].name)
+    lines = list_test_lines(job_id)
     kept_lines = [line for line in lines if not bool(line.get("user_final_remove", False))]
     return load_test_chapters(path, kept_lines=kept_lines)
 
 
 def list_test_chapters(job_id: str) -> list[dict[str, Any]]:
-    final_path = _existing_artifact_path(
-        _test_final_chapters_path(job_id),
-        _legacy_test_final_chapters_path(job_id),
-    )
+    final_path = _existing_test_chapters_path(job_id, final=True)
     if _test_confirmed_path(job_id).exists() and final_path.exists():
         return list_final_test_chapters(job_id)
-    draft_path = _existing_artifact_path(
-        _test_chapters_draft_path(job_id),
-        _legacy_test_chapters_draft_path(job_id),
-    )
+    draft_path = _existing_test_chapters_path(job_id, final=False)
     if draft_path.exists():
-        return _list_chapters_from_path(draft_path)
+        return _list_test_chapters_from_path(job_id, draft_path)
     return list_final_test_chapters(job_id)
 
 
 def list_final_test_chapters(job_id: str) -> list[dict[str, Any]]:
-    return _list_chapters_from_path(
-        _existing_artifact_path(
-            _test_final_chapters_path(job_id),
-            _legacy_test_final_chapters_path(job_id),
-        )
+    return _list_test_chapters_from_path(
+        job_id,
+        _existing_test_chapters_path(job_id, final=True),
     )

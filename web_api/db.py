@@ -5,7 +5,6 @@ import os
 import sqlite3
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Iterator, TypeVar
@@ -19,6 +18,27 @@ except Exception:  # pragma: no cover - optional dependency for Turso mode
 
 
 _RetryFn = TypeVar("_RetryFn", bound=Callable[..., Any])
+_TURSO_MARKERS = ("hrana", "libsql", "turso")
+_TURSO_TRANSIENT_SIGNALS = (
+    "404 not found",
+    "500 internal server error",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway timeout",
+    "broken pipe",
+    "connection closed",
+    "connection reset",
+    "deadline has elapsed",
+    "network error",
+    "temporarily unavailable",
+    "timed out",
+    "timeout",
+    "unexpected eof",
+)
+_TURSO_CONNECT_ONLY_SIGNALS = (
+    "error trying to connect",
+    "tls handshake eof",
+)
 
 
 def _is_local_only_mode() -> bool:
@@ -93,64 +113,46 @@ def _is_wal_conflict_error(exc: Exception) -> bool:
     return "wal frame insert conflict" in normalized or "walconflict" in normalized
 
 
-def is_retryable_turso_error(exc: Exception) -> bool:
+def _normalized_error_text(exc: Exception) -> str:
+    normalized = str(exc or "").strip().lower()
+    return normalized
+
+
+def _is_retryable_turso_error_text(
+    exc: Exception,
+    *,
+    require_turso_marker: bool,
+    extra_signals: tuple[str, ...] = (),
+) -> bool:
     if not _is_turso_enabled():
         return False
 
-    normalized = str(exc or "").strip().lower()
+    normalized = _normalized_error_text(exc)
     if not normalized:
         return False
-
     if "stream not found" in normalized:
         return True
 
-    markers = ("hrana", "libsql", "turso")
-    transient_signals = (
-        "404 not found",
-        "500 internal server error",
-        "502 bad gateway",
-        "503 service unavailable",
-        "504 gateway timeout",
-        "broken pipe",
-        "connection closed",
-        "connection reset",
-        "deadline has elapsed",
-        "network error",
-        "temporarily unavailable",
-        "timed out",
-        "timeout",
-        "unexpected eof",
+    if require_turso_marker and not any(marker in normalized for marker in _TURSO_MARKERS):
+        return False
+
+    return any(
+        signal in normalized for signal in (_TURSO_TRANSIENT_SIGNALS + extra_signals)
     )
-    return any(marker in normalized for marker in markers) and any(
-        signal in normalized for signal in transient_signals
-    )
+
+
+def is_retryable_turso_error(exc: Exception) -> bool:
+    return _is_retryable_turso_error_text(exc, require_turso_marker=True)
 
 
 def is_retryable_turso_connect_error(exc: Exception) -> bool:
-    if not _is_turso_enabled():
-        return False
-
-    normalized = str(exc or "").strip().lower()
-    if not normalized:
-        return False
-
     if is_retryable_turso_error(exc):
         return True
-
-    transient_signals = (
-        "broken pipe",
-        "connection closed",
-        "connection reset",
-        "deadline has elapsed",
-        "error trying to connect",
-        "network error",
-        "temporarily unavailable",
-        "timed out",
-        "timeout",
-        "tls handshake eof",
-        "unexpected eof",
+    return _is_retryable_turso_error_text(
+        exc,
+        require_turso_marker=False,
+        extra_signals=_TURSO_CONNECT_ONLY_SIGNALS,
     )
-    return any(signal in normalized for signal in transient_signals)
 
 
 def retry_turso_operation(
@@ -187,11 +189,65 @@ def retry_turso_operation(
     return decorator
 
 
-def is_retryable_turso_stream_error(exc: Exception) -> bool:
-    if not _is_turso_enabled():
-        return False
-    normalized = str(exc or "").lower()
-    return "stream not found" in normalized or ("hrana:" in normalized and "404 not found" in normalized)
+CURRENT_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT,
+    status TEXT NOT NULL DEFAULT 'PENDING_COUPON',
+    activated_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS coupon_codes (
+    coupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,
+    credits INTEGER NOT NULL,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
+    status TEXT NOT NULL,
+    source TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS credit_ledger (
+    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    delta INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    job_id TEXT,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public_invite_claims (
+    claim_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip_hash TEXT NOT NULL UNIQUE,
+    code TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public_invite_settings (
+    settings_id INTEGER PRIMARY KEY CHECK (settings_id = 1),
+    max_claims INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_coupon_codes_status_created_at
+ON coupon_codes(status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_coupon_codes_source
+ON coupon_codes(source);
+
+CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_created_at
+ON credit_ledger(user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_public_invite_claims_created_at
+ON public_invite_claims(created_at DESC);
+"""
 
 
 def _replica_related_paths(replica_path: Path) -> list[Path]:
@@ -306,269 +362,17 @@ def get_conn() -> Iterator[Any]:
         conn.close()
 
 
+def ensure_current_schema(conn: Any) -> None:
+    _executescript(conn, CURRENT_SCHEMA_SQL)
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO public_invite_settings(settings_id, max_claims, created_at, updated_at)
+        VALUES(1, 50, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+        """
+    )
+
+
 def init_db() -> None:
     with get_conn() as conn:
-        _executescript(
-            conn,
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                user_id TEXT PRIMARY KEY,
-                email TEXT,
-                status TEXT NOT NULL DEFAULT 'PENDING_COUPON',
-                activated_at TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS coupon_codes (
-                coupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL UNIQUE,
-                credits INTEGER NOT NULL,
-                used_count INTEGER NOT NULL DEFAULT 0,
-                expires_at TEXT,
-                status TEXT NOT NULL,
-                source TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS credit_ledger (
-                entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                delta INTEGER NOT NULL,
-                reason TEXT NOT NULL,
-                job_id TEXT,
-                idempotency_key TEXT NOT NULL UNIQUE,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS public_invite_claims (
-                claim_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ip_hash TEXT NOT NULL UNIQUE,
-                code TEXT NOT NULL UNIQUE,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS public_invite_settings (
-                settings_id INTEGER PRIMARY KEY CHECK (settings_id = 1),
-                max_claims INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_coupon_codes_status_created_at
-            ON coupon_codes(status, created_at DESC);
-
-            CREATE INDEX IF NOT EXISTS idx_coupon_codes_source
-            ON coupon_codes(source);
-
-            CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_created_at
-            ON credit_ledger(user_id, created_at DESC);
-
-            CREATE INDEX IF NOT EXISTS idx_public_invite_claims_created_at
-            ON public_invite_claims(created_at DESC);
-            """,
-        )
-
-        now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO public_invite_settings(settings_id, max_claims, created_at, updated_at)
-            VALUES(1, 50, ?, ?)
-            """,
-            (now, now),
-        )
-
-        user_columns = _extract_column_names(list(conn.execute("PRAGMA table_info(users)").fetchall()))
-        if user_columns and "status" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'PENDING_COUPON'")
-        if user_columns and "activated_at" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN activated_at TEXT")
-        if user_columns and "invite_activated_at" in user_columns:
-            conn.execute(
-                """
-                UPDATE users
-                SET activated_at = COALESCE(activated_at, invite_activated_at)
-                WHERE activated_at IS NULL AND invite_activated_at IS NOT NULL
-                """
-            )
-        conn.execute(
-            """
-            UPDATE users
-            SET status = 'PENDING_COUPON'
-            WHERE status IN ('PENDING_INVITE', 'PENDING_ACTIVATION')
-            """
-        )
-
-        coupon_columns = _extract_column_names(list(conn.execute("PRAGMA table_info(coupon_codes)").fetchall()))
-        if coupon_columns and "max_uses" in coupon_columns:
-            conn.execute("DROP TABLE IF EXISTS coupon_codes_v2")
-            conn.execute(
-                """
-                CREATE TABLE coupon_codes_v2 (
-                    coupon_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT NOT NULL UNIQUE,
-                    credits INTEGER NOT NULL,
-                    used_count INTEGER NOT NULL DEFAULT 0,
-                    expires_at TEXT,
-                    status TEXT NOT NULL,
-                    source TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO coupon_codes_v2(
-                    coupon_id,
-                    code,
-                    credits,
-                    used_count,
-                    expires_at,
-                    status,
-                    source,
-                    created_at,
-                    updated_at
-                )
-                SELECT
-                    coupon_id,
-                    code,
-                    credits,
-                    CASE WHEN COALESCE(used_count, 0) >= 1 THEN 1 ELSE 0 END,
-                    expires_at,
-                    COALESCE(status, 'ACTIVE'),
-                    source,
-                    COALESCE(created_at, updated_at, '1970-01-01T00:00:00Z'),
-                    COALESCE(updated_at, created_at, '1970-01-01T00:00:00Z')
-                FROM coupon_codes
-                """
-            )
-            conn.execute("DROP TABLE coupon_codes")
-            conn.execute("ALTER TABLE coupon_codes_v2 RENAME TO coupon_codes")
-
-        if _table_exists(conn, "coupons"):
-            coupon_columns = _extract_column_names(list(conn.execute("PRAGMA table_info(coupons)").fetchall()))
-            if "code_plain" in coupon_columns:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO coupon_codes(
-                        code,
-                        credits,
-                        used_count,
-                        expires_at,
-                        status,
-                        source,
-                        created_at,
-                        updated_at
-                    )
-                    SELECT
-                        code_plain,
-                        credits,
-                        CASE WHEN COALESCE(redeemed_count, 0) >= 1 THEN 1 ELSE 0 END,
-                        expires_at,
-                        CASE WHEN COALESCE(redeemed_count, 0) >= 1 THEN 'DISABLED' ELSE COALESCE(status, 'ACTIVE') END,
-                        source_user_id,
-                        created_at,
-                        updated_at
-                    FROM coupons
-                    WHERE code_plain IS NOT NULL AND TRIM(code_plain) <> ''
-                    """
-                )
-
-        if _table_exists(conn, "coupon_redemptions"):
-            redemption_columns = _extract_column_names(
-                list(conn.execute("PRAGMA table_info(coupon_redemptions)").fetchall())
-            )
-            if {"coupon_code", "user_id", "credits", "redeemed_at"}.issubset(redemption_columns):
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-                    SELECT
-                        user_id,
-                        credits,
-                        'COUPON_REDEEM',
-                        NULL,
-                        'coupon:' || coupon_code || ':legacy:' || user_id,
-                        redeemed_at
-                    FROM coupon_redemptions
-                    """
-                )
-
-        if _table_exists(conn, "activation_code_redemptions"):
-            legacy_columns = _extract_column_names(
-                list(conn.execute("PRAGMA table_info(activation_code_redemptions)").fetchall())
-            )
-            if {"code", "user_id", "credits", "redeemed_at"}.issubset(legacy_columns):
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-                    SELECT
-                        user_id,
-                        credits,
-                        'COUPON_REDEEM',
-                        NULL,
-                        'coupon:' || code || ':legacy:' || user_id,
-                        redeemed_at
-                    FROM activation_code_redemptions
-                    """
-                )
-
-        conn.execute(
-            """
-            UPDATE coupon_codes
-            SET used_count = CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM credit_ledger l
-                    WHERE l.reason = 'COUPON_REDEEM'
-                      AND (
-                        l.idempotency_key = 'coupon:' || coupon_codes.code
-                        OR l.idempotency_key LIKE 'coupon:' || coupon_codes.code || ':legacy:%'
-                      )
-                ) THEN 1
-                ELSE 0
-            END
-            """
-        )
-
-        conn.execute(
-            """
-            UPDATE coupon_codes
-            SET status = 'DISABLED'
-            WHERE used_count >= 1
-            """
-        )
-
-        conn.execute(
-            """
-            UPDATE coupon_codes
-            SET status = 'ACTIVE'
-            WHERE status IS NULL OR TRIM(status) = ''
-            """
-        )
-
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_coupon_codes_status_created_at ON coupon_codes(status, created_at DESC)"
-        )
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_coupon_codes_source ON coupon_codes(source)")
-
-        # Shrink Turso schema to business-only tables for MVP.
-        for table_name in (
-            "job_tasks",
-            "jobs",
-            "job_files",
-            "job_test_lines",
-            "job_step2_chapters",
-            "credit_wallets",
-            "coupon_redemptions",
-            "invite_codes",
-            "invite_claims",
-            "coupons",
-            "activation_code_redemptions",
-        ):
-            if _table_exists(conn, table_name):
-                conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-
+        ensure_current_schema(conn)
         conn.commit()

@@ -1,4 +1,4 @@
-import { MOCK_CAN_DECODE_FALSE_MARKER } from "./video-render-compatibility";
+import { MOCK_CAN_DECODE_FALSE_MARKER } from "./video-render-compatibility.ts";
 
 function getFileStem(name: string): string {
   const dotIndex = name.lastIndexOf(".");

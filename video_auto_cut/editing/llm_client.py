@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from video_auto_cut.shared.dotenv import auto_load_dotenv
+
 try:
     from openai import OpenAI
 except ModuleNotFoundError as exc:
@@ -17,7 +19,6 @@ else:
     _OPENAI_IMPORT_ERROR = None
 
 
-_ENV_LOADED = False
 _OPENAI_CLIENTS_BY_CFG: Dict[Tuple[str, str], Any] = {}
 _TRAILING_COMMA_RE = re.compile(r",(?=\s*[}\]])")
 _DEFAULT_REQUEST_RETRIES = 3
@@ -27,51 +28,8 @@ _DEFAULT_RETRY_BACKOFF_SECONDS = 1.0
 JsonValidator = Callable[[Dict[str, Any]], Dict[str, Any]]
 
 
-def _strip_quotes(value: str) -> str:
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-        return value[1:-1]
-    return value
-
-
 def _env_flag(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _load_env_file(path: Path):
-    try:
-        content = path.read_text(encoding="utf-8")
-    except Exception:
-        return
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export ") :].strip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = _strip_quotes(value.strip())
-        if not key or key in os.environ:
-            continue
-        os.environ[key] = value
-
-
-def _auto_load_dotenv():
-    global _ENV_LOADED
-    if _ENV_LOADED:
-        return
-    candidates = [
-        Path.cwd() / ".env",
-        Path(__file__).resolve().parents[1] / ".env",
-        Path(__file__).resolve().parents[2] / ".env",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            _load_env_file(candidate)
-            break
-    _ENV_LOADED = True
 
 
 def build_llm_config(
@@ -83,7 +41,13 @@ def build_llm_config(
     max_tokens: Optional[int] = None,
     enable_thinking: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    _auto_load_dotenv()
+    auto_load_dotenv(
+        [
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[1] / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+    )
     fallback_key = os.environ.get("DASHSCOPE_API_KEY") or ""
     cfg = {
         "base_url": (base_url or os.environ.get("LLM_BASE_URL") or "").strip(),

@@ -10,7 +10,8 @@ import srt
 
 from . import llm_client as llm_utils
 from video_auto_cut.pi_agent_runner import TestPiRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_pi
-from video_auto_cut.shared.test_text_io import write_test_text
+from video_auto_cut.shared.interfaces import PipelineOptions
+from video_auto_cut.shared.test_text_io import write_test_json
 
 REMOVE_TOKEN = "<remove>"
 
@@ -20,6 +21,15 @@ class AutoEditConfig:
     merge_gap_s: float = 0.5
     pad_head_s: float = 0.0
     pad_tail_s: float = 0.0
+
+
+@dataclass(frozen=True)
+class AutoEditRuntime:
+    inputs: tuple[str, ...]
+    encoding: str = "utf-8"
+    force: bool = False
+    stage_callback: Callable[[str, str], None] | None = None
+    preview_callback: Callable[[list[dict[str, Any]]], None] | None = None
 
 
 def _load_segments(input_path: str, encoding: str) -> tuple[list[dict[str, Any]], float | None]:
@@ -88,30 +98,93 @@ def _maybe_skip(path: str, force: bool) -> bool:
     return False
 
 
+def _build_auto_edit_llm_config(
+    *,
+    base_url: str | None,
+    model: str | None,
+    api_key: str | None,
+    timeout: int,
+    max_tokens: int | None,
+) -> dict[str, Any]:
+    llm_config = llm_utils.build_llm_config(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        timeout=timeout,
+        temperature=0.0,
+        max_tokens=max_tokens,
+        enable_thinking=False,
+    )
+    if not llm_config.get("base_url") or not llm_config.get("model"):
+        raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model to use auto-edit LLM.")
+    return llm_config
+
+
 class AutoEdit:
-    def __init__(self, args: Any):
-        self.args = args
+    def __init__(self, runtime: AutoEditRuntime, *, cfg: AutoEditConfig, llm_config: dict[str, Any]):
+        self.inputs = list(runtime.inputs)
+        self.force = runtime.force
+        self.encoding = runtime.encoding
+        self.stage_callback = runtime.stage_callback
+        self.preview_callback = runtime.preview_callback
         self.last_result: dict[str, Any] | None = None
-        self.stage_callback: Callable[[str, str], None] | None = getattr(args, "auto_edit_stage_callback", None)
-        self.preview_callback: Callable[[list[dict[str, Any]]], None] | None = getattr(args, "auto_edit_preview_callback", None)
-        self.cfg = AutoEditConfig(
+        self.cfg = cfg
+        self.llm_config = llm_config
+
+    @classmethod
+    def from_args(cls, args: Any) -> "AutoEdit":
+        if not bool(getattr(args, "auto_edit_llm", False)):
+            raise RuntimeError("Auto-edit requires --auto-edit-llm.")
+        runtime = AutoEditRuntime(
+            inputs=tuple(str(path) for path in getattr(args, "inputs", [])),
+            encoding=str(getattr(args, "encoding", "utf-8")),
+            force=bool(getattr(args, "force", False)),
+            stage_callback=getattr(args, "auto_edit_stage_callback", None),
+            preview_callback=getattr(args, "auto_edit_preview_callback", None),
+        )
+        cfg = AutoEditConfig(
             merge_gap_s=float(getattr(args, "auto_edit_merge_gap", 0.5)),
             pad_head_s=float(getattr(args, "auto_edit_pad_head", 0.0)),
             pad_tail_s=float(getattr(args, "auto_edit_pad_tail", 0.0)),
         )
-        if not bool(getattr(args, "auto_edit_llm", False)):
-            raise RuntimeError("Auto-edit requires --auto-edit-llm.")
-        self.llm_config = llm_utils.build_llm_config(
+        llm_config = _build_auto_edit_llm_config(
             base_url=getattr(args, "llm_base_url", None),
             model=getattr(args, "llm_model", None),
             api_key=getattr(args, "llm_api_key", None),
             timeout=int(getattr(args, "llm_timeout", 300)),
-            temperature=0.0,
             max_tokens=getattr(args, "llm_max_tokens", None),
-            enable_thinking=False,
         )
-        if not self.llm_config.get("base_url") or not self.llm_config.get("model"):
-            raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model to use auto-edit LLM.")
+        return cls(runtime, cfg=cfg, llm_config=llm_config)
+
+    @classmethod
+    def from_pipeline_options(
+        cls,
+        input_path: str | Path,
+        options: PipelineOptions,
+        *,
+        stage_callback: Callable[[str, str], None] | None = None,
+        preview_callback: Callable[[list[dict[str, Any]]], None] | None = None,
+    ) -> "AutoEdit":
+        runtime = AutoEditRuntime(
+            inputs=(str(Path(input_path)),),
+            encoding=options.encoding,
+            force=bool(options.force),
+            stage_callback=stage_callback,
+            preview_callback=preview_callback,
+        )
+        cfg = AutoEditConfig(
+            merge_gap_s=float(options.auto_edit_merge_gap),
+            pad_head_s=float(options.auto_edit_pad_head),
+            pad_tail_s=float(options.auto_edit_pad_tail),
+        )
+        llm_config = _build_auto_edit_llm_config(
+            base_url=options.llm_base_url,
+            model=options.llm_model,
+            api_key=options.llm_api_key,
+            timeout=int(options.llm_timeout),
+            max_tokens=options.llm_max_tokens,
+        )
+        return cls(runtime, cfg=cfg, llm_config=llm_config)
 
     def _emit_stage(self, code: str, message: str) -> None:
         if callable(self.stage_callback):
@@ -167,8 +240,8 @@ class AutoEdit:
         }
 
     def run(self) -> None:
-        for input_path in self.args.inputs:
-            segments, total_length = _load_segments(input_path, self.args.encoding)
+        for input_path in self.inputs:
+            segments, total_length = _load_segments(input_path, self.encoding)
             if not segments:
                 logging.warning("No segments found in %s", input_path)
                 continue
@@ -182,21 +255,21 @@ class AutoEdit:
             edl_json = str(cache_base) + ".edl.json"
             debug_json = str(cache_base) + ".debug.json"
 
-            if _maybe_skip(optimized_srt, self.args.force):
+            if _maybe_skip(optimized_srt, self.force):
                 continue
 
             result = self._auto_edit_segments(segments, total_length)
-            _write_optimized_srt(optimized_srt, result["optimized_subs"], self.args.encoding)
-            _write_optimized_srt(optimized_raw_srt, result["raw_optimized_subs"], self.args.encoding)
+            _write_optimized_srt(optimized_srt, result["optimized_subs"], self.encoding)
+            _write_optimized_srt(optimized_raw_srt, result["raw_optimized_subs"], self.encoding)
             _write_json(edl_json, result["edl"])
             _write_json(debug_json, result["debug"])
-            test_text = Path(optimized_srt).with_suffix(".test.txt")
-            write_test_text(result["test_lines"], test_text)
+            test_json = Path(optimized_srt).with_suffix(".test.json")
+            write_test_json(result["test_lines"], test_json)
             self.last_result = {
                 **result,
                 "optimized_srt_path": optimized_srt,
                 "optimized_raw_srt_path": optimized_raw_srt,
                 "edl_path": edl_json,
                 "debug_json_path": debug_json,
-                "test_text_path": str(test_text),
+                "test_json_path": str(test_json),
             }

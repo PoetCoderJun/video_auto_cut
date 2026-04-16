@@ -332,7 +332,7 @@ class LlmClientThinkingTest(unittest.TestCase):
                 "enable_thinking": False,
             },
         ) as mock_build:
-            AutoEdit(DummyAutoEditArgs())
+            AutoEdit.from_args(DummyAutoEditArgs())
 
         mock_build.assert_called_once_with(
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",

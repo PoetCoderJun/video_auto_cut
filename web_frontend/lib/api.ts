@@ -101,9 +101,8 @@ export type WebRenderConfig = {
   input_props: RenderInputProps;
 };
 
-export type QueueAccepted = {
+export type TestRunAccepted = {
   accepted: boolean;
-  task_id: number;
   job: Job;
 };
 
@@ -313,11 +312,21 @@ async function requestAuthed<T>(
   return request<T>(path, init, {requireAuth: true, ...options});
 }
 
-function readRenderCompletionStore(): Record<string, RenderCompletionPendingMarker> {
-  if (typeof window === "undefined" || !window.localStorage) return {};
-  const raw = window.localStorage.getItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
-  if (!raw) return {};
+function getRenderCompletionStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
   try {
+    return window.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function readRenderCompletionStore(
+  storage: Storage
+): Record<string, RenderCompletionPendingMarker> {
+  try {
+    const raw = storage.getItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
+    if (!raw) return {};
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     return parsed as Record<string, RenderCompletionPendingMarker>;
@@ -326,71 +335,75 @@ function readRenderCompletionStore(): Record<string, RenderCompletionPendingMark
   }
 }
 
-function pruneExpiredRenderCompletionMarkers(
-  store: Record<string, RenderCompletionPendingMarker>,
-  now: number
-): Record<string, RenderCompletionPendingMarker> {
-  Object.keys(store).forEach((jobId) => {
-    const marker = store[jobId];
+function pruneExpiredRenderCompletionMarkers(store: Record<string, RenderCompletionPendingMarker>): void {
+  const now = Date.now();
+  for (const [jobId, marker] of Object.entries(store)) {
     if (!marker || typeof marker.createdAt !== "number") {
       delete store[jobId];
-      return;
+      continue;
     }
     if (now - marker.createdAt > RENDER_COMPLETION_PENDING_TTL_MS) {
       delete store[jobId];
     }
-  });
-  return store;
+  }
 }
 
-function saveRenderCompletionStore(store: Record<string, RenderCompletionPendingMarker>): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
-  if (!store || Object.keys(store).length === 0) {
-    window.localStorage.removeItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
-    return;
+function saveRenderCompletionStore(
+  storage: Storage,
+  store: Record<string, RenderCompletionPendingMarker>
+): void {
+  try {
+    if (!store || Object.keys(store).length === 0) {
+      storage.removeItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
+      return;
+    }
+    storage.setItem(RENDER_COMPLETION_PENDING_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    storage.removeItem(RENDER_COMPLETION_PENDING_STORAGE_KEY);
   }
-  window.localStorage.setItem(
-    RENDER_COMPLETION_PENDING_STORAGE_KEY,
-    JSON.stringify(store)
-  );
+}
+
+function withRenderCompletionStore<T>(
+  callback: (store: Record<string, RenderCompletionPendingMarker>) => T
+): T | null {
+  const storage = getRenderCompletionStorage();
+  if (!storage) return null;
+  const store = readRenderCompletionStore(storage);
+  pruneExpiredRenderCompletionMarkers(store);
+  const result = callback(store);
+  saveRenderCompletionStore(storage, store);
+  return result;
 }
 
 export function getRenderCompletionPending(jobId: string): RenderCompletionPendingMarker | null {
-  if (typeof window === "undefined" || !jobId) return null;
-  const now = Date.now();
-  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
-  saveRenderCompletionStore(store);
-  return store[jobId] ?? null;
+  if (!jobId) return null;
+  return withRenderCompletionStore((store) => store[jobId] ?? null) ?? null;
 }
 
 export function setRenderCompletionPending(
   jobId: string,
   lastError?: string
 ): RenderCompletionPendingMarker | null {
-  if (typeof window === "undefined" || !jobId) return null;
-  const now = Date.now();
-  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
-  const existing = store[jobId];
-  const marker: RenderCompletionPendingMarker = {
-    job_id: jobId,
-    createdAt: existing?.createdAt || now,
-    attempts: typeof existing?.attempts === "number" ? existing.attempts + 1 : 1,
-    lastError: lastError || existing?.lastError,
-  };
-  store[jobId] = marker;
-  saveRenderCompletionStore(store);
-  return marker;
+  if (!jobId) return null;
+  return withRenderCompletionStore((store) => {
+    const existing = store[jobId];
+    const marker: RenderCompletionPendingMarker = {
+      job_id: jobId,
+      createdAt: existing?.createdAt || Date.now(),
+      attempts: typeof existing?.attempts === "number" ? existing.attempts + 1 : 1,
+      lastError: lastError || existing?.lastError,
+    };
+    store[jobId] = marker;
+    return marker;
+  }) ?? null;
 }
 
 export function clearRenderCompletionPending(jobId: string): void {
-  if (typeof window === "undefined" || !jobId) return;
-  const now = Date.now();
-  const store = pruneExpiredRenderCompletionMarkers(readRenderCompletionStore(), now);
-  if (!store[jobId]) {
-    return;
-  }
-  delete store[jobId];
-  saveRenderCompletionStore(store);
+  if (!jobId) return;
+  withRenderCompletionStore((store) => {
+    delete store[jobId];
+    return null;
+  });
 }
 
 export async function createJob(): Promise<Job> {
@@ -442,15 +455,6 @@ export async function activateInviteCode(
   return data.coupon;
 }
 
-export async function verifyCouponCode(code: string): Promise<{valid: boolean; code: string; credits: number}> {
-  const data = await request<{coupon: {valid: boolean; code: string; credits: number}}>("/public/coupons/verify", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({code}),
-  });
-  return data.coupon;
-}
-
 export async function claimPublicInviteCode(): Promise<{code: string; credits: number; already_claimed: boolean}> {
   const data = await request<{invite: {code: string; credits: number; already_claimed: boolean}}>(
     "/public/invites/claim",
@@ -459,35 +463,6 @@ export async function claimPublicInviteCode(): Promise<{code: string; credits: n
     }
   );
   return data.invite;
-}
-
-export type OssUploadCreds = {put_url: string; object_key: string};
-
-export async function getOssUploadUrl(
-  jobId: string,
-  format: "mp3" | "wav" = "mp3"
-): Promise<OssUploadCreds> {
-  const params = new URLSearchParams({format});
-  const data = await requestAuthed<OssUploadCreds>(
-    `/jobs/${jobId}/oss-upload-url?${params.toString()}`,
-    {method: "POST"}
-  );
-  return data;
-}
-
-export async function uploadAudioOssReady(
-  jobId: string,
-  objectKey: string
-): Promise<Job> {
-  const data = await requestAuthed<{job: Job}>(
-    `/jobs/${jobId}/audio-oss-ready`,
-    {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({object_key: objectKey}),
-    }
-  );
-  return data.job;
 }
 
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
@@ -522,8 +497,8 @@ export async function uploadAudio(jobId: string, file: File): Promise<Job> {
   throw new ApiClientError("音频上传失败，请稍后重试。", "NETWORK_ERROR", 0);
 }
 
-export async function runTest(jobId: string): Promise<QueueAccepted> {
-  return requestAuthed<QueueAccepted>(`/jobs/${jobId}/test/run`, {method: "POST"});
+export async function runTest(jobId: string): Promise<TestRunAccepted> {
+  return requestAuthed<TestRunAccepted>(`/jobs/${jobId}/test/run`, {method: "POST"});
 }
 
 export async function getTest(jobId: string): Promise<TestDocument> {

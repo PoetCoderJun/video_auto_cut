@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from web_api.utils import srt_utils
-from web_api.utils.srt_utils import (
+from video_auto_cut.shared import test_text_io as srt_utils
+from video_auto_cut.shared.test_text_io import (
     build_test_chapters_from_text,
     build_test_lines_from_json,
     build_test_lines_from_srt,

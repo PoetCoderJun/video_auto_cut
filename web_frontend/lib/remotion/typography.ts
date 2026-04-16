@@ -1,3 +1,6 @@
+import {clamp} from "../utils.ts";
+import {getChapterCardTitleMaxWidth} from "./overlay-presentation.ts";
+
 export type OverlayTypographyInput = {
   width: number;
   height: number;
@@ -169,11 +172,7 @@ export type FittedAdaptiveProgressLabels = {
 };
 
 export type ChapterCardLayoutMetrics = {
-  cardMinWidth: number;
   cardMaxWidth: number;
-  cardStyleMinWidth: number;
-  cardStyleWidth: number | "fit-content";
-  cardStyleMaxWidth: number;
   titleMaxWidth: number;
 };
 
@@ -198,12 +197,6 @@ const CJK_RE = /[\u2E80-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
 const BREAK_PUNCT_RE = /[，。！？；：、,.!?;:…—]/;
 const EM_DASH_RE = /[—―－]/;
 const EM_DASH_SEQUENCE_RE = /(?:[—―－]+|--+)/g;
-
-const clamp = (value: number, min: number, max: number): number => {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
-};
 
 const round = (value: number): number => Math.round(value);
 const atLeast = (value: number, min: number): number => Math.max(min, value);
@@ -361,51 +354,6 @@ const measureTextWidth = ({
 
   textWidthCache.set(cacheKey, width);
   return width;
-};
-
-const wrapSoftLine = (text: string, maxUnits: number): string[] => {
-  if (!text) return [""];
-
-  const wrapped: string[] = [];
-  let line = "";
-  let units = 0;
-  let lastBreakPos = -1;
-  const minBreakPrefix = Math.max(4, Math.floor(maxUnits * 0.45));
-
-  for (const char of text) {
-    const nextUnits = charUnits(char);
-    if (line && BREAK_PUNCT_RE.test(char) && units + nextUnits > maxUnits) {
-      line += char;
-      units += nextUnits;
-      lastBreakPos = line.length;
-      wrapped.push(line);
-      line = "";
-      units = 0;
-      lastBreakPos = -1;
-      continue;
-    }
-
-    while (line && units + nextUnits > maxUnits) {
-      const breakPos = lastBreakPos >= minBreakPrefix ? lastBreakPos : -1;
-      if (breakPos > 0 && breakPos < line.length) {
-        wrapped.push(line.slice(0, breakPos));
-        line = line.slice(breakPos).trimStart();
-      } else {
-        wrapped.push(line);
-        line = "";
-      }
-      units = measureUnits(line);
-      lastBreakPos = findLastBreakPos(line);
-    }
-
-    if (!line && char === " ") continue;
-    line += char;
-    units += nextUnits;
-    if (BREAK_PUNCT_RE.test(char)) lastBreakPos = line.length;
-  }
-
-  if (line) wrapped.push(line);
-  return wrapped.length > 0 ? wrapped : [""];
 };
 
 const wrapTextByWidth = ({
@@ -767,64 +715,28 @@ export const fitChapterTitleToBox = ({
     fontFamily: OVERLAY_FONT_FAMILY,
   });
 
-export const getChapterCardMinHeight = ({
-  titleFontSize,
-  titleLineCount,
-  metaFontSize,
-  gap,
-  paddingY,
-}: {
-  titleFontSize: number;
-  titleLineCount: number;
-  metaFontSize: number;
-  gap: number;
-  paddingY: number;
-}): number =>
-  paddingY * 2 +
-  metaFontSize * 1.08 +
-  gap +
-  titleFontSize * CHAPTER_TITLE_LINE_HEIGHT * Math.max(1, Math.floor(titleLineCount));
-
 export const getChapterCardLayoutMetrics = ({
   width,
-  height,
-  chapterScale = 1,
   typography,
 }: {
   width: number;
-  height: number;
-  chapterScale?: number;
   typography: Pick<
     OverlayTypography,
-    "chapterInsetX" | "chapterCardMinWidth" | "chapterCardMaxWidthRatio" | "chapterTitleFontSize" | "chapterCardPaddingX"
+    "chapterInsetX" | "chapterCardMinWidth" | "chapterCardMaxWidthRatio" | "chapterTitleFontSize"
   >;
 }): ChapterCardLayoutMetrics => {
-  const isPortrait = height > width;
-  const normalizedChapterScale = clamp(chapterScale, 0.7, 1.45);
   const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
   const cardMaxWidth = Math.min(
     chapterWrapWidth,
     Math.max(typography.chapterCardMinWidth, chapterWrapWidth * typography.chapterCardMaxWidthRatio)
   );
-  const cardMinWidth = Math.min(typography.chapterCardMinWidth, cardMaxWidth);
-  const cardBaseWidth = chapterWrapWidth * (isPortrait ? 0.52 : 0.46);
-  const resolvedCardWidth = Math.max(
-    cardMinWidth,
-    Math.min(cardMaxWidth, cardBaseWidth * normalizedChapterScale)
-  );
-  const cardStyleMinWidth = isPortrait
-    ? resolvedCardWidth
-    : Math.min(cardMaxWidth, typography.chapterTitleFontSize * 5.8);
-  const cardStyleWidth = isPortrait ? resolvedCardWidth : "fit-content";
-  const cardStyleMaxWidth = isPortrait ? resolvedCardWidth : cardMaxWidth;
 
   return {
-    cardMinWidth,
     cardMaxWidth,
-    cardStyleMinWidth,
-    cardStyleWidth,
-    cardStyleMaxWidth,
-    titleMaxWidth: Math.max(1, cardStyleMaxWidth - typography.chapterCardPaddingX * 2),
+    titleMaxWidth: getChapterCardTitleMaxWidth({
+      cardMaxWidth,
+      titleFontSize: typography.chapterTitleFontSize,
+    }),
   };
 };
 
@@ -839,39 +751,6 @@ export const getSubtitleLineHeight = ({
   const base = isPortrait ? 1.54 : 1.5;
   const scaleBoost = Math.max(0, normalizedScale - 1) * 0.38;
   return clamp(base + scaleBoost, base, isPortrait ? 1.74 : 1.68);
-};
-
-export const isTextSubtitleTheme = (subtitleTheme: string | undefined): boolean =>
-  subtitleTheme === "text-black" || subtitleTheme === "text-white";
-
-export const getSubtitleThemeFitWidth = ({
-  maxWidth,
-  subtitleScale = 1,
-  isTextTheme,
-}: {
-  maxWidth: number;
-  subtitleScale?: number;
-  isTextTheme: boolean;
-}): number => {
-  const normalizedScale = clamp(subtitleScale, 0.7, 1.45);
-  if (!isTextTheme) {
-    return Math.max(1, maxWidth);
-  }
-  return Math.max(1, maxWidth / normalizedScale);
-};
-
-export const getSubtitleThemeRenderFontSize = ({
-  fittedFontSize,
-  subtitleScale = 1,
-  isTextTheme,
-}: {
-  fittedFontSize: number;
-  subtitleScale?: number;
-  isTextTheme: boolean;
-}): number => {
-  const normalizedScale = clamp(subtitleScale, 0.7, 1.45);
-  const renderedFontSize = isTextTheme ? fittedFontSize * normalizedScale : fittedFontSize;
-  return Math.max(1, Math.round(renderedFontSize));
 };
 
 export const getSafeSubtitleScale = ({

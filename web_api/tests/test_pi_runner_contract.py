@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-import re
 import subprocess
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
+from web_api.tests.utils import extract_labeled_path
 
-
-def _extract_path(prompt: str, label: str) -> Path:
-    match = re.search(rf"{label}: (.+)", prompt)
-    if not match:
-        raise AssertionError(f"missing {label} in prompt: {prompt}")
-    return Path(match.group(1).strip())
 
 
 class TestPiRunnerContractTests(unittest.TestCase):
@@ -25,7 +18,9 @@ class TestPiRunnerContractTests(unittest.TestCase):
             prompt = command[-1]
             self.assertIn("只读取上面的输入文件，只写入上面的输出文件", prompt)
             self.assertIn("不要探索仓库", prompt)
-            output_path = _extract_path(prompt, "输出文件")
+            self.assertIn("唯一删除原则", prompt)
+            self.assertIn("只要后一句和前一句属于重复语义，必须删除前面的重复部分", prompt)
+            output_path = extract_labeled_path(prompt, "输出文件")
             output_path.write_text("【00:00:00.000-00:00:01.000】第一句\n", encoding="utf-8")
             return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
@@ -55,7 +50,7 @@ class TestPiRunnerContractTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_delete_contract_tolerates_normalized_no_speech_placeholder(self, mock_run) -> None:
         def fake_run(command, **kwargs):
-            output_path = _extract_path(command[-1], "输出文件")
+            output_path = extract_labeled_path(command[-1], "输出文件")
             output_path.write_text(
                 "【00:00:00.000-00:00:01.000】<remove><No Speech>\n"
                 "【00:00:01.000-00:00:02.000】第二句\n",
@@ -82,7 +77,7 @@ class TestPiRunnerContractTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_delete_contract_keeps_remove_token_out_of_internal_lines(self, mock_run) -> None:
         def fake_run(command, **kwargs):
-            output_path = _extract_path(command[-1], "输出文件")
+            output_path = extract_labeled_path(command[-1], "输出文件")
             output_path.write_text(
                 "【00:00:00.000-00:00:01.000】<remove>前一句删掉\n"
                 "【00:00:01.000-00:00:02.000】第二句\n",

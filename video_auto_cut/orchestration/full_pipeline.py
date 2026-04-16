@@ -125,7 +125,6 @@ def _build_cli_pipeline_options(args: argparse.Namespace) -> PipelineOptions:
         asr_dashscope_api_key=_first_non_empty(
             args.asr_dashscope_api_key,
             os.environ.get("DASHSCOPE_ASR_API_KEY"),
-            os.environ.get("ASR_DASHSCOPE_API_KEY"),
             os.environ.get("DASHSCOPE_API_KEY"),
         ),
         llm_base_url=_first_non_empty(args.llm_base_url, os.environ.get("LLM_BASE_URL")),

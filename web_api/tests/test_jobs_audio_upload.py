@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import asyncio
 import io
 import tempfile
 import unittest
@@ -55,7 +53,7 @@ class JobsAudioUploadTest(unittest.TestCase):
                 patch("web_api.services.jobs.upsert_job_files") as mock_upsert_job_files,
                 patch("web_api.services.jobs.update_job") as mock_update_job,
             ):
-                result = asyncio.run(save_uploaded_audio("job_123", upload))
+                result = save_uploaded_audio("job_123", upload)
 
         self.assertEqual(result["object_key"], "video-auto-cut/asr/job_123/audio.wav")
         self.assertEqual(result["size_bytes"], len(b"audio-bytes"))

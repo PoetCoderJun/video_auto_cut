@@ -1,11 +1,24 @@
 import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
+import {clamp} from "../utils.ts";
 
 import {
   applyOverlayScaleToTypography,
   type ProgressLabelMode,
 } from "./overlay-controls";
+import {
+  PROGRESS_LABEL_PADDING_X_EM,
+  getChapterCardStyle,
+  getProgressLabelPaddingX,
+  getSubtitleBoxMaxWidth,
+  getSubtitleTextMaxWidth,
+  getSubtitleThemeFitWidth,
+  getSubtitleThemeRenderFontSize,
+  getSubtitleThemeStyle,
+  isBoxedSubtitleTheme,
+  isTextSubtitleTheme,
+} from "./overlay-presentation";
 import {
   fitUniformSingleLineText,
   fitUniformTextToBox,
@@ -13,13 +26,9 @@ import {
   CHAPTER_TITLE_LINE_HEIGHT,
   fitChapterTitleToBox,
   getChapterCardLayoutMetrics,
-  getChapterCardMinHeight,
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
-  getSubtitleThemeFitWidth,
-  getSubtitleThemeRenderFontSize,
-  isTextSubtitleTheme,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
 } from "./typography";
@@ -75,12 +84,6 @@ type TimelineSegment = {
   trimBefore: number;
   cutStart: number;
   cutEnd: number;
-};
-
-const clamp = (value: number, min = 0, max = 1): number => {
-  if (value < min) return min;
-  if (value > max) return max;
-  return value;
 };
 
 const round = (n: number) => Math.round(n);
@@ -146,40 +149,36 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     () =>
       getChapterCardLayoutMetrics({
         width,
-        height,
-        chapterScale,
         typography,
       }),
-    [chapterScale, height, typography, width]
+    [typography, width]
   );
-  const chapterCardMinHeight = getChapterCardMinHeight({
-    titleFontSize: typography.chapterTitleFontSize,
-    titleLineCount: 1,
-    metaFontSize: typography.chapterMetaFontSize,
-    gap: typography.chapterGap,
-    paddingY: typography.chapterCardPaddingY,
-  });
   const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
-  const subtitleBoxedTheme =
-    subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
+  const subtitleBoxedTheme = isBoxedSubtitleTheme(subtitleTheme);
   const subtitleThemeIsText = isTextSubtitleTheme(subtitleTheme);
+  const subtitleLayoutTypography = subtitleThemeIsText ? baseTypography : typography;
   const subtitleBoxMaxWidth = Math.max(
     1,
-    width * typography.subtitleMaxWidthRatio * typography.subtitleSafeWidthRatio
+    getSubtitleBoxMaxWidth({
+      width,
+      maxWidthRatio: typography.subtitleMaxWidthRatio,
+      safeWidthRatio: typography.subtitleSafeWidthRatio,
+    })
   );
-  const subtitleTextMaxWidth = Math.max(
-    1,
-    subtitleBoxMaxWidth - (subtitleBoxedTheme ? typography.subtitlePaddingX * 2 : 0)
-  );
+  const subtitleTextMaxWidth = getSubtitleTextMaxWidth({
+    boxMaxWidth: subtitleBoxMaxWidth,
+    fontSize: subtitleLayoutTypography.subtitleFontSize,
+    isBoxedTheme: subtitleBoxedTheme,
+  });
   const subtitleFitMaxWidth = getSubtitleThemeFitWidth({
     maxWidth: subtitleTextMaxWidth,
     subtitleScale: safeSubtitleScale,
     isTextTheme: subtitleThemeIsText,
   });
-  const subtitleLayoutTypography = subtitleThemeIsText ? baseTypography : typography;
   const allowWrappedProgressLabels =
     progressLabelMode === "double" || (progressLabelMode === "auto" && isPortrait);
   const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
+  const progressLabelPaddingX = getProgressLabelPaddingX(typography.progressLabelFontSize);
   const subtitleLineHeight = getSubtitleLineHeight({subtitleScale: safeSubtitleScale, isPortrait});
   const progressStrokeWidth = Math.min(
     2,
@@ -225,17 +224,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         pointerEvents: "none" as const,
       },
       chapterCard: {
-        display: "inline-flex" as const,
-        flexDirection: "column" as const,
-        gap: typography.chapterGap,
-        minWidth: chapterCardMetrics.cardStyleMinWidth,
-        width: chapterCardMetrics.cardStyleWidth,
-        maxWidth: chapterCardMetrics.cardStyleMaxWidth,
-        minHeight: chapterCardMinHeight,
-        padding: `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`,
-        borderRadius: typography.chapterCardRadius,
-        backgroundColor: "rgba(8, 12, 20, 0.74)",
-        border: "1px solid rgba(255, 255, 255, 0.2)",
+        ...getChapterCardStyle({
+          cardMaxWidth: chapterCardMetrics.cardMaxWidth,
+        }),
       },
       chapterMeta: {
         fontSize: typography.chapterMetaFontSize,
@@ -291,7 +282,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       },
       progressSegmentLabel: {
         maxWidth: "100%",
-        padding: `0 ${typography.progressLabelPaddingX}px`,
+        padding: `0 ${PROGRESS_LABEL_PADDING_X_EM}em`,
         fontSize: typography.progressLabelFontSize,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
@@ -305,10 +296,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     };
   }, [
     allowWrappedProgressLabels,
-    chapterCardMinHeight,
-    chapterCardMetrics.cardStyleMaxWidth,
-    chapterCardMetrics.cardStyleMinWidth,
-    chapterCardMetrics.cardStyleWidth,
+    chapterCardMetrics.cardMaxWidth,
     progressLabelLineHeight,
     progressStrokeWidth,
     subtitleLineHeight,
@@ -434,12 +422,12 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const segmentDurationEnd =
     timelineSegments.length > 0 ? timelineSegments[timelineSegments.length - 1].cutEnd : 0;
   const totalDuration = Math.max(1, topicDurationEnd, captionDurationEnd, segmentDurationEnd);
-  const progress = clamp(t / totalDuration);
+  const progress = clamp(t / totalDuration, 0, 1);
   const topicSegments = useMemo(() => {
     const segmentsForLayout = normalizedTopics
       .map((topic, index) => {
-        const startRatio = clamp(topic.start / totalDuration);
-        const endRatio = clamp(topic.end / totalDuration);
+        const startRatio = clamp(topic.start / totalDuration, 0, 1);
+        const endRatio = clamp(topic.end / totalDuration, 0, 1);
         if (endRatio <= startRatio) {
           return null;
         }
@@ -480,7 +468,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           maxHeight: typography.progressHeight,
           lineHeight: progressLabelLineHeight,
           targetWidthRatio: 0.9,
-          horizontalPadding: typography.progressLabelPaddingX,
+          horizontalPadding: progressLabelPaddingX,
           fontWeight: 700,
           fontFamily: OVERLAY_FONT_FAMILY,
         })
@@ -495,7 +483,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
           maxHeight: typography.progressHeight,
           lineHeight: 1.2,
           targetWidthRatio: 0.84,
-          horizontalPadding: typography.progressLabelPaddingX,
+          horizontalPadding: progressLabelPaddingX,
           fontWeight: 700,
           fontFamily: OVERLAY_FONT_FAMILY,
           fontSizeStep: 0.25,
@@ -520,55 +508,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     totalDuration,
     typography.progressLabelFontSize,
     typography.progressHeight,
-    typography.progressLabelPaddingX,
+    progressLabelPaddingX,
   ]);
 
   const subtitleStyleOverrides = useMemo(() => {
-    const p = typography.subtitlePaddingY;
-    const px = typography.subtitlePaddingX;
-    const br = typography.subtitleRadius;
-    switch (subtitleTheme) {
-      case "text-black":
-        return {
-          color: "#111111",
-          backgroundColor: "transparent",
-          padding: "0",
-          borderRadius: 0,
-          maxWidth: subtitleTextMaxWidth,
-          textShadow: "0 1px 1px rgba(255, 255, 255, 0.45)",
-        } as React.CSSProperties;
-      case "text-white":
-        return {
-          color: "#ffffff",
-          backgroundColor: "transparent",
-          padding: "0",
-          borderRadius: 0,
-          maxWidth: subtitleTextMaxWidth,
-          textShadow: "0 1px 2px rgba(0, 0, 0, 0.75)",
-        } as React.CSSProperties;
-      case "box-black-on-white":
-        return {
-          boxSizing: "border-box",
-          color: "#111111",
-          backgroundColor: "rgba(255, 255, 255, 0.92)",
-          padding: `${p}px ${px}px`,
-          borderRadius: br,
-          maxWidth: subtitleBoxMaxWidth,
-          textShadow: "none",
-        } as React.CSSProperties;
-      case "box-white-on-black":
-      default:
-        return {
-          boxSizing: "border-box",
-          color: "#ffffff",
-          backgroundColor: "rgba(0, 0, 0, 0.82)",
-          padding: `${p}px ${px}px`,
-          borderRadius: br,
-          maxWidth: subtitleBoxMaxWidth,
-          textShadow: "none",
-        } as React.CSSProperties;
-    }
-  }, [subtitleBoxMaxWidth, subtitleTextMaxWidth, subtitleTheme, typography]);
+    return getSubtitleThemeStyle({
+      subtitleTheme,
+      boxMaxWidth: subtitleBoxMaxWidth,
+      textMaxWidth: subtitleTextMaxWidth,
+    });
+  }, [subtitleBoxMaxWidth, subtitleTextMaxWidth, subtitleTheme]);
 
   return (
     <AbsoluteFill

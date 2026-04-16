@@ -77,3 +77,4 @@ workdir_regression2/
 htmlcov/
 .coverage
 .coverage.*
+.omx/

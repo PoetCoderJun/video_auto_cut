@@ -24,10 +24,10 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "WEB_AUTH_ENABLED": os.environ.get("WEB_AUTH_ENABLED"),
-            "OSS_ENDPOINT": os.environ.get("OSS_ENDPOINT"),
-            "OSS_BUCKET": os.environ.get("OSS_BUCKET"),
-            "OSS_ACCESS_KEY_ID": os.environ.get("OSS_ACCESS_KEY_ID"),
-            "OSS_ACCESS_KEY_SECRET": os.environ.get("OSS_ACCESS_KEY_SECRET"),
+            "ASR_OSS_ENDPOINT": os.environ.get("ASR_OSS_ENDPOINT"),
+            "ASR_OSS_BUCKET": os.environ.get("ASR_OSS_BUCKET"),
+            "ASR_OSS_ACCESS_KEY_ID": os.environ.get("ASR_OSS_ACCESS_KEY_ID"),
+            "ASR_OSS_ACCESS_KEY_SECRET": os.environ.get("ASR_OSS_ACCESS_KEY_SECRET"),
             "WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS": os.environ.get("WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS"),
             "WEB_PUBLIC_INVITE_RATE_LIMIT": os.environ.get("WEB_PUBLIC_INVITE_RATE_LIMIT"),
             "WEB_PUBLIC_COUPON_VERIFY_RATE_LIMIT": os.environ.get("WEB_PUBLIC_COUPON_VERIFY_RATE_LIMIT"),
@@ -37,10 +37,10 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "test.db")
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ["WEB_AUTH_ENABLED"] = "0"
-        os.environ["OSS_ENDPOINT"] = "https://oss-cn-test.aliyuncs.com"
-        os.environ["OSS_BUCKET"] = "bucket-test"
-        os.environ["OSS_ACCESS_KEY_ID"] = "key-id"
-        os.environ["OSS_ACCESS_KEY_SECRET"] = "key-secret"
+        os.environ["ASR_OSS_ENDPOINT"] = "https://oss-cn-test.aliyuncs.com"
+        os.environ["ASR_OSS_BUCKET"] = "bucket-test"
+        os.environ["ASR_OSS_ACCESS_KEY_ID"] = "key-id"
+        os.environ["ASR_OSS_ACCESS_KEY_SECRET"] = "key-secret"
         get_settings.cache_clear()
 
     def tearDown(self) -> None:
@@ -56,7 +56,7 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         wrong_key = "video-auto-cut/asr/job_test/audio_wrong.wav"
 
         with (
-            patch("web_api.api.routes.require_active_user", return_value=None),
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
             patch(
                 "web_api.api.routes.get_presigned_put_url_for_job",
                 return_value=("https://example.com/upload", expected_key),
@@ -89,7 +89,7 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         expected_key = "video-auto-cut/asr/job_test/audio_expected.wav"
 
         with (
-            patch("web_api.api.routes.require_active_user", return_value=None),
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
             patch(
                 "web_api.api.routes.get_presigned_put_url_for_job",
                 return_value=("https://example.com/upload", expected_key),

@@ -39,11 +39,13 @@ class AsrEnvNamesTest(unittest.TestCase):
         self.assertFalse(settings.asr_dashscope_word_split_enabled)
         self.assertFalse(settings.asr_dashscope_insert_no_speech)
 
-    def test_legacy_env_names_still_work(self) -> None:
+    def test_legacy_aliases_no_longer_override_asr_settings(self) -> None:
         overrides = {
+            "DASHSCOPE_ASR_ENABLE_WORDS": "",
+            "ASR_WORD_SPLIT_ENABLED": "",
             "ASR_DASHSCOPE_API_KEY": "legacy-key",
-            "ASR_DASHSCOPE_BASE_URL": "https://dashscope-intl.aliyuncs.com",
-            "ASR_DASHSCOPE_MODEL": "qwen3-asr-flash-filetrans",
+            "ASR_DASHSCOPE_BASE_URL": "https://legacy.example.invalid",
+            "ASR_DASHSCOPE_MODEL": "legacy-model",
             "ASR_DASHSCOPE_CONTEXT": "legacy-context",
             "ASR_DASHSCOPE_ENABLE_WORDS": "0",
             "ASR_DASHSCOPE_WORD_SPLIT_ENABLED": "0",
@@ -52,10 +54,12 @@ class AsrEnvNamesTest(unittest.TestCase):
             get_settings.cache_clear()
             settings = get_settings()
 
-        self.assertEqual(settings.asr_dashscope_api_key, "legacy-key")
-        self.assertEqual(settings.asr_dashscope_context, "legacy-context")
-        self.assertFalse(settings.asr_dashscope_enable_words)
-        self.assertFalse(settings.asr_dashscope_word_split_enabled)
+        self.assertIsNone(settings.asr_dashscope_api_key)
+        self.assertEqual(settings.asr_dashscope_base_url, "https://dashscope-intl.aliyuncs.com")
+        self.assertEqual(settings.asr_dashscope_model, "qwen3-asr-flash-filetrans")
+        self.assertEqual(settings.asr_dashscope_context, "")
+        self.assertTrue(settings.asr_dashscope_enable_words)
+        self.assertTrue(settings.asr_dashscope_word_split_enabled)
 
     def test_core_env_builder_matches_new_asr_env_shape(self) -> None:
         overrides = {
@@ -77,3 +81,30 @@ class AsrEnvNamesTest(unittest.TestCase):
         self.assertEqual(options.asr_dashscope_channel_ids, (0, 1))
         self.assertFalse(options.asr_dashscope_word_split_enabled)
         self.assertFalse(options.asr_dashscope_insert_no_speech)
+
+    def test_settings_and_pipeline_builder_share_same_env_parsing(self) -> None:
+        overrides = {
+            "ASR_OSS_ENDPOINT": "https://oss-cn-test.aliyuncs.com",
+            "ASR_OSS_BUCKET": "bucket-a",
+            "ASR_OSS_ACCESS_KEY_ID": "ak",
+            "ASR_OSS_ACCESS_KEY_SECRET": "sk",
+            "ASR_OSS_PREFIX": "jobs/asr",
+            "ASR_OSS_SIGNED_URL_TTL_SECONDS": "1200",
+            "LLM_MODEL": "kimi-k2.5",
+            "LLM_MAX_TOKENS": "4096",
+            "AUTO_EDIT_LLM_CONCURRENCY": "7",
+        }
+        with patch.dict(os.environ, overrides, clear=False):
+            get_settings.cache_clear()
+            settings = get_settings()
+            options = build_pipeline_options_from_env(
+                llm_model="qwen-plus",
+                topic_llm_model="kimi-k2.5",
+            )
+
+        self.assertEqual(settings.asr_oss_endpoint, options.asr_oss_endpoint)
+        self.assertEqual(settings.asr_oss_bucket, options.asr_oss_bucket)
+        self.assertEqual(settings.asr_oss_prefix, options.asr_oss_prefix)
+        self.assertEqual(settings.asr_oss_signed_url_ttl_seconds, options.asr_oss_signed_url_ttl_seconds)
+        self.assertEqual(settings.llm_max_tokens, options.llm_max_tokens)
+        self.assertEqual(settings.auto_edit_llm_concurrency, options.auto_edit_llm_concurrency)

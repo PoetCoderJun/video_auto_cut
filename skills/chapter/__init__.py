@@ -1,1 +1,0 @@
-"""Chapter strategy skill."""

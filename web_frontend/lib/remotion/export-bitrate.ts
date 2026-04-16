@@ -1,4 +1,5 @@
 import type { RenderMeta } from "../api";
+import { clamp } from "../utils.ts";
 
 export type WebRenderVideoCodec = "h264" | "vp8" | "vp9" | "h265" | "av1";
 export type WebRenderAudioCodec = "aac" | "opus";
@@ -34,10 +35,6 @@ type NormalizeVideoBitrateOptions = {
   height: number;
   codec: WebRenderVideoCodec;
 };
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 function roundToNearestThousand(value: number): number {
   return Math.max(1_000, Math.round(value / 1_000) * 1_000);

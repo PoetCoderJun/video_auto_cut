@@ -22,6 +22,19 @@ export function isMockCanDecodeFalseFileName(
     .includes(MOCK_CAN_DECODE_FALSE_MARKER);
 }
 
+export function getRenderSourceDirectExportErrorMessage(
+  compatibility: RenderSourceCompatibility
+): string | null {
+  if (
+    compatibility.status === "blocked" ||
+    compatibility.status === "incompatible"
+  ) {
+    return compatibility.message;
+  }
+
+  return null;
+}
+
 export async function inspectRenderSourceCompatibility(
   file: File
 ): Promise<RenderSourceCompatibility> {

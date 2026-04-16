@@ -3,15 +3,68 @@ from __future__ import annotations
 import tempfile
 import logging
 from pathlib import Path
+from typing import AbstractSet
+from typing import Any
 
 from fastapi import UploadFile
 
 from ..config import ensure_job_dirs, get_settings
-from ..constants import JOB_STATUS_UPLOAD_READY, PROGRESS_UPLOAD_READY
-from ..errors import invalid_step_state, upload_too_large
-from ..job_file_repository import get_job_files, upsert_job_files, update_job
+from ..constants import (
+    JOB_STATUS_SUCCEEDED,
+    JOB_STATUS_TEST_CONFIRMED,
+    JOB_STATUS_TEST_RUNNING,
+    JOB_STATUS_UPLOAD_READY,
+    PROGRESS_SUCCEEDED,
+    PROGRESS_TEST_RUNNING,
+    PROGRESS_UPLOAD_READY,
+)
+from ..errors import invalid_step_state, not_found, upload_too_large
+from ..job_file_repository import get_job, get_job_files, upsert_job_files, update_job
 from ..utils.media import validate_audio_extension
+from .billing import consume_export_credit, ensure_credit_available
 from .oss_presign import get_oss_uploader
+
+
+def load_job_or_404(job_id: str, owner_user_id: str) -> dict[str, Any]:
+    job = get_job(job_id, owner_user_id=owner_user_id)
+    if not job:
+        raise not_found("job not found")
+    return job
+
+
+def require_status(job: dict[str, Any], allowed: AbstractSet[str]) -> None:
+    if job.get("status") not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise invalid_step_state(f"current status={job.get('status')} expected in [{allowed_text}]")
+
+
+def queue_test_run(job_id: str, user_id: str) -> dict[str, Any]:
+    job = load_job_or_404(job_id, user_id)
+    require_status(job, {JOB_STATUS_UPLOAD_READY})
+    ensure_credit_available(user_id)
+    update_job(
+        job_id,
+        status=JOB_STATUS_TEST_RUNNING,
+        progress=PROGRESS_TEST_RUNNING,
+        stage_code="TEST_QUEUED",
+        stage_message="上传完成，正在启动字幕与章节生成...",
+    )
+    return load_job_or_404(job_id, user_id)
+
+
+def complete_render_export(job_id: str, user_id: str) -> tuple[dict[str, Any], dict[str, object]]:
+    job = load_job_or_404(job_id, user_id)
+    require_status(job, {JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED})
+    billing = consume_export_credit(job_id)
+    update_job(
+        job_id,
+        status=JOB_STATUS_SUCCEEDED,
+        progress=PROGRESS_SUCCEEDED,
+        stage_code="EXPORT_SUCCEEDED",
+        stage_message="视频导出成功。",
+    )
+    latest = load_job_or_404(job_id, user_id)
+    return latest, billing
 
 
 def save_uploaded_audio(job_id: str, file: UploadFile) -> dict:

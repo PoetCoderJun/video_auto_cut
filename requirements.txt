@@ -5,6 +5,7 @@ numpy
 openai
 opencc-python-reimplemented
 oss2
+python-dotenv
 python-multipart
 PyJWT[crypto]
 srt

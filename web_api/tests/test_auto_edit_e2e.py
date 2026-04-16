@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from video_auto_cut.editing.auto_edit import AutoEdit, REMOVE_TOKEN
+from web_api.tests.utils import extract_labeled_path
 
 
 class DummyArgs:
@@ -48,13 +47,6 @@ def make_segments(texts: list[str]) -> list[dict[str, object]]:
     return segments
 
 
-def _extract_path(prompt: str, label: str) -> Path:
-    match = re.search(rf"{label}: (.+)", prompt)
-    if not match:
-        raise AssertionError(f"missing {label} in prompt: {prompt}")
-    return Path(match.group(1).strip())
-
-
 class AutoEditPiRunnerE2ETest(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_non_chunked_flow_returns_test_lines_and_optimized_subtitles(self, mock_run) -> None:
@@ -62,7 +54,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             if "delete skill" in prompt:
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
@@ -80,7 +72,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         mock_run.side_effect = fake_run
 
-        result = AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=10.0)
+        result = AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=10.0)
 
         self.assertEqual(len(result["optimized_subs"]), 3)
         self.assertTrue(result["optimized_subs"][0].content.startswith(REMOVE_TOKEN))
@@ -100,7 +92,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             if "delete skill" in prompt:
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>< Low Speech >\n"
@@ -116,7 +108,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         mock_run.side_effect = fake_run
 
-        result = AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
+        result = AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
         self.assertTrue(result["test_lines"][0]["ai_suggest_remove"])
         self.assertNotIn(REMOVE_TOKEN, result["test_lines"][0]["original_text"])
@@ -130,7 +122,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             output = (
                 "【00:00:00.000-00:00:01.000】<remove>第一句\n"
                 "【00:00:01.200-00:00:02.200】<remove>第二句\n"
@@ -141,7 +133,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         mock_run.side_effect = fake_run
 
         with self.assertRaisesRegex(RuntimeError, "All segments removed"):
-            AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
+            AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
     def test_invalid_delete_output_fails_fast_without_repair_prompt(self, mock_run) -> None:
@@ -149,14 +141,14 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         def fake_run(command, **kwargs):
             prompt = command[-1]
-            output_path = _extract_path(prompt, "输出文件")
+            output_path = extract_labeled_path(prompt, "输出文件")
             output_path.write_text("not valid output\n", encoding="utf-8")
             return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
         mock_run.side_effect = fake_run
 
         with self.assertRaisesRegex(RuntimeError, "Invalid timed line format"):
-            AutoEdit(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
+            AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
 
 if __name__ == "__main__":

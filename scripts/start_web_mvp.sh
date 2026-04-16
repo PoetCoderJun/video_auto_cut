@@ -54,18 +54,14 @@ fi
 if [[ "$DB_LOCAL_ONLY" == "1" || "$DB_LOCAL_ONLY" == "true" || "$DB_LOCAL_ONLY" == "yes" ]]; then
   SHARED_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH:-$ROOT_DIR/workdir/web_api_turso_replica.db}"
   API_REPLICA_DEFAULT="$SHARED_REPLICA_DEFAULT"
-  WORKER_REPLICA_DEFAULT="$SHARED_REPLICA_DEFAULT"
 else
   if [[ -n "${TURSO_LOCAL_REPLICA_PATH:-}" ]]; then
     API_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.api"
-    WORKER_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH}.worker"
   else
     API_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_api.db"
-    WORKER_REPLICA_DEFAULT="$ROOT_DIR/workdir/web_api_turso_replica_worker.db"
   fi
 fi
 API_TURSO_LOCAL_REPLICA_PATH="${API_TURSO_LOCAL_REPLICA_PATH:-$API_REPLICA_DEFAULT}"
-WORKER_TURSO_LOCAL_REPLICA_PATH="${WORKER_TURSO_LOCAL_REPLICA_PATH:-$WORKER_REPLICA_DEFAULT}"
 
 AUTH_ENABLED_RAW="${WEB_AUTH_ENABLED:-1}"
 AUTH_ENABLED="$(printf '%s' "$AUTH_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')"
@@ -168,7 +164,7 @@ if [[ -n "$existing_next_process" ]]; then
   exit 1
 fi
 
-existing_web_api_processes="$(ps -ax -o pid=,command= | rg 'uvicorn web_api.app:app|python -m web_api' | rg -v 'start_web_mvp.sh|rg ' || true)"
+existing_web_api_processes="$(ps -ax -o pid=,command= | rg 'uvicorn web_api.app:app' | rg -v 'start_web_mvp.sh|rg ' || true)"
 if [[ -n "$existing_web_api_processes" ]]; then
   echo "[start_web_mvp] detected existing web_api processes:"
   echo "$existing_web_api_processes"
@@ -219,7 +215,6 @@ if [[ "$MODE" == "build" ]]; then
 fi
 
 API_PID=""
-WORKER_PID=""
 FRONTEND_PID=""
 CLEANED_UP=0
 
@@ -232,7 +227,7 @@ cleanup() {
   echo ""
   echo "[start_web_mvp] stopping services ..."
 
-  for pid in "$FRONTEND_PID" "$WORKER_PID" "$API_PID"; do
+  for pid in "$FRONTEND_PID" "$API_PID"; do
     if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
       kill "$pid" >/dev/null 2>&1 || true
       sleep 0.2
@@ -247,11 +242,6 @@ echo "[start_web_mvp] starting FastAPI on $API_HOST:$API_PORT ..."
 PYTHONUNBUFFERED=1 TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH" \
   "${PYTHON_CMD[@]}" -m uvicorn web_api.app:app --host "$API_HOST" --port "$API_PORT" --log-level info --access-log &
 API_PID=$!
-
-echo "[start_web_mvp] starting worker loop ..."
-PYTHONUNBUFFERED=1 TURSO_LOCAL_REPLICA_PATH="$WORKER_TURSO_LOCAL_REPLICA_PATH" \
-  "${PYTHON_CMD[@]}" -m web_api &
-WORKER_PID=$!
 
 if [[ "$MODE" == "debug" ]]; then
   echo "[start_web_mvp] starting Next.js debug server on 127.0.0.1:$FRONTEND_PORT ..."
@@ -305,7 +295,6 @@ echo ""
 echo "[start_web_mvp] services are ready"
 echo "  Frontend: http://127.0.0.1:$FRONTEND_PORT"
 echo "  API:      http://$API_HOST:$API_PORT"
-echo "  Worker:   pid $WORKER_PID"
 echo "  Health:   http://$API_HOST:$API_PORT/healthz"
 echo ""
 echo "[start_web_mvp] logs are streaming in this terminal"
@@ -314,10 +303,6 @@ echo "[start_web_mvp] press Ctrl+C to stop all services"
 while true; do
   if ! kill -0 "$API_PID" >/dev/null 2>&1; then
     echo "[start_web_mvp] FastAPI exited unexpectedly"
-    exit 1
-  fi
-  if ! kill -0 "$WORKER_PID" >/dev/null 2>&1; then
-    echo "[start_web_mvp] worker exited unexpectedly"
     exit 1
   fi
   if ! kill -0 "$FRONTEND_PID" >/dev/null 2>&1; then

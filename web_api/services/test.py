@@ -7,22 +7,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from video_auto_cut.editing.chapter_domain import (
+    build_document_revision,
+    canonicalize_test_chapters,
+    ensure_full_block_coverage,
+    kept_test_lines,
+)
+from video_auto_cut.editing.llm_client import build_llm_config
 from video_auto_cut.asr.oss_uploader import create_oss_uploader_from_config
 from video_auto_cut.asr.transcribe_stage import run_asr_transcription_stage
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_settings
-
-# Backward-compatible alias for tests/older patch points.
-build_pipeline_options = build_pipeline_options_from_settings
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit
+from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
 from video_auto_cut.shared.test_text_io import (
     write_final_test_srt,
     write_test_json,
     write_topics_json,
-)
-from video_auto_cut.editing.chapter_domain import (
-    build_document_revision,
-    canonicalize_test_chapters,
-    kept_test_lines,
 )
 
 from ..config import ensure_job_dirs, get_settings
@@ -44,7 +44,6 @@ from ..job_file_repository import (
     update_job,
     upsert_job_files,
 )
-from .step2 import generate_test_chapters
 
 
 @dataclass(frozen=True)
@@ -53,6 +52,37 @@ class TestRunContext:
     media_path: Path
     asr_oss_key: str | None
     options: Any
+
+
+def generate_test_chapters(
+    *,
+    output_path: Path,
+    kept_lines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    options = build_pipeline_options_from_settings(get_settings())
+    llm_config = build_llm_config(
+        base_url=options.llm_base_url,
+        model=options.llm_model,
+        api_key=options.llm_api_key,
+        timeout=options.llm_timeout,
+        temperature=0.0,
+        max_tokens=options.llm_max_tokens,
+        enable_thinking=False,
+    )
+    artifacts = run_test_pi(
+        TestPiRequest(
+            task="chapter",
+            llm_config=llm_config,
+            lines=kept_lines,
+            title_max_chars=int(options.topic_title_max_chars),
+        )
+    )
+    chapters = artifacts.chapters
+    if not chapters:
+        raise RuntimeError("test flow generated empty chapter list")
+    ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
+    write_topics_json(chapters, output_path)
+    return chapters
 
 
 class TestJobStateManager:
@@ -151,7 +181,7 @@ def run_test(job_id: str) -> None:
         raise RuntimeError("test flow produced empty line list")
 
     state.sync_final_lines(lines)
-    chapters, chapters_draft_path = _generate_test_chapters_draft(context, optimized_srt_path, lines, state)
+    chapters, chapters_draft_path = _generate_test_chapters_draft(context, lines, state)
     state.sync_chapters(chapters)
     _persist_test_artifacts(
         job_id,
@@ -249,7 +279,6 @@ def _run_test_auto_edit(
 
 def _generate_test_chapters_draft(
     context: TestRunContext,
-    optimized_srt_path: Path,
     lines: list[dict[str, Any]],
     state: TestJobStateManager,
 ) -> tuple[list[dict[str, Any]], Path]:
@@ -259,7 +288,6 @@ def _generate_test_chapters_draft(
     test_dir.mkdir(parents=True, exist_ok=True)
     chapters_draft_path = test_dir / "chapters_draft.json"
     chapters = generate_test_chapters(
-        source_srt=optimized_srt_path,
         output_path=chapters_draft_path,
         kept_lines=kept_lines,
     )

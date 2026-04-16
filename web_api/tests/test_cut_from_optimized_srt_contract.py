@@ -6,6 +6,7 @@ from pathlib import Path
 
 import srt
 
+from video_auto_cut.editing.topic_segment import _load_kept_segments
 from video_auto_cut.rendering.cut import build_merged_segments, filter_kept_subtitles
 from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
 
@@ -105,6 +106,36 @@ class CutFromOptimizedSrtContractTests(unittest.TestCase):
                 {"index": 12, "start": 1.05, "end": 2.05, "text": "再补一句"},
             ],
         )
+
+    def test_topic_segment_loader_shares_same_marker_and_whitespace_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "input.optimized.srt"
+            src.write_text(
+                "\n".join(
+                    [
+                        "1",
+                        "00:00:00,000 --> 00:00:01,000",
+                        "<remove> 前一句删掉",
+                        "",
+                        "2",
+                        "00:00:01,000 --> 00:00:02,000",
+                        "  后一句保留  ",
+                        "   第二行也保留   ",
+                        "",
+                        "3",
+                        "00:00:02,000 --> 00:00:02,000",
+                        "零时长过滤",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            segments = _load_kept_segments(str(src), "utf-8")
+
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].segment_id, 2)
+        self.assertEqual(segments[0].text, "后一句保留\n第二行也保留")
 
 
 if __name__ == "__main__":

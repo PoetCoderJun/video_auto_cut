@@ -6,7 +6,6 @@ import os
 import secrets
 import string
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +15,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from web_api.db import get_conn, init_db
+from web_api.utils.persistence_helpers import now_iso
 
 
 STATUS_ACTIVE = "ACTIVE"
@@ -47,21 +47,6 @@ def load_env_file(path: Path) -> None:
         if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
             value = value[1:-1]
         os.environ[key] = value
-
-
-def _row_get(row: Any, key: str, index: int) -> Any:
-    if isinstance(row, (tuple, list)):
-        if 0 <= index < len(row):
-            return row[index]
-        return None
-    try:
-        return row[key]
-    except Exception:
-        return None
-
-
-def now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def normalize_code(raw: str) -> str:
@@ -230,25 +215,17 @@ def cmd_list(args: argparse.Namespace) -> int:
     ]
     print("\t".join(header))
     for row in rows:
-        coupon_id = _row_get(row, "coupon_id", 0)
-        code = _row_get(row, "code", 1)
-        credits = _row_get(row, "credits", 2)
-        used_count = _row_get(row, "used_count", 3)
-        expires_at = _row_get(row, "expires_at", 4)
-        status = _row_get(row, "status", 5)
-        source = _row_get(row, "source", 6)
-        created_at = _row_get(row, "created_at", 7)
         print(
             "\t".join(
                 [
-                    str(coupon_id),
-                    str(code),
-                    str(credits),
-                    str(used_count),
-                    str(status),
-                    str(source if source is not None else ""),
-                    str(expires_at if expires_at is not None else ""),
-                    str(created_at),
+                    str(row["coupon_id"]),
+                    str(row["code"]),
+                    str(row["credits"]),
+                    str(row["used_count"]),
+                    str(row["status"]),
+                    str(row["source"] if row["source"] is not None else ""),
+                    str(row["expires_at"] if row["expires_at"] is not None else ""),
+                    str(row["created_at"]),
                 ]
             )
         )

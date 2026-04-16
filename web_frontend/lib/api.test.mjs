@@ -97,3 +97,16 @@ test("expired render completion pending markers are pruned", () => {
     restoreWindow();
   }
 });
+
+test("invalid render completion storage is ignored and cleared", () => {
+  const storage = createMockStorage();
+  const restoreWindow = withMockWindowStorage(storage);
+
+  try {
+    storage.setItem(RENDER_COMPLETION_PENDING_STORAGE_KEY, "{invalid json");
+    assert.equal(getRenderCompletionPending("job-invalid"), null);
+    assert.equal(storage.getItem(RENDER_COMPLETION_PENDING_STORAGE_KEY), null);
+  } finally {
+    restoreWindow();
+  }
+});
