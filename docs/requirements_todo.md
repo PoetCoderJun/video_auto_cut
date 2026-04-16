@@ -30,6 +30,11 @@
 - `web_frontend/components/export-frame-preview.tsx` 的 `formatAspectRatio` 不是明确错误，只是展示规则尚未统一。
 
 ## In Progress
+- 2026-04-16: **浏览器端到端验证 `test_data/raw/1.MOV` 上传→Test→导出链路**（Ralph 执行中）
+  - [ ] 启动本地 Web MVP，使用浏览器真实上传 `test_data/raw/1.MOV`，记录从上传、自动 Test 到导出阶段的实际行为与报错。
+  - [ ] 若链路中断，修复阻塞问题并回归验证，直到能在浏览器端成功生成可下载导出视频并确认输出位置。
+  - [ ] 补充本次验证证据（命令、日志、导出文件路径/文件名、必要截图或错误摘要）。相关路径：`web_frontend/components/home-page-client.tsx`、`web_frontend/components/job-workspace.tsx`、`web_frontend/lib/*`、`web_api/api/routes.py`、`web_api/services/*`、`video_auto_cut/*`、`test_data/raw/1.MOV`
+
 - 2026-04-16: **B4/B2/B3/B6 执行中**（branch: `work/2026-04-16-b-batch-ralplan`）
   - [ ] **B4 收敛 DB/Repository/Task Queue 的兼容胶水与重复工具**：已完成 `repository.py` / `task_queue.py` 的时间/row helper 收口、成功作业列表扫描合并、OSS uploader factory 收口，以及 `task_queue.get_queue_db_path()` 对 DB 模式判断的复用；`db.py` 内 sqlite/libsql 私有 shim 仍暂留待后续是否继续处理。相关路径：`web_api/repository.py`、`web_api/task_queue.py`、`web_api/utils/persistence_helpers.py`、`web_api/db.py`、`web_api/services/test.py`、`web_api/services/oss_presign.py`、`video_auto_cut/asr/oss_uploader.py`、`video_auto_cut/asr/transcribe.py`
   - [ ] **B2 拉直剪辑与字幕数据模型**：按用户最新要求，全项目保留并统一到现有轻量文本契约（delete/polish 为 `【time】句子` / `【time】<remove>句子`，chapter 为 `【start-end】标题`）；不再引入额外的重 JSON/内部归一化契约，后续继续删除 `<<REMOVE>>` 旧兼容中间态，只保留 `<remove>` 这套轻量契约。相关路径：`video_auto_cut/shared/test_text_protocol.py`、`video_auto_cut/asr/transcribe_stage.py`、`web_api/utils/srt_utils.py`、`video_auto_cut/pi_agent_runner.py`
