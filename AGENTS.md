@@ -43,6 +43,7 @@
 ## Commit & Pull Request Guidelines
 - Follow Conventional Commit style when possible (`feat:`, `fix:`, `docs:`, `chore:`), optionally scoped (e.g., `feat(web): ...`).
 - Keep commits atomic; avoid mixing refactor + behavior change + generated artifacts.
+- After each completed iteration (a coherent, verified unit of work), create a commit immediately before starting the next iteration or handing off.
 - If `git push` to `git@github.com:PoetCoderJun/video_auto_cut.git` fails because SSH port 22 is blocked, push via GitHub SSH over port 443 instead:
   - `GIT_SSH_COMMAND='ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o Hostname=ssh.github.com -p 443' git push origin main`
 - PRs should include:
