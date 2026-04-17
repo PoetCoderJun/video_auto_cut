@@ -4,10 +4,20 @@ import type {RenderMeta, TestLine, WebRenderConfig} from "../../lib/api.ts";
 import {
   choosePreferredVideoDimensions,
   tryParseVideoMetadataWithMediaInfo,
-} from "../../lib/media-metadata";
-import {getRenderConfigTotalDuration} from "../../lib/remotion/utils";
-import {clamp} from "../../lib/utils";
-import {formatDuration} from "../../lib/source-video-guard";
+} from "../../lib/media-metadata.ts";
+import {getRenderConfigTotalDuration} from "../../lib/remotion/utils.ts";
+import {clamp} from "../../lib/utils.ts";
+import {formatDuration} from "../../lib/source-video-guard.ts";
+
+const PREVIEW_MAX_LONG_EDGE = 960;
+const PREVIEW_MAX_PIXEL_COUNT = 960 * 540;
+const PREVIEW_MAX_FPS = 20;
+
+function ensureEvenDimension(value: number): number {
+  const rounded = Math.max(2, Math.round(value));
+  return rounded % 2 === 0 ? rounded : rounded - 1;
+}
+
 
 export function autoResize(target: HTMLTextAreaElement) {
   target.style.height = "auto";
@@ -207,6 +217,32 @@ export async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta>
   }
 }
 
+export function buildPreviewRenderMeta(meta: RenderMeta): RenderMeta {
+  const sourceWidth = Math.max(2, Math.round(Number(meta.width) || 0));
+  const sourceHeight = Math.max(2, Math.round(Number(meta.height) || 0));
+  const sourceFps = Number.isFinite(meta.fps) && meta.fps > 0 ? meta.fps : 30;
+
+  const sourcePixels = sourceWidth * sourceHeight;
+  const longEdgeScale = PREVIEW_MAX_LONG_EDGE / Math.max(sourceWidth, sourceHeight);
+  const pixelScale = Math.sqrt(PREVIEW_MAX_PIXEL_COUNT / Math.max(1, sourcePixels));
+  const scale = Math.min(1, longEdgeScale, pixelScale);
+
+  return {
+    ...meta,
+    width: ensureEvenDimension(sourceWidth * scale),
+    height: ensureEvenDimension(sourceHeight * scale),
+    fps: Math.min(sourceFps, PREVIEW_MAX_FPS),
+  };
+}
+
+export function isPreviewRenderMetaReduced(sourceMeta: RenderMeta, previewMeta: RenderMeta): boolean {
+  return (
+    previewMeta.width < sourceMeta.width ||
+    previewMeta.height < sourceMeta.height ||
+    previewMeta.fps < sourceMeta.fps
+  );
+}
+
 export function getRandomPreviewTime(config: WebRenderConfig): number {
   const captionCandidates = config.input_props.captions
     .filter((caption) => caption.end > caption.start)
@@ -239,47 +275,19 @@ export function getRandomPreviewTime(config: WebRenderConfig): number {
   return totalDuration * (0.25 + Math.random() * 0.5);
 }
 
-export function getTestPreviewLines(
-  lines: TestLine[],
-): Array<{time: string; text: string; removed: boolean}> {
-  const visible = lines
+const TEST_PREVIEW_LINE_LIMIT = 14;
+
+export function getTestPreviewLines(lines: TestLine[]): string[] {
+  return lines
     .map((line) => {
       const removed = Boolean(line.user_final_remove);
       const text = String(line.optimized_text || line.original_text || "").trim();
       const resolvedText = text || (removed ? "<No Speech>" : "");
-      return {
-        time: formatDuration(line.start),
-        text: resolvedText,
-        removed,
-      };
-    })
-    .filter((line) => line.text.length > 0);
-
-  const previewCount: number = 14;
-  if (visible.length <= previewCount) {
-    return visible;
-  }
-
-  const lastIndex = visible.length - 1;
-  const sampledIndexes = new Set<number>();
-  for (let index = 0; index < visible.length; index += 1) {
-    if (visible[index].removed) {
-      sampledIndexes.add(index);
-      if (sampledIndexes.size >= previewCount) {
-        break;
+      if (!resolvedText) {
+        return null;
       }
-    }
-  }
-
-  for (let index = 0; index < previewCount; index += 1) {
-    const ratio = previewCount === 1 ? 0 : index / (previewCount - 1);
-    sampledIndexes.add(Math.round(ratio * lastIndex));
-    if (sampledIndexes.size >= previewCount) {
-      break;
-    }
-  }
-
-  return Array.from(sampledIndexes)
-    .sort((left, right) => left - right)
-    .map((index) => visible[index]);
+      return `【${formatDuration(line.start)}】${removed ? "<remove>" : ""}${resolvedText}`;
+    })
+    .filter((line): line is string => line !== null)
+    .slice(0, TEST_PREVIEW_LINE_LIMIT);
 }

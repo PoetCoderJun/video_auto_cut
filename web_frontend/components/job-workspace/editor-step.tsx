@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useState} from "react";
+import React, {useMemo, useState} from "react";
 
 import type {Chapter, TestLine} from "@/lib/api";
 import {Badge} from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import {formatDuration} from "@/lib/source-video-guard";
 import {cn} from "@/lib/utils";
 import {ArrowRight, GripVertical, Loader2, X} from "lucide-react";
 
+import {getTimelineChapterMarkers} from "./chapter-utils";
 import {autoResize} from "./workspace-utils";
 
 export function EditorStep({
@@ -56,6 +57,16 @@ export function EditorStep({
   } = state;
   const [draggedChapterId, setDraggedChapterId] = useState<number | null>(null);
   const [dropTargetLineId, setDropTargetLineId] = useState<number | null>(null);
+  const chapterMarkerByLineId = useMemo(
+    () =>
+      getTimelineChapterMarkers(
+        lines,
+        displayChapters,
+        keptLinePositionById,
+        chapterByStartPosition,
+      ),
+    [chapterByStartPosition, displayChapters, keptLinePositionById, lines],
+  );
 
   if (lines.length === 0) {
     return (
@@ -106,14 +117,10 @@ export function EditorStep({
             const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
             const lineTime = formatDuration(Number(line.start) || 0);
             const linePosition = keptLinePositionById.get(line.line_id);
-            const chapter = linePosition
-              ? chapterByStartPosition.get(linePosition)
-              : null;
+            const chapter = chapterMarkerByLineId.get(line.line_id) ?? null;
             const chapterIndex =
-              chapter && linePosition
-                ? displayChapters.findIndex(
-                    (item) => item.chapter_id === chapter.chapter_id,
-                  )
+              chapter
+                ? displayChapters.findIndex((item) => item.chapter_id === chapter.chapter_id)
                 : -1;
             const currentChapterLines =
               chapter && chapterIndex >= 0
@@ -129,147 +136,145 @@ export function EditorStep({
                 {dropTargetLineId === line.line_id && !isRemoved && (
                   <div className="h-1 rounded-full bg-blue-500/50 my-1" />
                 )}
-                <div className="space-y-[6px]">
-                  {chapter && (
-                    <div className="group relative flex items-center gap-2">
-                      {chapterIndex > 0 && (
-                        <div
-                          draggable={currentChapterLines.length > 0}
-                          onDragStart={(event) => {
-                            event.dataTransfer.setData(
-                              "text/plain",
-                              chapter.chapter_id.toString(),
-                            );
-                            event.dataTransfer.effectAllowed = "move";
-                            setDraggedChapterId(chapter.chapter_id);
-                          }}
-                          onDragEnd={() => {
-                            setDraggedChapterId(null);
-                            setDropTargetLineId(null);
-                          }}
-                          className={cn(
-                            "flex h-full cursor-grab select-none items-center p-1 text-slate-300 transition hover:text-slate-500 active:cursor-grabbing",
-                            draggedChapterId === chapter.chapter_id && "opacity-40",
-                          )}
-                          title="拖拽以调整章节边界"
-                        >
-                          <GripVertical className="h-4 w-4" />
-                        </div>
-                      )}
-                      <span
-                        className={cn(
-                          "text-xs font-semibold",
-                          badgeColorClass.replace("bg-", "text-"),
-                        )}
-                      >
-                        章节{chapterIndex + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={chapter.title}
-                        placeholder="章节标题"
-                        onChange={(event) =>
-                          actions.updateChapter(chapter.chapter_id, {
-                            title: event.target.value,
-                          })
-                        }
-                        className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-slate-800 outline-none placeholder:text-slate-400"
-                      />
-                      {displayChapters.length > 1 && (
-                        <button
-                          type="button"
-                          className="rounded p-1 text-slate-400 transition hover:bg-white hover:text-red-500"
-                          onClick={() => actions.removeChapter(chapter.chapter_id)}
-                          title="删除分隔符并并入相邻章节"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <div
-                    className="group relative flex items-start gap-3"
-                    onDragEnter={() => {
-                      if (isRemoved || draggedChapterId === null) return;
-                      setDropTargetLineId(line.line_id);
-                    }}
-                    onDragLeave={() => {
-                      if (draggedChapterId === null) return;
-                      setDropTargetLineId(null);
-                    }}
-                    onDragOver={(event) => {
-                      if (isRemoved || draggedChapterId === null) return;
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                    }}
-                    onDrop={(event) => {
-                      if (isRemoved) return;
-                      event.preventDefault();
-                      const draggedChapterId = parseInt(
-                        event.dataTransfer.getData("text/plain"),
-                        10,
-                      );
-                      setDraggedChapterId(null);
-                      setDropTargetLineId(null);
-                      if (Number.isNaN(draggedChapterId)) return;
-                      const linePosition = keptLinePositionById.get(line.line_id);
-                      if (!linePosition) return;
-                      actions.moveChapterBoundary(linePosition, draggedChapterId);
-                    }}
-                  >
-                    <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
-                      {lineTime}
-                    </span>
-
-                    <div className="min-w-0 flex-1">
-                      {isRemoved ? (
-                        <button
-                          type="button"
-                          className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
-                          onClick={() =>
-                            actions.updateLine(line.line_id, {
-                              user_final_remove: false,
-                            })
-                          }
-                          title="点击恢复此行"
-                        >
-                          {isNoSpeech ? "<No Speech>" : line.optimized_text}
-                        </button>
-                      ) : (
-                        <Textarea
-                          value={line.optimized_text}
-                          onChange={(event) =>
-                            actions.updateLine(line.line_id, {
-                              optimized_text: event.target.value,
-                            })
-                          }
-                          rows={1}
-                          onInput={(event) =>
-                            autoResize(event.target as HTMLTextAreaElement)
-                          }
-                          ref={(element) => {
-                            if (element) autoResize(element);
-                          }}
-                          className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-[1.7] text-[#334155] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
-                          placeholder={isNoSpeech ? "<No Speech>" : ""}
-                        />
-                      )}
-                    </div>
-                    {!isRemoved && (
+                {chapter && (
+                  <div className="group relative flex items-center gap-2">
+                    {chapterIndex > 0 && (
                       <div
-                        className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] opacity-0 transition-opacity hover:text-[#ef4444] group-hover:opacity-100"
-                        onClick={() =>
-                          actions.updateLine(line.line_id, {
-                            user_final_remove: true,
-                          })
-                        }
-                        title="剔除此行"
+                        draggable={currentChapterLines.length > 0}
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            "text/plain",
+                            chapter.chapter_id.toString(),
+                          );
+                          event.dataTransfer.effectAllowed = "move";
+                          setDraggedChapterId(chapter.chapter_id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedChapterId(null);
+                          setDropTargetLineId(null);
+                        }}
+                        className={cn(
+                          "flex h-full cursor-grab select-none items-center p-1 text-slate-300 transition hover:text-slate-500 active:cursor-grabbing",
+                          draggedChapterId === chapter.chapter_id && "opacity-40",
+                        )}
+                        title="拖拽以调整章节边界"
                       >
-                        <X className="h-4 w-4" />
+                        <GripVertical className="h-4 w-4" />
                       </div>
                     )}
+                    <span
+                      className={cn(
+                        "text-xs font-semibold",
+                        badgeColorClass.replace("bg-", "text-"),
+                      )}
+                    >
+                      章节{chapterIndex + 1}
+                    </span>
+                    <input
+                      type="text"
+                      value={chapter.title}
+                      placeholder="章节标题"
+                      onChange={(event) =>
+                        actions.updateChapter(chapter.chapter_id, {
+                          title: event.target.value,
+                        })
+                      }
+                      className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                    />
+                    {displayChapters.length > 1 && (
+                      <button
+                        type="button"
+                        className="rounded p-1 text-slate-400 transition hover:bg-white hover:text-red-500"
+                        onClick={() => actions.removeChapter(chapter.chapter_id)}
+                        title="删除分隔符并并入相邻章节"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
+                )}
+
+                <div
+                  className="group relative flex items-start gap-3"
+                  onDragEnter={() => {
+                    if (isRemoved || draggedChapterId === null) return;
+                    setDropTargetLineId(line.line_id);
+                  }}
+                  onDragLeave={() => {
+                    if (draggedChapterId === null) return;
+                    setDropTargetLineId(null);
+                  }}
+                  onDragOver={(event) => {
+                    if (isRemoved || draggedChapterId === null) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(event) => {
+                    if (isRemoved) return;
+                    event.preventDefault();
+                    const draggedChapterId = parseInt(
+                      event.dataTransfer.getData("text/plain"),
+                      10,
+                    );
+                    setDraggedChapterId(null);
+                    setDropTargetLineId(null);
+                    if (Number.isNaN(draggedChapterId)) return;
+                    const linePosition = keptLinePositionById.get(line.line_id);
+                    if (!linePosition) return;
+                    actions.moveChapterBoundary(linePosition, draggedChapterId);
+                  }}
+                >
+                  <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
+                    {lineTime}
+                  </span>
+
+                  <div className="min-w-0 flex-1">
+                    {isRemoved ? (
+                      <button
+                        type="button"
+                        className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
+                        onClick={() =>
+                          actions.updateLine(line.line_id, {
+                            user_final_remove: false,
+                          })
+                        }
+                        title="点击恢复此行"
+                      >
+                        {isNoSpeech ? "<No Speech>" : line.optimized_text}
+                      </button>
+                    ) : (
+                      <Textarea
+                        value={line.optimized_text}
+                        onChange={(event) =>
+                          actions.updateLine(line.line_id, {
+                            optimized_text: event.target.value,
+                          })
+                        }
+                        rows={1}
+                        onInput={(event) =>
+                          autoResize(event.target as HTMLTextAreaElement)
+                        }
+                        ref={(element) => {
+                          if (element) autoResize(element);
+                        }}
+                        className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-[1.7] text-[#334155] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                        placeholder={isNoSpeech ? "<No Speech>" : ""}
+                      />
+                    )}
+                  </div>
+                  {!isRemoved && (
+                    <div
+                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] opacity-0 transition-opacity hover:text-[#ef4444] group-hover:opacity-100"
+                      onClick={() =>
+                        actions.updateLine(line.line_id, {
+                          user_final_remove: true,
+                        })
+                      }
+                      title="剔除此行"
+                    >
+                      <X className="h-4 w-4" />
+                    </div>
+                  )}
                 </div>
               </React.Fragment>
             );

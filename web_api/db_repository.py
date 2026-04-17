@@ -16,6 +16,7 @@ from .constants import (
     JOB_STATUS_UPLOAD_READY,
 )
 from .db import get_conn, retry_turso_operation
+from .user_identity import ensure_business_user
 from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
@@ -55,33 +56,9 @@ def _parse_iso(value: str | None) -> datetime:
 
 @retry_turso_operation("ensure user")
 def ensure_user(user_id: str, email: str | None) -> None:
-    now = now_iso()
-    normalized_email = (email or "").strip().lower() or None
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT user_id, email, status, activated_at FROM users WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
-        if not row:
-            conn.execute(
-                """
-                INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
-                VALUES(?, ?, ?, NULL, ?, ?)
-                """,
-                (user_id, normalized_email, USER_STATUS_PENDING_COUPON, now, now),
-            )
-            conn.commit()
-            return
-
-        if normalized_email is None:
-            return
-
-        previous_email = row["email"]
-        if previous_email != normalized_email:
-            conn.execute(
-                "UPDATE users SET email = ?, updated_at = ? WHERE user_id = ?",
-                (normalized_email, now, user_id),
-            )
+        result = ensure_business_user(conn, user_id=user_id, email=email)
+        if result.changed:
             conn.commit()
 
 

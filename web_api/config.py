@@ -16,7 +16,6 @@ class Settings:
     turso_database_url: str | None
     turso_auth_token: str | None
     turso_sync_interval: float
-    max_upload_mb: int
     cleanup_enabled: bool
     cleanup_interval_seconds: float
     cleanup_ttl_seconds: int
@@ -169,7 +168,6 @@ def get_settings() -> Settings:
         turso_database_url=turso_database_url,
         turso_auth_token=turso_auth_token,
         turso_sync_interval=max(0.0, float(os.getenv("TURSO_SYNC_INTERVAL", "2.0"))),
-        max_upload_mb=int(os.getenv("MAX_UPLOAD_MB", "2048")),
         cleanup_enabled=os.getenv("WEB_CLEANUP_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         cleanup_interval_seconds=max(1.0, float(os.getenv("WEB_CLEANUP_INTERVAL_SECONDS", "300"))),
         cleanup_ttl_seconds=max(0, int(os.getenv("WEB_CLEANUP_TTL_SECONDS", "3600"))),

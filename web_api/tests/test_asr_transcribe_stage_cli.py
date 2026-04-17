@@ -13,7 +13,7 @@ from video_auto_cut.asr.transcribe_stage import main
 
 
 class AsrTranscribeStageCliTests(unittest.TestCase):
-    def test_main_writes_test_json_sidecar(self) -> None:
+    def test_main_writes_test_text_sidecar(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             media_path = Path(tmpdir) / "sample.wav"
             media_path.write_bytes(b"fake")
@@ -43,12 +43,12 @@ class AsrTranscribeStageCliTests(unittest.TestCase):
                     exit_code = main(["--input", str(media_path)])
 
             self.assertEqual(exit_code, 0)
-            test_json_path = media_path.with_suffix(".test.json").resolve()
-            payload = json.loads(test_json_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["lines"][0]["line_id"], 1)
+            test_text_path = media_path.with_suffix(".test.txt").resolve()
+            payload = test_text_path.read_text(encoding="utf-8")
+            self.assertIn("【00:00:00.000-00:00:01.000】原文", payload)
 
             cli_payload = json.loads(stdout.getvalue())
-            self.assertEqual(cli_payload["test_json_path"], str(test_json_path))
+            self.assertEqual(cli_payload["test_text_path"], str(test_text_path))
             self.assertEqual(cli_payload["line_count"], 1)
 
 

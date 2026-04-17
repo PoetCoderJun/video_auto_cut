@@ -22,9 +22,11 @@ class LegacyDbMigrationTests(unittest.TestCase):
         self._original_env = {
             "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
+            "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
         }
         os.environ["WEB_DB_LOCAL_ONLY"] = "1"
         os.environ["WORK_DIR"] = self.tmpdir.name
+        os.environ.pop("TURSO_LOCAL_REPLICA_PATH", None)
         get_settings.cache_clear()
 
     def tearDown(self) -> None:
@@ -49,9 +51,14 @@ class LegacyDbMigrationTests(unittest.TestCase):
             settings_row = conn.execute(
                 "SELECT settings_id, max_claims FROM public_invite_settings"
             ).fetchone()
+            email_indexes = {
+                row[1]
+                for row in conn.execute("PRAGMA index_list(users)").fetchall()
+            }
 
         self.assertTrue({"users", "coupon_codes", "credit_ledger", "public_invite_claims", "public_invite_settings"}.issubset(tables))
         self.assertEqual(settings_row, (1, 50))
+        self.assertIn("idx_users_email_ci_unique", email_indexes)
 
     def test_migrate_local_db_v1_to_v2_repairs_legacy_schema(self) -> None:
         db_path = get_settings().turso_local_replica_path
@@ -134,6 +141,73 @@ class LegacyDbMigrationTests(unittest.TestCase):
         )
         self.assertEqual(legacy_tables, set())
 
+    def test_migrate_local_db_v1_to_v2_merges_duplicate_business_users_to_auth_user_id(self) -> None:
+        db_path = get_settings().turso_local_replica_path
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.unlink(missing_ok=True)
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript(
+                """
+                CREATE TABLE "user" (
+                    "id" text not null primary key,
+                    "name" text not null,
+                    "email" text not null unique,
+                    "emailVerified" integer not null,
+                    "image" text,
+                    "createdAt" date not null,
+                    "updatedAt" date not null
+                );
+
+                INSERT INTO "user"("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+                VALUES('auth-user-1', 'User', 'user@example.com', 1, '2026-04-01T00:00:00Z', '2026-04-01T00:00:00Z');
+
+                CREATE TABLE users (
+                    user_id TEXT PRIMARY KEY,
+                    email TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'PENDING_INVITE',
+                    invite_activated_at TEXT,
+                    activated_at TEXT
+                );
+
+                INSERT INTO users(user_id, email, created_at, updated_at, status, activated_at)
+                VALUES
+                    ('legacy-user', 'user@example.com', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z', 'ACTIVE', '2026-03-01T00:00:00Z'),
+                    ('duplicate-user', 'USER@example.com', '2026-03-02T00:00:00Z', '2026-03-02T00:00:00Z', 'PENDING_INVITE', NULL);
+
+                CREATE TABLE credit_ledger (
+                    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT NOT NULL,
+                    delta INTEGER NOT NULL,
+                    reason TEXT NOT NULL,
+                    job_id TEXT,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
+                );
+
+                INSERT INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
+                VALUES
+                    ('legacy-user', 100, 'ADMIN_MANUAL_CREDIT', NULL, 'grant:legacy', '2026-03-03T00:00:00Z'),
+                    ('duplicate-user', -1, 'JOB_STEP1_SUCCESS', 'job-1', 'job:1', '2026-03-04T00:00:00Z');
+                """
+            )
+            conn.commit()
+
+        migrate_local_db_v1_to_v2(db_path)
+
+        with sqlite3.connect(db_path) as conn:
+            users = conn.execute(
+                "SELECT user_id, email, status, activated_at FROM users"
+            ).fetchall()
+            ledger_users = {
+                row[0]
+                for row in conn.execute("SELECT DISTINCT user_id FROM credit_ledger").fetchall()
+            }
+
+        self.assertEqual(users, [("auth-user-1", "user@example.com", "ACTIVE", "2026-03-01T00:00:00Z")])
+        self.assertEqual(ledger_users, {"auth-user-1"})
+
 
 class LegacyStep2JobMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -142,9 +216,11 @@ class LegacyStep2JobMigrationTests(unittest.TestCase):
         self._original_env = {
             "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
+            "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
         }
         os.environ["WEB_DB_LOCAL_ONLY"] = "1"
         os.environ["WORK_DIR"] = self.tmpdir.name
+        os.environ.pop("TURSO_LOCAL_REPLICA_PATH", None)
         get_settings.cache_clear()
 
     def tearDown(self) -> None:
@@ -163,26 +239,7 @@ class LegacyStep2JobMigrationTests(unittest.TestCase):
         step2_dir = job_root / "step2"
         test_dir.mkdir(parents=True, exist_ok=True)
         step2_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "lines_draft.json").write_text(
-            json.dumps(
-                {
-                    "lines": [
-                        {
-                            "line_id": 1,
-                            "start": 0.0,
-                            "end": 1.0,
-                            "original_text": "第一句",
-                            "optimized_text": "第一句",
-                            "ai_suggest_remove": False,
-                            "user_final_remove": False,
-                        }
-                    ]
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+        (test_dir / "lines_draft.txt").write_text("【00:00:00.000-00:00:01.000】第一句\n", encoding="utf-8")
         (step2_dir / "topics.json").write_text(
             json.dumps({"topics": [{"chapter_id": 1, "title": "开场", "block_range": "1"}]}, ensure_ascii=False),
             encoding="utf-8",
@@ -202,12 +259,12 @@ class LegacyStep2JobMigrationTests(unittest.TestCase):
         result = migrate_legacy_step2_jobs(Path(self.tmpdir.name) / "jobs")
 
         self.assertEqual(result.jobs_migrated, 1)
-        self.assertTrue((test_dir / "chapters_draft.json").exists())
+        self.assertTrue((test_dir / "chapters_draft.txt").exists())
         self.assertFalse((step2_dir / "topics.json").exists())
 
         files = json.loads(files_path.read_text(encoding="utf-8"))
         self.assertNotIn("topics_path", files)
-        self.assertEqual(files["chapters_draft_path"], str((test_dir / "chapters_draft.json").resolve()))
+        self.assertEqual(files["chapters_draft_path"], str((test_dir / "chapters_draft.txt").resolve()))
 
         job = get_job(job_id, owner_user_id="user-1")
         self.assertIsNotNone(job)

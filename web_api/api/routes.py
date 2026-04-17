@@ -4,8 +4,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, Request, UploadFile
-from fastapi.concurrency import run_in_threadpool
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 from ..constants import (
     JOB_STATUS_CREATED,
@@ -26,6 +25,7 @@ from ..errors import (
     invalid_step_state,
     invite_claim_exhausted,
     invite_claim_failed,
+    service_unavailable,
 )
 from ..job_file_repository import (
     create_job,
@@ -60,7 +60,6 @@ from ..services.jobs import (
     mark_audio_oss_ready,
     queue_test_run,
     require_status,
-    save_uploaded_audio,
 )
 from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.test_runner import run_test_job_background
@@ -253,7 +252,6 @@ def get_job_endpoint(
 @router.post("/jobs/{job_id}/oss-upload-url")
 def get_oss_upload_url(
     job_id: str,
-    format: str | None = Query(default="mp3", description="mp3 or wav"),
     current_user: CurrentUser = Depends(require_current_user),
 ) -> dict[str, Any]:
     try:
@@ -262,7 +260,6 @@ def get_oss_upload_url(
         raise _translate_account_error(exc) from exc
     job = load_job_or_404(job_id, current_user.user_id)
     require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
-    suffix = ".mp3" if (format or "").strip().lower() == "mp3" else ".wav"
     settings = get_settings()
 
     oss_ready = bool(
@@ -272,11 +269,12 @@ def get_oss_upload_url(
         and settings.asr_oss_access_key_secret
     )
     if not oss_ready:
-        raise HTTPException(
-            status_code=503,
-            detail="Direct OSS upload unavailable. Audio will be uploaded via API instead.",
-        )
-    put_url, object_key = get_presigned_put_url_for_job(job_id, suffix=suffix)
+        raise service_unavailable("上传服务暂未配置，请稍后再试。")
+    put_url, object_key = get_presigned_put_url_for_job(
+        job_id,
+        suffix=".mp3",
+        content_type="audio/mpeg",
+    )
     upsert_job_files(job_id, pending_asr_oss_key=object_key)
     return _ok({"put_url": put_url, "object_key": object_key})
 
@@ -302,31 +300,6 @@ def audio_oss_ready(
         request.object_key,
     )
     return _ok({"job": job, "upload": result})
-
-
-@router.post("/jobs/{job_id}/audio")
-async def upload_job_audio(
-    job_id: str,
-    file: UploadFile = File(...),
-    current_user: CurrentUser = Depends(require_current_user),
-) -> dict[str, Any]:
-    try:
-        ensure_active_user(current_user.user_id, current_user.email)
-    except AccountServiceError as exc:
-        raise _translate_account_error(exc) from exc
-    job = load_job_or_404(job_id, current_user.user_id)
-    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
-    upload = await run_in_threadpool(save_uploaded_audio, job_id, file)
-    job = load_job_or_404(job_id, current_user.user_id)
-    logging.info(
-        "[web_api] route=upload_audio user=%s job=%s filename=%s bytes=%s",
-        current_user.user_id,
-        job_id,
-        upload.get("filename"),
-        upload.get("size_bytes"),
-    )
-    return _ok({"job": job, "upload": upload})
-
 
 @router.post("/jobs/{job_id}/test/run")
 def test_run(

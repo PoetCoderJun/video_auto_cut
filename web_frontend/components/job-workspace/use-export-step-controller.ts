@@ -56,9 +56,11 @@ import {
 } from "./constants";
 import {useRenderSourceCompatibility} from "./use-render-source-compatibility";
 import {
+  buildPreviewRenderMeta,
   clampPercent,
   getFriendlyError,
   getRandomPreviewTime,
+  isPreviewRenderMetaReduced,
   resolveRenderMetaFromFile,
   triggerFileDownload,
   withTimeout,
@@ -81,6 +83,12 @@ export function useExportStepController({
   setJob: Dispatch<SetStateAction<Job | null>>;
   setSelectedFile: Dispatch<SetStateAction<File | null>>;
 }) {
+  const [renderPreviewProfile, setRenderPreviewProfile] = useState<{
+    width: number;
+    height: number;
+    fps: number;
+    isReduced: boolean;
+  } | null>(null);
   const [renderNote, setRenderNote] = useState("");
   const [renderCompletionMarkerMessage, setRenderCompletionMarkerMessage] =
     useState("");
@@ -161,12 +169,20 @@ export function useExportStepController({
           10000,
           "读取本地视频元数据超时，请刷新页面后重试。",
         );
-        const config = await loadRenderConfigWithMeta(sourceFile, meta, {
+        const previewMeta = buildPreviewRenderMeta(meta);
+        setRenderPreviewProfile({
+          width: previewMeta.width,
+          height: previewMeta.height,
+          fps: previewMeta.fps,
+          isReduced: isPreviewRenderMetaReduced(meta, previewMeta),
+        });
+        const config = await loadRenderConfigWithMeta(sourceFile, previewMeta, {
           timeoutMs: {config: 15000},
         });
         return applyRenderPreviewConfig(config);
       } catch (err) {
         setRenderConfig(null);
+        setRenderPreviewProfile(null);
         setRenderSetupError(
           err instanceof Error ? err.message : "导出预览初始化失败，请重试。",
         );
@@ -191,6 +207,7 @@ export function useExportStepController({
       return await prepareRenderPreviewForFile(sourceFile);
     } catch (err) {
       setRenderConfig(null);
+      setRenderPreviewProfile(null);
       setRenderSetupError(
         err instanceof Error ? err.message : "导出预览初始化失败，请重试。",
       );
@@ -210,6 +227,7 @@ export function useExportStepController({
     setRenderBusy(false);
     setRenderProgress(0);
     setRenderConfig(null);
+    setRenderPreviewProfile(null);
     setRenderConfigBusy(false);
     setRenderSetupError("");
     setRenderCompletionMarkerMessage("");
@@ -380,7 +398,6 @@ export function useExportStepController({
       const sourceFile = initialSourceFile;
       const sourceMeta = await resolveRenderMetaFromFile(sourceFile);
       const config = await loadRenderConfigWithMeta(sourceFile, sourceMeta);
-      applyRenderPreviewConfig(config);
 
       sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
@@ -561,7 +578,6 @@ export function useExportStepController({
       setRenderBusy(false);
     }
   }, [
-    applyRenderPreviewConfig,
     jobId,
     loadRenderConfigWithMeta,
     loadRenderSourceFile,
@@ -604,6 +620,7 @@ export function useExportStepController({
       renderDownloadUrl,
       renderFileName,
       renderNote,
+      renderPreviewProfile,
       renderPrimaryButtonLabel,
       renderProgress,
       renderSetupError,

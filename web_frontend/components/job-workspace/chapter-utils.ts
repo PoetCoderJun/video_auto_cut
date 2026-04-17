@@ -99,6 +99,35 @@ export function getChapterLinesFromRange(
   return keptLines.slice(parsed.start - 1, parsed.end);
 }
 
+export function getTimelineChapterMarkers(
+  lines: TestLine[],
+  displayChapters: Chapter[],
+  keptLinePositionById: Map<number, number>,
+  chapterByStartPosition: Map<number, Chapter>,
+): Map<number, Chapter> {
+  const markers = new Map<number, Chapter>();
+  if (lines.length === 0 || displayChapters.length === 0) {
+    return markers;
+  }
+
+  const firstChapter = displayChapters[0];
+  markers.set(lines[0].line_id, firstChapter);
+
+  lines.forEach((line) => {
+    const position = keptLinePositionById.get(line.line_id);
+    if (!position) {
+      return;
+    }
+    const chapter = chapterByStartPosition.get(position);
+    if (!chapter || chapter.chapter_id === firstChapter.chapter_id) {
+      return;
+    }
+    markers.set(line.line_id, chapter);
+  });
+
+  return markers;
+}
+
 function findChapterIndexByPosition(
   chapters: Chapter[],
   position: number,

@@ -123,7 +123,6 @@
 | `/jobs/{job_id}` | `GET` | 登录 | 查询任务状态 |
 | `/jobs/{job_id}/oss-upload-url` | `POST` | 登录 | 获取音频直传 OSS 的 PUT URL |
 | `/jobs/{job_id}/audio-oss-ready` | `POST` | 登录 | 告知后端 OSS 直传已完成 |
-| `/jobs/{job_id}/audio` | `POST` | 登录 | 通过 API 直接上传音频 |
 | `/jobs/{job_id}/test/run` | `POST` | 登录 | 启动 Test 任务 |
 | `/jobs/{job_id}/test` | `GET` | 登录 | 读取当前 Test 文档 |
 | `/jobs/{job_id}/test/confirm` | `PUT` | 登录 | 提交最终字幕与章节并确认 |
@@ -200,27 +199,21 @@
 ```json
 {
   "put_url": "https://...",
-  "object_key": "video-auto-cut/asr/job_xxx/audio.wav"
+  "object_key": "video-auto-cut/asr/job_xxx/audio.mp3"
 }
 ```
 
-如果当前部署未配置 OSS 直传能力，会返回 503，并提示改走 `/jobs/{job_id}/audio`。
+前端对 `put_url` 发起 `PUT` 时，`Content-Type` 必须与签名时一致，当前固定为 `audio/mpeg`。
+如果当前部署未配置 OSS 直传能力，会返回 503。
 
 #### `POST /jobs/{job_id}/audio-oss-ready`
 请求：
 
 ```json
-{ "object_key": "video-auto-cut/asr/job_xxx/audio.wav" }
+{ "object_key": "video-auto-cut/asr/job_xxx/audio.mp3" }
 ```
 
 用于在前端完成 OSS PUT 后，让后端绑定该 object key 到任务。
-
-#### `POST /jobs/{job_id}/audio`
-`multipart/form-data`，字段：`file`
-
-作为 OSS 直传不可用时的 API 上传兜底路径。
-
-上传成功后，任务会进入 `UPLOAD_READY`。
 
 ### 6.4 Test 单流程
 
@@ -294,7 +287,7 @@
 ## 7. 当前推荐时序
 
 1. `POST /jobs`
-2. 上传音频：优先 `POST /jobs/{job_id}/oss-upload-url` + OSS PUT + `POST /jobs/{job_id}/audio-oss-ready`；否则走 `POST /jobs/{job_id}/audio`
+2. 上传音频：`POST /jobs/{job_id}/oss-upload-url` + OSS PUT（`Content-Type: audio/mpeg`）+ `POST /jobs/{job_id}/audio-oss-ready`
 3. `POST /jobs/{job_id}/test/run`
 4. 轮询 `GET /jobs/{job_id}`
 5. `GET /jobs/{job_id}/test`，编辑后 `PUT /jobs/{job_id}/test/confirm`

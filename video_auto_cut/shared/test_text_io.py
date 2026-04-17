@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 from pathlib import Path
 from typing import Any
 
@@ -81,19 +80,7 @@ def build_test_lines_from_text(source_text: Path) -> list[dict[str, Any]]:
     return lines
 
 
-def build_test_lines_from_json(source_json: Path) -> list[dict[str, Any]]:
-    payload = json.loads(source_json.read_text(encoding="utf-8"))
-    lines = payload.get("lines") if isinstance(payload, dict) else payload
-    if not isinstance(lines, list):
-        raise RuntimeError(f"invalid test lines payload: {source_json}")
-    normalized = [dict(line) for line in lines if isinstance(line, dict)]
-    normalized.sort(key=lambda item: int(item["line_id"]))
-    return normalized
-
-
 def load_test_lines(source_path: Path) -> list[dict[str, Any]]:
-    if source_path.suffix.lower() == ".json":
-        return build_test_lines_from_json(source_path)
     return build_test_lines_from_text(source_path)
 
 
@@ -130,24 +117,9 @@ def build_test_chapters_from_text(source_text: Path, *, kept_lines: list[dict[st
     return canonicalize_test_chapters(chapters, kept_lines)
 
 
-def build_test_chapters_from_json(
-    source_json: Path, *, kept_lines: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    from video_auto_cut.editing.chapter_domain import canonicalize_test_chapters
-
-    payload = json.loads(source_json.read_text(encoding="utf-8"))
-    chapters = payload.get("topics") if isinstance(payload, dict) else payload
-    if not isinstance(chapters, list):
-        raise RuntimeError(f"invalid chapter payload: {source_json}")
-    normalized = [dict(chapter) for chapter in chapters if isinstance(chapter, dict)]
-    return canonicalize_test_chapters(normalized, kept_lines)
-
-
 def load_test_chapters(
     source_path: Path, *, kept_lines: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    if source_path.suffix.lower() == ".json":
-        return build_test_chapters_from_json(source_path, kept_lines=kept_lines)
     return build_test_chapters_from_text(source_path, kept_lines=kept_lines)
 
 
@@ -172,16 +144,6 @@ def write_final_test_srt(lines: list[dict[str, Any]], output_path: Path, encodin
             )
         )
     output_path.write_text(srt.compose(subtitles, reindex=False), encoding=encoding)
-
-
-def write_test_json(lines: list[dict[str, Any]], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps({"lines": lines}, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def write_topics_json(chapters: list[dict[str, Any]], output_path: Path) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps({"topics": chapters}, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_chapters_text(chapters: list[dict[str, Any]], output_path: Path) -> None:

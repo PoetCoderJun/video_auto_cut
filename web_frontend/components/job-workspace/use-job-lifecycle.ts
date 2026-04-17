@@ -15,7 +15,11 @@ import {
   isUnsupportedMobileUploadDevice,
 } from "../../lib/device";
 import {mergeJobSnapshot, shouldPollJobStatus} from "../../lib/job-status";
-import {getFriendlyUploadErrorMessage} from "../../lib/upload-error";
+import {
+  getFriendlyUploadErrorMessage,
+  getUploadIssueErrorMessage,
+  getUploadIssueErrorName,
+} from "../../lib/upload-error";
 import {
   getVideoDurationLimitMessage,
   MAX_VIDEO_DURATION_SEC,
@@ -235,8 +239,8 @@ export function useJobLifecycle({
           file_name: file.name,
           file_type: file.type,
           file_size_bytes: file.size,
-          error_name: err instanceof Error ? err.name : typeof err,
-          error_message: err instanceof Error ? err.message : String(err ?? ""),
+          error_name: getUploadIssueErrorName(err),
+          error_message: getUploadIssueErrorMessage(err),
           friendly_message: friendlyMessage,
           user_agent:
             typeof navigator !== "undefined" ? navigator.userAgent : "",

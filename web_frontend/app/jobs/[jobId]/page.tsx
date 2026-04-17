@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ACTIVE_JOB_ID_KEY } from "@/lib/session";
 import { Loader2 } from "lucide-react";
@@ -8,18 +8,19 @@ import { Loader2 } from "lucide-react";
 export default function LegacyJobRoutePage({
   params,
 }: {
-  params: { jobId: string };
+  params: Promise<{ jobId: string }>;
 }) {
   const router = useRouter();
+  const { jobId } = use(params);
 
   useEffect(() => {
     try {
-      localStorage.setItem(ACTIVE_JOB_ID_KEY, params.jobId);
+      localStorage.setItem(ACTIVE_JOB_ID_KEY, jobId);
     } catch {
       // Ignore storage failures and still redirect to root.
     }
     router.replace("/");
-  }, [params.jobId, router]);
+  }, [jobId, router]);
 
   return (
     <main className="flex h-screen flex-col items-center justify-center gap-4">

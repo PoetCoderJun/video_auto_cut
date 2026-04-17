@@ -21,6 +21,9 @@ _AUTH_BEARER = HTTPBearer(auto_error=False)
 _JWKS_LOCK = threading.Lock()
 _JWKS_CACHE_BY_KID: dict[str, dict[str, Any]] = {}
 _JWKS_CACHE_EXPIRES_AT = 0.0
+_JWKS_CACHE_TTL_SECONDS = 300
+_JWKS_STALE_CACHE_RETRY_SECONDS = 30
+_JWKS_FETCH_TIMEOUT_SECONDS = 15
 
 
 @dataclass(frozen=True)
@@ -129,21 +132,30 @@ def _get_jwk_by_kid(jwks_url: str, kid: str) -> dict[str, Any] | None:
     now = time.time()
     with _JWKS_LOCK:
         global _JWKS_CACHE_EXPIRES_AT
+        cached = _JWKS_CACHE_BY_KID.get(kid)
         if now >= _JWKS_CACHE_EXPIRES_AT:
-            refreshed = _fetch_jwks(jwks_url)
-            _JWKS_CACHE_BY_KID.clear()
-            _JWKS_CACHE_BY_KID.update(refreshed)
-            _JWKS_CACHE_EXPIRES_AT = now + 300
+            try:
+                _replace_jwks_cache(_fetch_jwks(jwks_url), now=now)
+            except Exception:
+                if cached is None and not _JWKS_CACHE_BY_KID:
+                    raise
+                logging.warning("[auth] JWKS refresh failed, reusing stale cache")
+                _JWKS_CACHE_EXPIRES_AT = now + _JWKS_STALE_CACHE_RETRY_SECONDS
+                return cached
         cached = _JWKS_CACHE_BY_KID.get(kid)
         if cached is not None:
             return cached
 
         # Refresh once immediately on kid miss so key rotation doesn't fail until TTL expiry.
-        refreshed = _fetch_jwks(jwks_url)
-        _JWKS_CACHE_BY_KID.clear()
-        _JWKS_CACHE_BY_KID.update(refreshed)
-        _JWKS_CACHE_EXPIRES_AT = time.time() + 300
+        _replace_jwks_cache(_fetch_jwks(jwks_url))
         return _JWKS_CACHE_BY_KID.get(kid)
+
+
+def _replace_jwks_cache(refreshed: dict[str, dict[str, Any]], now: float | None = None) -> None:
+    global _JWKS_CACHE_EXPIRES_AT
+    _JWKS_CACHE_BY_KID.clear()
+    _JWKS_CACHE_BY_KID.update(refreshed)
+    _JWKS_CACHE_EXPIRES_AT = (time.time() if now is None else now) + _JWKS_CACHE_TTL_SECONDS
 
 
 def _fetch_jwks(jwks_url: str) -> dict[str, dict[str, Any]]:
@@ -151,7 +163,7 @@ def _fetch_jwks(jwks_url: str) -> dict[str, dict[str, Any]]:
     req.add_header("User-Agent", "VideoAutoCut-API/1.0")
     req.add_header("Accept", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=_JWKS_FETCH_TIMEOUT_SECONDS) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         raise unauthorized(f"无法连接登录服务（JWKS）：{exc}") from exc

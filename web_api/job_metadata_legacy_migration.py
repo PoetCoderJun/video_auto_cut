@@ -11,6 +11,7 @@ from .constants import (
     JOB_STATUS_TEST_READY,
     JOB_STATUS_TEST_RUNNING,
 )
+from video_auto_cut.shared.test_text_io import write_chapters_text
 @dataclass(frozen=True)
 class LegacyStep2MigrationResult:
     jobs_scanned: int
@@ -40,6 +41,23 @@ def _move_if_missing(source: Path, target: Path) -> bool:
         source.unlink(missing_ok=True)
         return False
     shutil.move(str(source), str(target))
+    return True
+
+
+def _convert_topics_json_to_text(source: Path, target: Path) -> bool:
+    if not source.exists():
+        return False
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        source.unlink(missing_ok=True)
+        return False
+    payload = _read_json(source)
+    topics = payload.get("topics") if isinstance(payload, dict) else None
+    if not isinstance(topics, list):
+        raise RuntimeError(f"invalid topics payload: {source}")
+    normalized = [dict(topic) for topic in topics if isinstance(topic, dict)]
+    write_chapters_text(normalized, target)
+    source.unlink(missing_ok=True)
     return True
 
 
@@ -75,8 +93,8 @@ def migrate_legacy_step2_jobs(jobs_root: Path) -> LegacyStep2MigrationResult:
 
         moved = False
         test_dir.mkdir(parents=True, exist_ok=True)
-        moved |= _move_if_missing(step2_dir / "topics.json", test_dir / "chapters_draft.json")
-        moved |= _move_if_missing(step2_dir / "final_topics.json", test_dir / "final_chapters.json")
+        moved |= _convert_topics_json_to_text(step2_dir / "topics.json", test_dir / "chapters_draft.txt")
+        moved |= _convert_topics_json_to_text(step2_dir / "final_topics.json", test_dir / "final_chapters.txt")
         if (step2_dir / ".confirmed").exists():
             test_dir.mkdir(parents=True, exist_ok=True)
             (test_dir / ".confirmed").touch()
@@ -84,13 +102,13 @@ def migrate_legacy_step2_jobs(jobs_root: Path) -> LegacyStep2MigrationResult:
             moved = True
 
         if "topics_path" in files and "chapters_draft_path" not in files:
-            files["chapters_draft_path"] = str(test_dir / "chapters_draft.json")
+            files["chapters_draft_path"] = str(test_dir / "chapters_draft.txt")
             files.pop("topics_path", None)
             moved = True
         else:
             files.pop("topics_path", None)
         if "final_topics_path" in files and "final_chapters_path" not in files:
-            files["final_chapters_path"] = str(test_dir / "final_chapters.json")
+            files["final_chapters_path"] = str(test_dir / "final_chapters.txt")
             files.pop("final_topics_path", None)
             moved = True
         else:
@@ -98,11 +116,11 @@ def migrate_legacy_step2_jobs(jobs_root: Path) -> LegacyStep2MigrationResult:
 
         has_confirmed_output = (
             (test_dir / ".confirmed").exists()
-            or (test_dir / "final_chapters.json").exists()
+            or (test_dir / "final_chapters.txt").exists()
             or (step2_dir / "final_topics.json").exists()
         )
         has_chapter_draft = (
-            (test_dir / "chapters_draft.json").exists()
+            (test_dir / "chapters_draft.txt").exists()
             or (step2_dir / "topics.json").exists()
         )
         target_status = _target_status(

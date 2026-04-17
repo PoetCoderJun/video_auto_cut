@@ -61,6 +61,32 @@ class AsrEnvNamesTest(unittest.TestCase):
         self.assertTrue(settings.asr_dashscope_enable_words)
         self.assertTrue(settings.asr_dashscope_word_split_enabled)
 
+    def test_legacy_asr_oss_env_names_no_longer_override_oss_settings(self) -> None:
+        overrides = {
+            "OSS_ENDPOINT": "",
+            "OSS_BUCKET": "",
+            "OSS_ACCESS_KEY_ID": "",
+            "OSS_ACCESS_KEY_SECRET": "",
+            "OSS_PREFIX": "",
+            "OSS_SIGNED_URL_TTL_SECONDS": "",
+            "ASR_OSS_ENDPOINT": "https://legacy-oss.example.invalid",
+            "ASR_OSS_BUCKET": "legacy-bucket",
+            "ASR_OSS_ACCESS_KEY_ID": "legacy-ak",
+            "ASR_OSS_ACCESS_KEY_SECRET": "legacy-sk",
+            "ASR_OSS_PREFIX": "legacy/prefix",
+            "ASR_OSS_SIGNED_URL_TTL_SECONDS": "1200",
+        }
+        with patch.dict(os.environ, overrides, clear=False):
+            get_settings.cache_clear()
+            settings = get_settings()
+
+        self.assertIsNone(settings.asr_oss_endpoint)
+        self.assertIsNone(settings.asr_oss_bucket)
+        self.assertIsNone(settings.asr_oss_access_key_id)
+        self.assertIsNone(settings.asr_oss_access_key_secret)
+        self.assertEqual(settings.asr_oss_prefix, "video-auto-cut/asr")
+        self.assertEqual(settings.asr_oss_signed_url_ttl_seconds, 86400)
+
     def test_core_env_builder_matches_new_asr_env_shape(self) -> None:
         overrides = {
             "DASHSCOPE_ASR_BASE_URL": "https://dashscope.aliyuncs.com",
@@ -84,12 +110,12 @@ class AsrEnvNamesTest(unittest.TestCase):
 
     def test_settings_and_pipeline_builder_share_same_env_parsing(self) -> None:
         overrides = {
-            "ASR_OSS_ENDPOINT": "https://oss-cn-test.aliyuncs.com",
-            "ASR_OSS_BUCKET": "bucket-a",
-            "ASR_OSS_ACCESS_KEY_ID": "ak",
-            "ASR_OSS_ACCESS_KEY_SECRET": "sk",
-            "ASR_OSS_PREFIX": "jobs/asr",
-            "ASR_OSS_SIGNED_URL_TTL_SECONDS": "1200",
+            "OSS_ENDPOINT": "https://oss-cn-test.aliyuncs.com",
+            "OSS_BUCKET": "bucket-a",
+            "OSS_ACCESS_KEY_ID": "ak",
+            "OSS_ACCESS_KEY_SECRET": "sk",
+            "OSS_PREFIX": "jobs/asr",
+            "OSS_SIGNED_URL_TTL_SECONDS": "1200",
             "LLM_MODEL": "kimi-k2.5",
             "LLM_MAX_TOKENS": "4096",
             "AUTO_EDIT_LLM_CONCURRENCY": "7",

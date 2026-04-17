@@ -93,11 +93,11 @@ def _has_ready_test_drafts(job_id: str) -> bool:
         return False
 
     draft_candidates = (
-        test_dir / "chapters_draft.json",
-        test_dir / "final_chapters.json",
+        test_dir / "chapters_draft.txt",
+        test_dir / "final_chapters.txt",
     )
     if any(path.exists() for path in draft_candidates):
-        return bool(list_test_chapters(job_id) or (test_dir / "chapters_draft.json").exists())
+        return bool(list_test_chapters(job_id) or (test_dir / "chapters_draft.txt").exists())
     return False
 
 

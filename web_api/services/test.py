@@ -21,8 +21,8 @@ from video_auto_cut.orchestration.pipeline_service import run_auto_edit
 from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
 from video_auto_cut.shared.test_text_io import (
     write_final_test_srt,
-    write_test_json,
-    write_topics_json,
+    write_chapters_text,
+    write_test_text,
 )
 
 from ..config import ensure_job_dirs, get_settings
@@ -81,7 +81,7 @@ def generate_test_chapters(
     if not chapters:
         raise RuntimeError("test flow generated empty chapter list")
     ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
-    write_topics_json(chapters, output_path)
+    write_chapters_text(chapters, output_path)
     return chapters
 
 
@@ -222,7 +222,7 @@ def _resolve_test_media_path(
     asr_oss_key: str | None,
 ) -> Path:
     if asr_oss_key:
-        media_path = dirs["input"] / "audio.wav"
+        media_path = dirs["input"] / "audio.mp3"
         logging.info(
             "[web_api] test inputs job=%s asr_oss_key=%s (direct OSS, skip upload)",
             job_id,
@@ -286,7 +286,7 @@ def _generate_test_chapters_draft(
     kept_lines = kept_test_lines(lines)
     test_dir = context.dirs["base"] / "test"
     test_dir.mkdir(parents=True, exist_ok=True)
-    chapters_draft_path = test_dir / "chapters_draft.json"
+    chapters_draft_path = test_dir / "chapters_draft.txt"
     chapters = generate_test_chapters(
         output_path=chapters_draft_path,
         kept_lines=kept_lines,
@@ -414,11 +414,11 @@ def confirm_test(
         normalized_chapters = canonicalize_test_chapters(chapters, kept_lines)
 
         final_test_srt = test_dir / "final_test.srt"
-        final_test_text = test_dir / "final_test.json"
-        final_chapters = test_dir / "final_chapters.json"
+        final_test_text = test_dir / "final_test.txt"
+        final_chapters = test_dir / "final_chapters.txt"
         write_final_test_srt(lines, final_test_srt, DEFAULT_ENCODING)
-        write_test_json(lines, final_test_text)
-        write_topics_json(normalized_chapters, final_chapters)
+        write_test_text(lines, final_test_text)
+        write_chapters_text(normalized_chapters, final_chapters)
 
         upsert_job_files(
             job_id,

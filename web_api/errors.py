@@ -55,3 +55,7 @@ def invite_claim_failed(message: str) -> ApiError:
 
 def invite_claim_exhausted(message: str) -> ApiError:
     return ApiError(code="INVITE_CLAIM_EXHAUSTED", message=message, status_code=409)
+
+
+def service_unavailable(message: str) -> ApiError:
+    return ApiError(code="SERVICE_UNAVAILABLE", message=message, status_code=503)

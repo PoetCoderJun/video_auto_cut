@@ -72,7 +72,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
                 )
                 conn.commit()
 
-            upsert_job_files(job_id, asr_oss_key=f"video-auto-cut/asr/{job_id}/audio.wav")
+            upsert_job_files(job_id, asr_oss_key=f"video-auto-cut/asr/{job_id}/audio.mp3")
             update_job(job_id, status="UPLOAD_READY", progress=20)
 
             response = client.post(f"/api/v1/jobs/{job_id}/test/run")
@@ -94,7 +94,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
     def test_startup_recovers_interrupted_test_run_to_upload_ready(self) -> None:
         job_id = "job_interrupted_test"
         create_job(job_id, "CREATED", "dev_local_user")
-        upsert_job_files(job_id, asr_oss_key=f"video-auto-cut/asr/{job_id}/audio.wav")
+        upsert_job_files(job_id, asr_oss_key=f"video-auto-cut/asr/{job_id}/audio.mp3")
         update_job(
             job_id,
             status="TEST_RUNNING",

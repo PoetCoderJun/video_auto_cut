@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,11 +21,6 @@ class ASRTranscriptionArtifacts:
 
 def write_test_lines_text(lines: list[dict[str, Any]], output_path: Path) -> None:
     write_test_text(lines, output_path)
-
-
-def write_test_lines_json(lines: list[dict[str, Any]], output_path: Path, *, encoding: str = "utf-8") -> None:
-    payload = {"lines": lines}
-    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding=encoding)
 
 
 def run_asr_transcription_stage(
@@ -75,14 +69,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--lang", default=None, help="ASR language override")
     parser.add_argument("--prompt", default="", help="Optional ASR context / hint text")
     parser.add_argument(
-        "--test-json-path",
+        "--test-text-path",
         default="",
-        help="Optional output path for Test lines JSON (default: <input>.test.json)",
+        help="Optional output path for Test lines text (default: <input>.test.txt)",
     )
     parser.add_argument(
-        "--skip-test-json",
+        "--skip-test-text",
         action="store_true",
-        help="Only emit SRT and skip the Test lines JSON sidecar",
+        help="Only emit SRT and skip the Test lines text sidecar",
     )
     parser.add_argument(
         "--force",
@@ -107,19 +101,20 @@ def main(argv: list[str] | None = None) -> int:
         options,
         oss_object_key=str(args.oss_object_key or "").strip() or None,
     )
-    test_json_path: Path | None = None
-    if not bool(args.skip_test_json):
-        test_json_path = (
-            Path(args.test_json_path).expanduser().resolve()
-            if str(args.test_json_path or "").strip()
-            else media_path.with_suffix(".test.json")
+    test_text_path: Path | None = None
+    if not bool(args.skip_test_text):
+        test_text_path = (
+            Path(args.test_text_path).expanduser().resolve()
+            if str(args.test_text_path or "").strip()
+            else media_path.with_suffix(".test.txt")
         )
-        write_test_lines_json(artifacts.test_lines, test_json_path, encoding=options.encoding)
+        write_test_lines_text(artifacts.test_lines, test_text_path)
 
+    import json
     payload = {
         "media_path": str(artifacts.media_path),
         "srt_path": str(artifacts.srt_path),
-        "test_json_path": str(test_json_path) if test_json_path is not None else None,
+        "test_text_path": str(test_text_path) if test_text_path is not None else None,
         "line_count": len(artifacts.test_lines),
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

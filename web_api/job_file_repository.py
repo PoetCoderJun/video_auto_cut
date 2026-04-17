@@ -22,8 +22,8 @@ from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch
 from video_auto_cut.shared.test_text_io import (
     load_test_chapters,
     load_test_lines,
-    write_test_json,
-    write_topics_json,
+    write_chapters_text,
+    write_test_text,
 )
 
 USER_STATUS_PENDING_COUPON = "PENDING_COUPON"
@@ -80,19 +80,19 @@ def _render_succeeded_path(job_id: str) -> Path:
 
 
 def _test_lines_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "lines_draft.json"
+    return job_dir(job_id) / "test" / "lines_draft.txt"
 
 
 def _test_chapters_draft_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "chapters_draft.json"
+    return job_dir(job_id) / "test" / "chapters_draft.txt"
 
 
 def _test_final_lines_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "final_test.json"
+    return job_dir(job_id) / "test" / "final_test.txt"
 
 
 def _test_final_chapters_path(job_id: str) -> Path:
-    return job_dir(job_id) / "test" / "final_chapters.json"
+    return job_dir(job_id) / "test" / "final_chapters.txt"
 
 
 def _existing_test_lines_path(job_id: str, *, final: bool) -> Path:
@@ -410,6 +410,35 @@ def get_job_owner_user_id(job_id: str) -> str | None:
     return owner_user_id or None
 
 
+def reassign_job_owner_user_ids(source_user_ids: tuple[str, ...] | list[str] | set[str], target_user_id: str) -> int:
+    target = str(target_user_id or "").strip()
+    aliases = {
+        str(user_id or "").strip()
+        for user_id in source_user_ids
+        if str(user_id or "").strip() and str(user_id or "").strip() != target
+    }
+    if not aliases:
+        return 0
+
+    jobs_root = get_settings().work_dir / "jobs"
+    if not jobs_root.exists():
+        return 0
+
+    updated_jobs = 0
+    for meta_path in jobs_root.glob("*/job.meta.json"):
+        meta = _read_json(meta_path)
+        if not isinstance(meta, dict):
+            continue
+        owner_user_id = str(meta.get("owner_user_id") or "").strip()
+        if owner_user_id not in aliases:
+            continue
+        meta["owner_user_id"] = target
+        meta["updated_at"] = now_iso()
+        _write_json(meta_path, meta)
+        updated_jobs += 1
+    return updated_jobs
+
+
 def update_job(
     job_id: str,
     *,
@@ -592,7 +621,7 @@ def list_jobs_by_status(status: str) -> list[str]:
 
 
 def replace_test_lines(job_id: str, lines: list[dict[str, Any]]) -> None:
-    write_test_json(lines, _test_lines_draft_path(job_id))
+    write_test_text(lines, _test_lines_draft_path(job_id))
 
 
 def list_test_lines(job_id: str) -> list[dict[str, Any]]:
@@ -607,7 +636,7 @@ def list_test_lines(job_id: str) -> list[dict[str, Any]]:
 
 
 def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
-    write_topics_json(chapters, _test_chapters_draft_path(job_id))
+    write_chapters_text(chapters, _test_chapters_draft_path(job_id))
 
 
 def _list_test_chapters_from_path(job_id: str, path: Path) -> list[dict[str, Any]]:

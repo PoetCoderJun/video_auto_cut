@@ -1,4 +1,4 @@
-import type { WebRenderConfig } from "../api";
+import type { WebRenderConfig } from "../api.ts";
 
 export function getRenderConfigTotalDuration(
   config: WebRenderConfig | null,

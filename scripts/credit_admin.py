@@ -15,6 +15,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from coupon_admin import load_env_file
+from web_api.db_repository import ensure_user
 from web_api.db import get_conn
 from web_api.utils.persistence_helpers import now_iso
 
@@ -55,6 +56,41 @@ def resolve_user(conn: Any, *, email: str | None, user_id: str | None) -> dict[s
         }
 
     normalized_email = normalize_email(email or "")
+    auth_row = None
+    try:
+        auth_row = conn.execute(
+            """
+            SELECT id, email
+            FROM "user"
+            WHERE lower(email) = ?
+            LIMIT 1
+            """,
+            (normalized_email,),
+        ).fetchone()
+    except Exception:
+        auth_row = None
+
+    if auth_row:
+        auth_user_id = str(auth_row["id"] or "").strip()
+        if auth_user_id:
+            ensure_user(auth_user_id, normalized_email)
+            row = conn.execute(
+                """
+                SELECT user_id, email, status, activated_at
+                FROM users
+                WHERE user_id = ?
+                LIMIT 1
+                """,
+                (auth_user_id,),
+            ).fetchone()
+            if row:
+                return {
+                    "user_id": str(row["user_id"]),
+                    "email": row["email"],
+                    "status": row["status"],
+                    "activated_at": row["activated_at"],
+                }
+
     rows = conn.execute(
         """
         SELECT user_id, email, status, activated_at

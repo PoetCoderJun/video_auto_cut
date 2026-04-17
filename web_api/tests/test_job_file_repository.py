@@ -32,14 +32,8 @@ class JobFileRepositoryTest(unittest.TestCase):
     def test_list_test_lines_prefers_draft_until_confirmed(self) -> None:
         test_dir = Path(self.tmpdir.name) / "jobs" / "job-lines-1" / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "lines_draft.json").write_text(
-            '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"draft","optimized_text":"draft","ai_suggest_remove":false,"user_final_remove":false}]}',
-            encoding="utf-8",
-        )
-        (test_dir / "final_test.json").write_text(
-            '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"final","optimized_text":"final","ai_suggest_remove":false,"user_final_remove":false}]}',
-            encoding="utf-8",
-        )
+        (test_dir / "lines_draft.txt").write_text("【00:00:00.000-00:00:01.000】draft\n", encoding="utf-8")
+        (test_dir / "final_test.txt").write_text("【00:00:00.000-00:00:01.000】final\n", encoding="utf-8")
 
         lines = list_test_lines("job-lines-1")
 
@@ -49,14 +43,8 @@ class JobFileRepositoryTest(unittest.TestCase):
         test_dir = Path(self.tmpdir.name) / "jobs" / "job-lines-2" / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
         (test_dir / ".confirmed").touch()
-        (test_dir / "lines_draft.json").write_text(
-            '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"draft","optimized_text":"draft","ai_suggest_remove":false,"user_final_remove":false}]}',
-            encoding="utf-8",
-        )
-        (test_dir / "final_test.json").write_text(
-            '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"final","optimized_text":"final","ai_suggest_remove":false,"user_final_remove":false}]}',
-            encoding="utf-8",
-        )
+        (test_dir / "lines_draft.txt").write_text("【00:00:00.000-00:00:01.000】draft\n", encoding="utf-8")
+        (test_dir / "final_test.txt").write_text("【00:00:00.000-00:00:01.000】final\n", encoding="utf-8")
 
         lines = list_test_lines("job-lines-2")
 
@@ -65,10 +53,7 @@ class JobFileRepositoryTest(unittest.TestCase):
     def test_list_test_lines_falls_back_to_final_when_draft_is_missing(self) -> None:
         test_dir = Path(self.tmpdir.name) / "jobs" / "job-lines-3" / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.json").write_text(
-            '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"final","optimized_text":"final","ai_suggest_remove":false,"user_final_remove":false}]}',
-            encoding="utf-8",
-        )
+        (test_dir / "final_test.txt").write_text("【00:00:00.000-00:00:01.000】final\n", encoding="utf-8")
 
         lines = list_test_lines("job-lines-3")
 

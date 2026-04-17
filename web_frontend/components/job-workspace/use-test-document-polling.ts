@@ -6,11 +6,15 @@ import {Chapter, getTest, TestLine} from "@/lib/api";
 import {STATUS} from "@/lib/workflow";
 
 const STEP_DRAFT_RETRY_DELAY_MS = 1400;
+const TRANSIENT_AUTH_INIT_MESSAGE = "登录状态初始化中，请稍后重试。";
 
 const getFriendlyError = (error: unknown): string => {
   if (error instanceof Error) return error.message;
   return String(error ?? "未知错误");
 };
+
+const isTransientAuthInitError = (error: unknown): boolean =>
+  getFriendlyError(error).includes(TRANSIENT_AUTH_INIT_MESSAGE);
 
 const areTestLinesEqual = (left: TestLine[], right: TestLine[]): boolean => {
   if (left.length !== right.length) return false;
@@ -76,6 +80,7 @@ export function useTestDocumentPolling({
         })
         .catch((error) => {
           if (cancelled) return;
+          if (isTransientAuthInitError(error)) return;
           setTestDraftError(`编辑文档加载失败：${getFriendlyError(error)}，已自动重试。`);
         });
     };
@@ -109,6 +114,7 @@ export function useTestDocumentPolling({
         })
         .catch((error) => {
           if (cancelled) return;
+          if (isTransientAuthInitError(error)) return;
           setTestDraftError(`字幕草稿加载失败：${getFriendlyError(error)}，已自动重试。`);
         });
     };

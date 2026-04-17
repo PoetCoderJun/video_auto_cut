@@ -1,4 +1,4 @@
-import type {RenderMeta, WebRenderConfig} from "./api";
+import type {RenderMeta, WebRenderConfig} from "./api.ts";
 
 const APP_EXPORTED_VIDEO_NAME_RE = /^job_[a-z0-9]+_export\.(mp4|webm)$/i;
 

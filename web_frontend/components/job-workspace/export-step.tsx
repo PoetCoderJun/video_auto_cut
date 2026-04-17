@@ -123,6 +123,12 @@ export function ExportStep({
     renderDownloadUrl: string | null;
     renderFileName: string;
     renderPrimaryButtonLabel: string;
+    renderPreviewProfile: {
+      width: number;
+      height: number;
+      fps: number;
+      isReduced: boolean;
+    } | null;
     renderProgress: number;
     renderSetupError: string;
     renderSourceCompatibility: RenderSourceCompatibilityState;
@@ -146,6 +152,7 @@ export function ExportStep({
     renderConfigBusy,
     renderDownloadUrl,
     renderFileName,
+    renderPreviewProfile,
     renderPrimaryButtonLabel,
     renderProgress,
     renderSetupError,
@@ -196,7 +203,7 @@ export function ExportStep({
             <div className="border-b border-slate-200 bg-slate-50/60 px-3 py-2">
               <div className="text-sm font-semibold text-slate-900">导出设置</div>
               <div className="mt-0.5 text-[11px] text-slate-500">
-                预览与最终导出同步生效
+                仅 overlay 控件与正式导出同步；预览会自动降载
               </div>
             </div>
 
@@ -249,6 +256,23 @@ export function ExportStep({
                 {hasRenderSource && renderSourceCompatibility.status === "compatible" ? (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
                     {renderSourceCompatibility.message}
+                  </div>
+                ) : null}
+
+                {renderPreviewProfile ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                    <div className="font-medium">
+                      预览规格：{renderPreviewProfile.width} × {renderPreviewProfile.height} ·{" "}
+                      {renderPreviewProfile.fps.toFixed(
+                        Number.isInteger(renderPreviewProfile.fps) ? 0 : 2,
+                      )}{" "}
+                      fps
+                    </div>
+                    <div className="mt-1 text-sky-800">
+                      {renderPreviewProfile.isReduced
+                        ? "为减轻浏览器预览压力，已按同比例自动降分辨率/降帧率；正式导出仍使用原片规格。"
+                        : "当前源片规格已经足够轻量，预览无需额外降载。"}
+                    </div>
                   </div>
                 ) : null}
 

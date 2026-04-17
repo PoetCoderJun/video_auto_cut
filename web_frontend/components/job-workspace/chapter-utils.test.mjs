@@ -6,6 +6,7 @@ import {
   deleteChapterAndRebalance,
   getEstimatedDurationFromLines,
   getKeptTestLines,
+  getTimelineChapterMarkers,
   materializeChapterRanges,
   moveAdjacentChapterRange,
   syncChaptersWithKeptLines,
@@ -89,4 +90,63 @@ test("getEstimatedDurationFromLines merges overlapping kept segments only", () =
   ]);
 
   assert.equal(estimated, 3);
+});
+
+test("getTimelineChapterMarkers pins the first chapter to the top even when removed lines come first", () => {
+  const timelineLines = [
+    {line_id: 10, start: 0, end: 1, optimized_text: "", user_final_remove: true},
+    {line_id: 11, start: 1, end: 2, optimized_text: "保留 1", user_final_remove: false},
+    {line_id: 12, start: 2, end: 3, optimized_text: "保留 2", user_final_remove: false},
+    {line_id: 13, start: 3, end: 4, optimized_text: "保留 3", user_final_remove: false},
+  ];
+  const display = [
+    {chapter_id: 101, title: "第一章", start: 1, end: 3, block_range: "1-2"},
+    {chapter_id: 102, title: "第二章", start: 3, end: 4, block_range: "3"},
+  ];
+  const markers = getTimelineChapterMarkers(
+    timelineLines,
+    display,
+    new Map([
+      [11, 1],
+      [12, 2],
+      [13, 3],
+    ]),
+    new Map([
+      [1, display[0]],
+      [3, display[1]],
+    ]),
+  );
+
+  assert.deepEqual(
+    Array.from(markers.entries()).map(([lineId, chapter]) => [lineId, chapter.title]),
+    [
+      [10, "第一章"],
+      [13, "第二章"],
+    ],
+  );
+});
+
+test("getTimelineChapterMarkers avoids duplicating the first chapter when the list already starts with its first kept line", () => {
+  const markers = getTimelineChapterMarkers(
+    lines,
+    chapters,
+    new Map([
+      [1, 1],
+      [2, 2],
+      [3, 3],
+      [4, 4],
+    ]),
+    new Map([
+      [1, chapters[0]],
+      [3, chapters[1]],
+    ]),
+  );
+
+  assert.deepEqual(
+    Array.from(markers.entries()).map(([lineId, chapter]) => [lineId, chapter.title]),
+    [
+      [1, "第一章"],
+      [3, "第二章"],
+    ],
+  );
 });

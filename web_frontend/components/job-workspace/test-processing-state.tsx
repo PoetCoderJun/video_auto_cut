@@ -5,14 +5,12 @@ import {useMemo} from "react";
 import type {Job, TestLine} from "../../lib/api.ts";
 import {Button} from "@/components/ui/button";
 import {Progress} from "@/components/ui/progress";
-import {cn} from "@/lib/utils";
 import {Loader2} from "lucide-react";
 
 import {
   getTestProcessingNote,
   getTestProcessingTitle,
   getTestVisualProgress,
-  shouldShowTestSubtitlePreview,
 } from "./workspace-state";
 import {getTestPreviewLines} from "./workspace-utils";
 
@@ -35,8 +33,7 @@ export function TestProcessingState({
 }) {
   const visualProgress = getTestVisualProgress(job);
   const previewLines = useMemo(() => getTestPreviewLines(lines), [lines]);
-  const showSubtitlePreview =
-    shouldShowTestSubtitlePreview(job.stage?.code) && previewLines.length > 0;
+  const showSubtitlePreview = previewLines.length > 0;
 
   return (
     <div className="mx-auto max-w-5xl py-6 md:py-10">
@@ -44,27 +41,19 @@ export function TestProcessingState({
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.28),_rgba(248,250,252,0.06)_48%,_rgba(241,245,249,0.16))]" />
         <div className="absolute inset-0 px-6 py-6 md:px-10 md:py-8">
           {showSubtitlePreview ? (
-            <div className="mx-auto flex max-w-4xl flex-col gap-4 opacity-[0.96] blur-[0.2px]">
-              {previewLines.map((line, index) => (
-                <div
-                  key={`${line.time}-${index}`}
-                  className="flex items-start gap-3"
-                >
-                  <span className="mt-[2px] w-16 shrink-0 select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
-                    {line.time}
-                  </span>
-                  <div
-                    className={cn(
-                      "min-w-0 flex-1 text-[15px] leading-[1.7]",
-                      line.removed
-                        ? "text-[#94a3b8] line-through"
-                        : "text-[#334155]",
-                    )}
-                  >
-                    {line.text}
-                  </div>
+            <div className="mx-auto max-w-4xl">
+              <div className="rounded-[28px] border border-white/45 bg-white/24 px-5 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.38)] backdrop-blur-[1px] md:px-6">
+                <div className="flex flex-col gap-2.5 opacity-75">
+                  {previewLines.map((line, index) => (
+                    <div
+                      key={`${line}-${index}`}
+                      className="font-mono text-[13px] leading-6 tracking-[0.01em] text-slate-700/80 md:text-[14px]"
+                    >
+                      {line}
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
             </div>
           ) : (
             <div className="mx-auto flex h-full max-w-4xl flex-col justify-center gap-5 opacity-70">

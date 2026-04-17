@@ -30,7 +30,7 @@ class TestChaptersTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "chapters_draft.json"
+            output_path = Path(tmpdir) / "chapters_draft.txt"
 
             with (
                 patch("web_api.services.test.build_pipeline_options_from_settings"),
@@ -266,15 +266,12 @@ class TestChaptersTests(unittest.TestCase):
             [{"chapter_id": 10, "title": "前半", "start": 0.0, "end": 2.5, "block_range": "1-2"}],
         )
 
-    def test_list_test_lines_reads_json_draft_only(self) -> None:
-        job_id = "job-json-only"
+    def test_list_test_lines_reads_text_draft(self) -> None:
+        job_id = "job-text-only"
         with tempfile.TemporaryDirectory() as tmpdir:
             job_root = Path(tmpdir) / job_id / "test"
             job_root.mkdir(parents=True, exist_ok=True)
-            (job_root / "lines_draft.json").write_text(
-                '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"JSON 第一行","optimized_text":"JSON 第一行","ai_suggest_remove":false,"user_final_remove":false}]}',
-                encoding="utf-8",
-            )
+            (job_root / "lines_draft.txt").write_text("【00:00:00.000-00:00:01.000】TXT 第一行\n", encoding="utf-8")
 
             with patch("web_api.job_file_repository.job_dir", side_effect=lambda current_job_id: Path(tmpdir) / current_job_id):
                 self.assertEqual(
@@ -284,39 +281,41 @@ class TestChaptersTests(unittest.TestCase):
                             "line_id": 1,
                             "start": 0.0,
                             "end": 1.0,
-                            "original_text": "JSON 第一行",
-                            "optimized_text": "JSON 第一行",
+                            "original_text": "TXT 第一行",
+                            "optimized_text": "TXT 第一行",
                             "ai_suggest_remove": False,
                             "user_final_remove": False,
                         }
                     ],
                 )
 
-    def test_list_test_lines_ignores_legacy_text_only_artifacts(self) -> None:
-        job_id = "job-legacy-lines-only"
+    def test_list_test_lines_returns_empty_when_draft_is_missing(self) -> None:
+        job_id = "job-missing-lines"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             job_root = Path(tmpdir) / job_id / "test"
             job_root.mkdir(parents=True, exist_ok=True)
-            (job_root / "lines_draft.txt").write_text("[00:00.000 --> 00:01.000] legacy 第一行\n", encoding="utf-8")
 
             with patch("web_api.job_file_repository.job_dir", side_effect=lambda current_job_id: Path(tmpdir) / current_job_id):
                 self.assertEqual(list_test_lines(job_id), [])
 
-    def test_list_test_chapters_ignores_legacy_text_only_artifacts(self) -> None:
-        job_id = "job-legacy-chapters-only"
+    def test_list_test_chapters_reads_text_draft(self) -> None:
+        job_id = "job-text-chapters"
 
         with tempfile.TemporaryDirectory() as tmpdir:
             job_root = Path(tmpdir) / job_id / "test"
             job_root.mkdir(parents=True, exist_ok=True)
-            (job_root / "lines_draft.json").write_text(
-                '{"lines":[{"line_id":1,"start":0.0,"end":1.0,"original_text":"第一句","optimized_text":"第一句","ai_suggest_remove":false,"user_final_remove":false},{"line_id":2,"start":1.0,"end":2.5,"original_text":"第二句","optimized_text":"第二句","ai_suggest_remove":false,"user_final_remove":false}]}',
+            (job_root / "lines_draft.txt").write_text(
+                "【00:00:00.000-00:00:01.000】第一句\n【00:00:01.000-00:00:02.500】第二句\n",
                 encoding="utf-8",
             )
-            (job_root / "chapters_draft.txt").write_text("1-2 确认稿\n", encoding="utf-8")
+            (job_root / "chapters_draft.txt").write_text("【1-2】确认稿\n", encoding="utf-8")
 
             with patch("web_api.job_file_repository.job_dir", side_effect=lambda current_job_id: Path(tmpdir) / current_job_id):
-                self.assertEqual(list_test_chapters(job_id), [])
+                self.assertEqual(
+                    list_test_chapters(job_id),
+                    [{"chapter_id": 1, "title": "确认稿", "start": 0.0, "end": 2.5, "block_range": "1-2"}],
+                )
 
 
 if __name__ == "__main__":

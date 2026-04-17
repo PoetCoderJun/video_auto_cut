@@ -11,7 +11,7 @@ from video_auto_cut.shared.interfaces import PipelineOptions
 class AutoEditArtifacts:
     optimized_srt_path: Path
     test_lines: list[dict[str, Any]]
-    test_json_path: Path
+    test_text_path: Path
 
 
 RenderProgressCallback = Callable[[str, Optional[float]], None]
@@ -83,5 +83,5 @@ def run_auto_edit(
     return AutoEditArtifacts(
         optimized_srt_path=optimized,
         test_lines=list(editor.last_result.get("test_lines") or []),
-        test_json_path=Path(str(editor.last_result.get("test_json_path") or optimized.with_suffix(".test.json"))),
+        test_text_path=Path(str(editor.last_result.get("test_text_path") or optimized.with_suffix(".test.txt"))),
     )

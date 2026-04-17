@@ -48,8 +48,8 @@ class JobMissingFilesTests(_TempWorkDirTestCase):
         create_job(job_id, "CREATED", "user-1")
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
-        (test_dir / "final_chapters.json").write_text('{"topics":[]}\n', encoding="utf-8")
+        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
+        (test_dir / "final_chapters.txt").write_text("", encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(
             job_id,
@@ -73,7 +73,7 @@ class JobMissingFilesTests(_TempWorkDirTestCase):
         create_job(job_id, "CREATED", "user-1")
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "lines_draft.json").write_text('{"lines":[]}\n', encoding="utf-8")
+        (test_dir / "lines_draft.txt").write_text("", encoding="utf-8")
         update_job(job_id, status=JOB_STATUS_TEST_READY, progress=35)
 
         job = get_job(job_id, owner_user_id="user-1")
@@ -122,8 +122,8 @@ class TestBackgroundRunnerTests(_TempWorkDirTestCase):
         create_job(job_id, "CREATED", "user-1")
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "lines_draft.json").write_text('{"lines":[{"line_id":1,"start":0,"end":1,"original_text":"a","optimized_text":"a","ai_suggest_remove":false,"user_final_remove":false}]}\n', encoding="utf-8")
-        (test_dir / "chapters_draft.json").write_text('{"topics":[{"chapter_id":1,"title":"A","start":0,"end":1,"block_range":"1-1"}]}\n', encoding="utf-8")
+        (test_dir / "lines_draft.txt").write_text("【00:00:00.000-00:00:01.000】a\n", encoding="utf-8")
+        (test_dir / "chapters_draft.txt").write_text("【1】A\n", encoding="utf-8")
         update_job(job_id, status="TEST_RUNNING", progress=30, stage_code="TEST_QUEUED", stage_message="running")
 
         recovered = recover_interrupted_test_runs()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,12 +7,10 @@ from pathlib import Path
 from video_auto_cut.shared import test_text_io as srt_utils
 from video_auto_cut.shared.test_text_io import (
     build_test_chapters_from_text,
-    build_test_lines_from_json,
     build_test_lines_from_srt,
     build_test_lines_from_text,
     write_chapters_text,
     write_final_test_srt,
-    write_test_json,
     write_test_text,
 )
 
@@ -81,43 +78,6 @@ class BuildTestLinesFromSrtTest(unittest.TestCase):
         self.assertEqual(lines[1]["optimized_text"], "后一句保留")
         self.assertFalse(lines[1]["user_final_remove"])
 
-    def test_build_test_lines_from_json_sidecar(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            sidecar = Path(tmpdir) / "optimized.test.json"
-            sidecar.write_text(
-                """
-                {
-                  "lines": [
-                    {
-                      "line_id": 2,
-                      "start": 1.1,
-                      "end": 2.5,
-                      "original_text": "后一句保留",
-                      "optimized_text": "后一句保留",
-                      "ai_suggest_remove": false,
-                      "user_final_remove": false
-                    },
-                    {
-                      "line_id": 1,
-                      "start": 0.0,
-                      "end": 1.0,
-                      "original_text": "前一句删掉",
-                      "optimized_text": "前一句删掉",
-                      "ai_suggest_remove": true,
-                      "user_final_remove": true
-                    }
-                  ]
-                }
-                """,
-                encoding="utf-8",
-            )
-
-            lines = build_test_lines_from_json(sidecar)
-
-        self.assertEqual([line["line_id"] for line in lines], [1, 2])
-        self.assertTrue(lines[0]["ai_suggest_remove"])
-        self.assertEqual(lines[1]["optimized_text"], "后一句保留")
-
     def test_build_test_lines_from_text_sidecar(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sidecar = Path(tmpdir) / "optimized.test.txt"
@@ -132,39 +92,6 @@ class BuildTestLinesFromSrtTest(unittest.TestCase):
         self.assertEqual([line["line_id"] for line in lines], [1, 2])
         self.assertTrue(lines[0]["ai_suggest_remove"])
         self.assertEqual(lines[1]["optimized_text"], "后一句保留")
-
-    def test_write_test_json_round_trip_preserves_sorted_line_semantics(self) -> None:
-        lines = [
-            {
-                "line_id": 2,
-                "start": 1.1,
-                "end": 2.5,
-                "original_text": "后一句保留",
-                "optimized_text": "后一句保留-润色",
-                "ai_suggest_remove": False,
-                "user_final_remove": False,
-            },
-            {
-                "line_id": 1,
-                "start": 0.0,
-                "end": 1.0,
-                "original_text": "前一句删掉",
-                "optimized_text": "前一句删掉",
-                "ai_suggest_remove": True,
-                "user_final_remove": True,
-            },
-        ]
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "draft.test.json"
-            write_test_json(lines, path)
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            round_tripped = build_test_lines_from_json(path)
-
-        self.assertEqual(len(payload["lines"]), 2)
-        self.assertEqual([line["line_id"] for line in round_tripped], [1, 2])
-        self.assertTrue(round_tripped[0]["user_final_remove"])
-        self.assertEqual(round_tripped[1]["optimized_text"], "后一句保留-润色")
 
     def test_write_test_text_round_trip_preserves_remove_flag_and_text(self) -> None:
         lines = [

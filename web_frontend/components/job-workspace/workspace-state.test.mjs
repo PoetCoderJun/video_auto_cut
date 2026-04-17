@@ -6,7 +6,6 @@ import {
   getActiveStep,
   getJobWorkspaceView,
   getTestVisualProgress,
-  shouldShowTestSubtitlePreview,
 } from "./workspace-state.ts";
 
 test("getJobWorkspaceView follows the current step handoff contract", () => {
@@ -42,9 +41,4 @@ test("getTestVisualProgress prefers stage codes and clamps fallback progress", (
     }),
     100,
   );
-});
-
-test("shouldShowTestSubtitlePreview only enables preview for late test stages", () => {
-  assert.equal(shouldShowTestSubtitlePreview("TRANSCRIBING_AUDIO"), false);
-  assert.equal(shouldShowTestSubtitlePreview("POLISHING_EXPRESSION"), true);
 });

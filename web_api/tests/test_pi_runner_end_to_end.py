@@ -67,9 +67,9 @@ class PiRunnerEndToEndTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             input_srt = root / "input.srt"
-            delete_json = root / "delete.json"
-            polish_json = root / "polish.json"
-            chapters_json = root / "chapters.json"
+            delete_txt = root / "delete.txt"
+            polish_txt = root / "polish.txt"
+            chapters_txt = root / "chapters.txt"
             final_srt = root / "final_test.srt"
             input_srt.write_text(SRT_SAMPLE, encoding="utf-8")
 
@@ -79,14 +79,14 @@ class PiRunnerEndToEndTests(unittest.TestCase):
                 "--llm-model",
                 "test-model",
             ]
-            self.assertEqual(run_pi_task(["--task", "delete", "--input", str(input_srt), "--output", str(delete_json), *common]), 0)
-            self.assertEqual(run_pi_task(["--task", "polish", "--input", str(delete_json), "--output", str(polish_json), *common]), 0)
-            self.assertEqual(run_pi_task(["--task", "chapter", "--input", str(polish_json), "--output", str(chapters_json), *common]), 0)
+            self.assertEqual(run_pi_task(["--task", "delete", "--input", str(input_srt), "--output", str(delete_txt), *common]), 0)
+            self.assertEqual(run_pi_task(["--task", "polish", "--input", str(delete_txt), "--output", str(polish_txt), *common]), 0)
+            self.assertEqual(run_pi_task(["--task", "chapter", "--input", str(polish_txt), "--output", str(chapters_txt), *common]), 0)
 
-            lines = build_test_lines_from_text(polish_json)
+            lines = build_test_lines_from_text(polish_txt)
             write_final_test_srt(lines, final_srt, "utf-8")
             final_srt_text = final_srt.read_text(encoding="utf-8")
-            chapters = build_test_chapters_from_text(chapters_json, kept_lines=[line for line in lines if not line["user_final_remove"]])
+            chapters = build_test_chapters_from_text(chapters_txt, kept_lines=[line for line in lines if not line["user_final_remove"]])
 
         self.assertIn("<remove>前面这句说错了", final_srt_text)
         self.assertIn("后面这句是正确表达", final_srt_text)
@@ -105,7 +105,7 @@ class PiRunnerEndToEndTests(unittest.TestCase):
         )
 
     @patch("video_auto_cut.pi_agent_runner.subprocess.run")
-    def test_polish_and_chapter_accept_json_line_sidecar(self, mock_run) -> None:
+    def test_polish_and_chapter_accept_text_line_sidecar(self, mock_run) -> None:
         def fake_run(command, **kwargs):
             prompt = command[-1]
             output_path = extract_labeled_path(prompt, "输出文件")
@@ -125,36 +125,12 @@ class PiRunnerEndToEndTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            delete_json = root / "delete.json"
+            delete_txt = root / "delete.txt"
             polish_output = root / "polish.txt"
             chapters_output = root / "chapters.txt"
-            delete_json.write_text(
-                json.dumps(
-                    {
-                        "lines": [
-                            {
-                                "line_id": 2,
-                                "start": 1.2,
-                                "end": 2.2,
-                                "original_text": "后面这句是正确表达",
-                                "optimized_text": "后面这句是正确表达",
-                                "ai_suggest_remove": False,
-                                "user_final_remove": False,
-                            },
-                            {
-                                "line_id": 1,
-                                "start": 0.0,
-                                "end": 1.0,
-                                "original_text": "前面这句说错了",
-                                "optimized_text": "前面这句说错了",
-                                "ai_suggest_remove": True,
-                                "user_final_remove": True,
-                            },
-                        ]
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
+            delete_txt.write_text(
+                "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
+                "【00:00:01.200-00:00:02.200】后面这句是正确表达\n",
                 encoding="utf-8",
             )
 
@@ -164,8 +140,8 @@ class PiRunnerEndToEndTests(unittest.TestCase):
                 "--llm-model",
                 "test-model",
             ]
-            self.assertEqual(run_pi_task(["--task", "polish", "--input", str(delete_json), "--output", str(polish_output), *common]), 0)
-            self.assertEqual(run_pi_task(["--task", "chapter", "--input", str(delete_json), "--output", str(chapters_output), *common]), 0)
+            self.assertEqual(run_pi_task(["--task", "polish", "--input", str(delete_txt), "--output", str(polish_output), *common]), 0)
+            self.assertEqual(run_pi_task(["--task", "chapter", "--input", str(delete_txt), "--output", str(chapters_output), *common]), 0)
 
             polished_lines = build_test_lines_from_text(polish_output)
             chapters = build_test_chapters_from_text(

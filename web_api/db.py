@@ -373,6 +373,9 @@ def ensure_current_schema(conn: Any) -> None:
 
 
 def init_db() -> None:
+    from .user_identity import ensure_user_identity_schema
+
     with get_conn() as conn:
         ensure_current_schema(conn)
+        ensure_user_identity_schema(conn)
         conn.commit()

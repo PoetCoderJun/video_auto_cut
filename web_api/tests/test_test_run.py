@@ -76,7 +76,7 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 return SimpleNamespace(
                     optimized_srt_path=optimized_srt_path,
                     test_lines=polish_lines,
-                    test_json_path=optimized_srt_path.with_suffix(".test.json"),
+                    test_text_path=optimized_srt_path.with_suffix(".test.txt"),
                 )
 
             with (

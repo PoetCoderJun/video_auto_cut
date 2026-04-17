@@ -61,15 +61,8 @@ def _load_segments_from_path(input_path: Path, encoding: str) -> list[dict[str, 
     return result
 
 
-def _load_lines_from_test_json(input_path: Path) -> list[dict[str, Any]]:
-    try:
-        payload = json.loads(input_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return _sort_runtime_lines(build_test_lines_from_text(input_path))
-    lines = payload.get("lines") if isinstance(payload, dict) else payload
-    if not isinstance(lines, list):
-        raise RuntimeError(f"Invalid Test lines payload: {input_path}")
-    return _sort_runtime_lines([dict(item) for item in lines if isinstance(item, dict)])
+def _load_lines_from_test_text(input_path: Path) -> list[dict[str, Any]]:
+    return _sort_runtime_lines(build_test_lines_from_text(input_path))
 
 
 def _build_cli_llm_config(args: argparse.Namespace) -> dict[str, Any]:
@@ -157,23 +150,23 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         )
     )
 
-    raw_test_json_path = output_path.with_suffix(".raw.test.json")
-    final_test_text_path = output_path.with_suffix(".test.json")
+    raw_test_text_path = output_path.with_suffix(".raw.test.txt")
+    final_test_text_path = output_path.with_suffix(".test.txt")
     final_test_srt_path = output_path.with_suffix(".test.srt")
-    chapters_json_path = output_path.with_suffix(".chapters.json")
+    chapters_text_path = output_path.with_suffix(".chapters.txt")
 
-    _write_json(raw_test_json_path, {"lines": raw_lines})
-    _write_json(final_test_text_path, {"lines": polish_artifacts.lines})
+    raw_test_text_path.write_text(_render_test_text_from_lines(raw_lines) + "\n", encoding="utf-8")
+    final_test_text_path.write_text(_render_test_text_from_lines(polish_artifacts.lines) + "\n", encoding="utf-8")
     _write_srt(final_test_srt_path, build_subtitles_from_lines(polish_artifacts.lines), args.encoding)
-    _write_json(chapters_json_path, {"topics": chapter_artifacts.chapters})
+    chapters_text_path.write_text(_render_chapters_text(chapter_artifacts.chapters) + "\n", encoding="utf-8")
 
     payload = {
         "input_path": str(input_path),
         "raw_srt_path": str(raw_srt_path),
-        "raw_test_json_path": str(raw_test_json_path),
+        "raw_test_text_path": str(raw_test_text_path),
         "final_test_text_path": str(final_test_text_path),
         "final_test_srt_path": str(final_test_srt_path),
-        "chapters_json_path": str(chapters_json_path),
+        "chapters_text_path": str(chapters_text_path),
         "line_count": len(polish_artifacts.lines),
         "chapter_count": len(chapter_artifacts.chapters),
     }
@@ -216,8 +209,8 @@ def _run_cli_task(args: argparse.Namespace) -> int:
         return 0
 
     if args.task == "polish":
-        if input_path.suffix.lower().endswith(".json"):
-            lines = _load_lines_from_test_json(input_path)
+        if input_path.suffix.lower().endswith(".txt"):
+            lines = _load_lines_from_test_text(input_path)
         else:
             segments = _load_segments_from_path(input_path, args.encoding)
             lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
@@ -225,8 +218,8 @@ def _run_cli_task(args: argparse.Namespace) -> int:
         output_path.write_text(_render_test_text_from_lines(artifacts.lines) + "\n", encoding="utf-8")
         return 0
 
-    if input_path.suffix.lower().endswith(".json"):
-        lines = _load_lines_from_test_json(input_path)
+    if input_path.suffix.lower().endswith(".txt"):
+        lines = _load_lines_from_test_text(input_path)
     else:
         segments = _load_segments_from_path(input_path, args.encoding)
         lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines

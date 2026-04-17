@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  serverExternalPackages: ["@libsql/kysely-libsql"],
   // Allow local dev origins for API <-> frontend and localhost/127.0.0.1 mixed access.
   allowedDevOrigins: [
     "http://127.0.0.1:3000",

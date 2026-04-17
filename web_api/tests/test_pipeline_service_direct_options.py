@@ -43,7 +43,7 @@ class PipelineServiceDirectOptionsTests(unittest.TestCase):
             with patch("video_auto_cut.editing.auto_edit.AutoEdit") as mock_auto_edit:
                 mock_auto_edit.from_pipeline_options.return_value.last_result = {
                     "test_lines": [{"line_id": 1, "start": 0.0, "end": 1.0, "original_text": "a", "optimized_text": "a", "ai_suggest_remove": False, "user_final_remove": False}],
-                    "test_json_path": str(optimized.with_suffix(".test.json")),
+                    "test_text_path": str(optimized.with_suffix(".test.txt")),
                 }
                 result = run_auto_edit(
                     srt_path,
@@ -53,7 +53,7 @@ class PipelineServiceDirectOptionsTests(unittest.TestCase):
         args, kwargs = mock_auto_edit.from_pipeline_options.call_args
         self.assertEqual(args[0], srt_path)
         self.assertIsInstance(args[1], PipelineOptions)
-        self.assertEqual(result.test_json_path, optimized.with_suffix(".test.json"))
+        self.assertEqual(result.test_text_path, optimized.with_suffix(".test.txt"))
 
 if __name__ == "__main__":
     unittest.main()

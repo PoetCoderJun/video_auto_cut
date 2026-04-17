@@ -45,9 +45,9 @@ class RenderCompletionRouteTests(unittest.TestCase):
         create_job(job_id, "CREATED", user_id)
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
+        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
         (test_dir / "final_test.srt").write_text("", encoding="utf-8")
-        (test_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","block_range":"1"}]}\n', encoding="utf-8")
+        (test_dir / "final_chapters.txt").write_text("【1】开场\n", encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 
@@ -99,9 +99,9 @@ class RenderCompletionRouteTests(unittest.TestCase):
         create_job(job_id, "CREATED", user_id)
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
-        (test_dir / "final_test.json").write_text('{"lines":[]}\n', encoding="utf-8")
+        (test_dir / "final_test.txt").write_text("", encoding="utf-8")
         (test_dir / "final_test.srt").write_text("", encoding="utf-8")
-        (test_dir / "final_chapters.json").write_text('{"topics":[{"chapter_id":1,"title":"开场","block_range":"1"}]}\n', encoding="utf-8")
+        (test_dir / "final_chapters.txt").write_text("【1】开场\n", encoding="utf-8")
         (test_dir / ".confirmed").touch()
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 

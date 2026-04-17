@@ -66,22 +66,6 @@ export function getTestVisualProgress(job: Job): number {
   return clampPercent(job.progress);
 }
 
-export function shouldShowTestSubtitlePreview(
-  stageCode: string | null | undefined,
-): boolean {
-  switch (String(stageCode || "").trim()) {
-    case "OPTIMIZING_TEXT":
-    case "REMOVING_REDUNDANT_LINES":
-    case "POLISHING_EXPRESSION":
-    case "PREPARING_TEST_REVIEW":
-    case "GENERATING_CHAPTERS":
-    case "TEST_READY":
-      return true;
-    default:
-      return false;
-  }
-}
-
 export function getTestProcessingNote(
   stageCode: string | null | undefined,
 ): string {

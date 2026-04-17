@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from collections import deque
 import logging
 import re
 import threading
 import time
 from typing import Any
+import warnings
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -21,6 +23,11 @@ from .services.test_runner import recover_interrupted_test_runs
 from .utils.common import new_request_id
 
 
+warnings.filterwarnings(
+    "ignore",
+    category=ResourceWarning,
+    module=r"anyio\.streams\.memory",
+)
 
 _JSON_BODY_METHODS = {"POST", "PUT", "PATCH"}
 _POLLING_PATH_PATTERNS = (
@@ -194,7 +201,7 @@ class _RequestGuardMiddleware:
                 return {"type": "http.request", "body": body, "more_body": False}
             if disconnected:
                 return {"type": "http.disconnect"}
-            return {"type": "http.disconnect"}
+            return {"type": "http.request", "body": b"", "more_body": False}
 
         await self.app(scope, replay_receive, send)
 
@@ -214,11 +221,23 @@ def _configure_logging() -> None:
         access_logger.addFilter(_SuppressPollingAccessFilter())
 
 
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    ensure_work_dirs()
+    init_db()
+    recover_interrupted_test_runs()
+    try:
+        cleanup_on_startup()
+    except Exception:
+        logging.exception("[web_api] startup cleanup failed")
+    yield
+
+
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
     rate_limiter = _SlidingWindowRateLimiter()
-    app = FastAPI(title="video_auto_cut web api", version="0.1.0")
+    app = FastAPI(title="video_auto_cut web api", version="0.1.0", lifespan=_app_lifespan)
     allow_origins = list(settings.web_cors_allowed_origins)
     allow_credentials = settings.web_cors_allow_credentials
     logging.info("[web_api] CORS allow_origins=%s allow_credentials=%s", allow_origins, allow_credentials)
@@ -314,16 +333,6 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(router, prefix="/api/v1")
-
-    @app.on_event("startup")
-    def startup_event() -> None:
-        ensure_work_dirs()
-        init_db()
-        recover_interrupted_test_runs()
-        try:
-            cleanup_on_startup()
-        except Exception:
-            logging.exception("[web_api] startup cleanup failed")
 
     return app
 

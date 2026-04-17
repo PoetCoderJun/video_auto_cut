@@ -17,7 +17,7 @@
 - `skills/test-agent-editing/SKILL.md`
   - 顶层 Test 四步工作流入口。
 - `skills/asr-transcribe/SKILL.md`
-  - 媒体 -> `.srt` / `.test.json` 的 ASR 起步入口。
+  - 媒体 -> `.srt` / `.test.txt` 的 ASR 起步入口。
 - `skills/delete/SKILL.md`
   - delete 规则与输出合同。
 - `skills/polish/SKILL.md`

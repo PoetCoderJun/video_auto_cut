@@ -165,17 +165,17 @@ def _build_common_values() -> dict[str, Any]:
             "ASR_INSERT_HEAD_NO_SPEECH",
             default=True,
         ),
-        "asr_oss_endpoint": _env("ASR_OSS_ENDPOINT"),
-        "asr_oss_bucket": _env("ASR_OSS_BUCKET"),
-        "asr_oss_access_key_id": _env("ASR_OSS_ACCESS_KEY_ID"),
-        "asr_oss_access_key_secret": _env("ASR_OSS_ACCESS_KEY_SECRET"),
+        "asr_oss_endpoint": _env("OSS_ENDPOINT"),
+        "asr_oss_bucket": _env("OSS_BUCKET"),
+        "asr_oss_access_key_id": _env("OSS_ACCESS_KEY_ID"),
+        "asr_oss_access_key_secret": _env("OSS_ACCESS_KEY_SECRET"),
         "asr_oss_prefix": _env(
-            "ASR_OSS_PREFIX",
+            "OSS_PREFIX",
             default="video-auto-cut/asr",
         )
         or "video-auto-cut/asr",
         "asr_oss_signed_url_ttl_seconds": _env_int(
-            "ASR_OSS_SIGNED_URL_TTL_SECONDS",
+            "OSS_SIGNED_URL_TTL_SECONDS",
             default=86400,
         ),
         "llm_base_url": _env("LLM_BASE_URL"),

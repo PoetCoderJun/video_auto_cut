@@ -33,6 +33,10 @@ import {
 } from "../lib/source-video-guard";
 import { getFriendlyUploadErrorMessage } from "../lib/upload-error";
 import {
+  getUploadIssueErrorMessage,
+  getUploadIssueErrorName,
+} from "../lib/upload-error";
+import {
   getVideoDurationLimitMessage,
   MAX_VIDEO_DURATION_SEC,
   readVideoDurationSec,
@@ -353,17 +357,17 @@ export default function HomePageClient() {
         uploadStage = err.stage;
       }
       const friendlyMessage = getFriendlyUploadErrorMessage(err);
-      void reportClientUploadIssue({
-        stage: uploadStage,
-        page: "/",
-        file_name: file.name,
-        file_type: file.type,
-        file_size_bytes: file.size,
-        error_name: err instanceof Error ? err.name : typeof err,
-        error_message: err instanceof Error ? err.message : String(err ?? ""),
-        friendly_message: friendlyMessage,
-        user_agent:
-          typeof navigator !== "undefined" ? navigator.userAgent : "",
+        void reportClientUploadIssue({
+          stage: uploadStage,
+          page: "/",
+          file_name: file.name,
+          file_type: file.type,
+          file_size_bytes: file.size,
+          error_name: getUploadIssueErrorName(err),
+          error_message: getUploadIssueErrorMessage(err),
+          friendly_message: friendlyMessage,
+          user_agent:
+            typeof navigator !== "undefined" ? navigator.userAgent : "",
       }).catch(() => undefined);
       setError(friendlyMessage);
     } finally {

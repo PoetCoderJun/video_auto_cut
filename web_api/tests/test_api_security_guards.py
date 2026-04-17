@@ -24,10 +24,10 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "WEB_AUTH_ENABLED": os.environ.get("WEB_AUTH_ENABLED"),
-            "ASR_OSS_ENDPOINT": os.environ.get("ASR_OSS_ENDPOINT"),
-            "ASR_OSS_BUCKET": os.environ.get("ASR_OSS_BUCKET"),
-            "ASR_OSS_ACCESS_KEY_ID": os.environ.get("ASR_OSS_ACCESS_KEY_ID"),
-            "ASR_OSS_ACCESS_KEY_SECRET": os.environ.get("ASR_OSS_ACCESS_KEY_SECRET"),
+            "OSS_ENDPOINT": os.environ.get("OSS_ENDPOINT"),
+            "OSS_BUCKET": os.environ.get("OSS_BUCKET"),
+            "OSS_ACCESS_KEY_ID": os.environ.get("OSS_ACCESS_KEY_ID"),
+            "OSS_ACCESS_KEY_SECRET": os.environ.get("OSS_ACCESS_KEY_SECRET"),
             "WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS": os.environ.get("WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS"),
             "WEB_PUBLIC_INVITE_RATE_LIMIT": os.environ.get("WEB_PUBLIC_INVITE_RATE_LIMIT"),
             "WEB_PUBLIC_COUPON_VERIFY_RATE_LIMIT": os.environ.get("WEB_PUBLIC_COUPON_VERIFY_RATE_LIMIT"),
@@ -37,10 +37,10 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "test.db")
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ["WEB_AUTH_ENABLED"] = "0"
-        os.environ["ASR_OSS_ENDPOINT"] = "https://oss-cn-test.aliyuncs.com"
-        os.environ["ASR_OSS_BUCKET"] = "bucket-test"
-        os.environ["ASR_OSS_ACCESS_KEY_ID"] = "key-id"
-        os.environ["ASR_OSS_ACCESS_KEY_SECRET"] = "key-secret"
+        os.environ["OSS_ENDPOINT"] = "https://oss-cn-test.aliyuncs.com"
+        os.environ["OSS_BUCKET"] = "bucket-test"
+        os.environ["OSS_ACCESS_KEY_ID"] = "key-id"
+        os.environ["OSS_ACCESS_KEY_SECRET"] = "key-secret"
         get_settings.cache_clear()
 
     def tearDown(self) -> None:
@@ -52,15 +52,15 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         get_settings.cache_clear()
 
     def test_audio_oss_ready_rejects_unexpected_object_key(self) -> None:
-        expected_key = "video-auto-cut/asr/job_test/audio_expected.wav"
-        wrong_key = "video-auto-cut/asr/job_test/audio_wrong.wav"
+        expected_key = "video-auto-cut/asr/job_test/audio_expected.mp3"
+        wrong_key = "video-auto-cut/asr/job_test/audio_wrong.mp3"
 
         with (
             patch("web_api.api.routes.ensure_active_user", return_value=None),
             patch(
                 "web_api.api.routes.get_presigned_put_url_for_job",
                 return_value=("https://example.com/upload", expected_key),
-            ),
+            ) as mock_get_presigned_put_url_for_job,
             TestClient(create_app()) as client,
         ):
             create_resp = client.post("/api/v1/jobs")
@@ -70,6 +70,11 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             upload_url_resp = client.post(f"/api/v1/jobs/{job_id}/oss-upload-url")
             self.assertEqual(upload_url_resp.status_code, 200)
             self.assertEqual(upload_url_resp.json()["data"]["object_key"], expected_key)
+            mock_get_presigned_put_url_for_job.assert_called_once_with(
+                job_id,
+                suffix=".mp3",
+                content_type="audio/mpeg",
+            )
 
             files = get_job_files(job_id) or {}
             self.assertEqual(files.get("pending_asr_oss_key"), expected_key)
@@ -86,14 +91,14 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             self.assertEqual(files.get("pending_asr_oss_key"), expected_key)
 
     def test_audio_oss_ready_accepts_expected_object_key(self) -> None:
-        expected_key = "video-auto-cut/asr/job_test/audio_expected.wav"
+        expected_key = "video-auto-cut/asr/job_test/audio_expected.mp3"
 
         with (
             patch("web_api.api.routes.ensure_active_user", return_value=None),
             patch(
                 "web_api.api.routes.get_presigned_put_url_for_job",
                 return_value=("https://example.com/upload", expected_key),
-            ),
+            ) as mock_get_presigned_put_url_for_job,
             TestClient(create_app()) as client,
         ):
             create_resp = client.post("/api/v1/jobs")
@@ -101,6 +106,12 @@ class ApiSecurityGuardsTest(unittest.TestCase):
 
             upload_url_resp = client.post(f"/api/v1/jobs/{job_id}/oss-upload-url")
             self.assertEqual(upload_url_resp.status_code, 200)
+            self.assertEqual(upload_url_resp.json()["data"]["object_key"], expected_key)
+            mock_get_presigned_put_url_for_job.assert_called_once_with(
+                job_id,
+                suffix=".mp3",
+                content_type="audio/mpeg",
+            )
 
             ready_resp = client.post(
                 f"/api/v1/jobs/{job_id}/audio-oss-ready",
@@ -111,6 +122,27 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             files = get_job_files(job_id) or {}
             self.assertEqual(files.get("asr_oss_key"), expected_key)
             self.assertIsNone(files.get("pending_asr_oss_key"))
+
+    def test_oss_upload_url_returns_user_friendly_503_when_oss_not_configured(self) -> None:
+        os.environ.pop("OSS_ENDPOINT", None)
+        os.environ.pop("OSS_BUCKET", None)
+        os.environ.pop("OSS_ACCESS_KEY_ID", None)
+        os.environ.pop("OSS_ACCESS_KEY_SECRET", None)
+        get_settings.cache_clear()
+
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            create_resp = client.post("/api/v1/jobs")
+            self.assertEqual(create_resp.status_code, 200)
+            job_id = create_resp.json()["data"]["job"]["job_id"]
+
+            upload_url_resp = client.post(f"/api/v1/jobs/{job_id}/oss-upload-url")
+
+        self.assertEqual(upload_url_resp.status_code, 503)
+        self.assertEqual(upload_url_resp.json()["error"]["code"], "SERVICE_UNAVAILABLE")
+        self.assertEqual(upload_url_resp.json()["error"]["message"], "上传服务暂未配置，请稍后再试。")
 
     def test_public_invite_endpoint_is_rate_limited(self) -> None:
         os.environ["WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS"] = "60"

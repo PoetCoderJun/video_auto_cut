@@ -11,7 +11,7 @@ import srt
 from . import llm_client as llm_utils
 from video_auto_cut.pi_agent_runner import TestPiRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_pi
 from video_auto_cut.shared.interfaces import PipelineOptions
-from video_auto_cut.shared.test_text_io import write_test_json
+from video_auto_cut.shared.test_text_io import write_test_text
 
 REMOVE_TOKEN = "<remove>"
 
@@ -263,13 +263,13 @@ class AutoEdit:
             _write_optimized_srt(optimized_raw_srt, result["raw_optimized_subs"], self.encoding)
             _write_json(edl_json, result["edl"])
             _write_json(debug_json, result["debug"])
-            test_json = Path(optimized_srt).with_suffix(".test.json")
-            write_test_json(result["test_lines"], test_json)
+            test_text = Path(optimized_srt).with_suffix(".test.txt")
+            write_test_text(result["test_lines"], test_text)
             self.last_result = {
                 **result,
                 "optimized_srt_path": optimized_srt,
                 "optimized_raw_srt_path": optimized_raw_srt,
                 "edl_path": edl_json,
                 "debug_json_path": debug_json,
-                "test_json_path": str(test_json),
+                "test_text_path": str(test_text),
             }

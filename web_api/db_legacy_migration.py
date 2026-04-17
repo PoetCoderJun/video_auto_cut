@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import _extract_column_names, _table_exists, ensure_current_schema
+from .user_identity import ensure_user_identity_schema
 
 
 def migrate_legacy_schema_to_v2(conn: Any) -> None:
@@ -197,6 +198,7 @@ def migrate_legacy_schema_to_v2(conn: Any) -> None:
         if _table_exists(conn, table_name):
             conn.execute(f"DROP TABLE IF EXISTS {table_name}")
 
+    ensure_user_identity_schema(conn)
     conn.commit()
 
 

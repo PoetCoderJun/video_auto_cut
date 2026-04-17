@@ -146,6 +146,11 @@ export type UserProfile = {
   };
 };
 
+type AudioDirectUploadTarget = {
+  put_url: string;
+  object_key: string;
+};
+
 type ApiResponse<T> = {
   request_id: string;
   data: T;
@@ -157,17 +162,22 @@ type ApiErrorResponse = {
     code: string;
     message: string;
   };
+  detail?: string;
 };
 
 type AuthTokenProvider = () => Promise<string | null>;
 let authTokenProvider: AuthTokenProvider | null = null;
+let authTokenInflight: Promise<string | null> | null = null;
 
 // Module-level JWT cache so we don't hit /api/auth/token on every request.
 let tokenCache: { token: string; expiresAt: number } | null = null;
 const TOKEN_CACHE_TTL_MS = 4 * 60 * 1000; // 4 minutes
+const AUTH_TOKEN_INIT_MAX_WAIT_MS = 1500;
+const AUTH_TOKEN_INIT_RETRY_DELAY_MS = 250;
 
 export function invalidateTokenCache(): void {
   tokenCache = null;
+  authTokenInflight = null;
 }
 
 type RequestOptions = {
@@ -190,12 +200,14 @@ const RENDER_COMPLETION_PENDING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export class ApiClientError extends Error {
   code: string;
   status: number;
+  details: string | null;
 
-  constructor(message: string, code = "UNKNOWN_ERROR", status = 0) {
+  constructor(message: string, code = "UNKNOWN_ERROR", status = 0, details?: string | null) {
     super(message);
     this.name = "ApiClientError";
     this.code = String(code || "UNKNOWN_ERROR");
     this.status = Number.isFinite(status) ? intOrZero(status) : 0;
+    this.details = String(details || "").trim() || null;
   }
 }
 
@@ -209,12 +221,6 @@ function toMessage(err: unknown): string {
   return String(err);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
 function parseApiErrorText(text: string, fallbackStatus: number): ApiClientError {
   const trimmed = String(text || "").trim();
   if (!trimmed) {
@@ -222,8 +228,10 @@ function parseApiErrorText(text: string, fallbackStatus: number): ApiClientError
   }
   try {
     const parsed = JSON.parse(trimmed) as ApiErrorResponse;
+    const fallbackDetail = String(parsed?.detail || "").trim();
     const code = String(parsed?.error?.code || "HTTP_ERROR");
-    const message = String(parsed?.error?.message || "").trim() || `HTTP ${fallbackStatus}`;
+    const message =
+      String(parsed?.error?.message || "").trim() || fallbackDetail || `HTTP ${fallbackStatus}`;
     return new ApiClientError(message, code, fallbackStatus);
   } catch {
     return new ApiClientError(trimmed, "HTTP_ERROR", fallbackStatus);
@@ -238,6 +246,41 @@ async function assertOk(response: Response): Promise<void> {
 
 export function setApiAuthTokenProvider(provider: AuthTokenProvider | null): void {
   authTokenProvider = provider;
+  authTokenInflight = null;
+  if (!provider) {
+    tokenCache = null;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
+async function requestFreshAuthToken(): Promise<string | null> {
+  if (!authTokenProvider) return null;
+
+  const deadline = Date.now() + AUTH_TOKEN_INIT_MAX_WAIT_MS;
+  while (true) {
+    try {
+      const token = await authTokenProvider();
+      if (token) {
+        tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS };
+        return token;
+      }
+    } catch {
+      // Treat provider failures as transient until the grace window expires.
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      tokenCache = null;
+      return null;
+    }
+
+    await sleep(Math.min(AUTH_TOKEN_INIT_RETRY_DELAY_MS, remainingMs));
+  }
 }
 
 async function resolveAuthToken(): Promise<string | null> {
@@ -245,18 +288,12 @@ async function resolveAuthToken(): Promise<string | null> {
     return tokenCache.token;
   }
   if (!authTokenProvider) return null;
-  try {
-    const token = await authTokenProvider();
-    if (token) {
-      tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_TTL_MS };
-      return token;
-    }
-    tokenCache = null;
-    return null;
-  } catch {
-    tokenCache = null;
-    return null;
+  if (!authTokenInflight) {
+    authTokenInflight = requestFreshAuthToken().finally(() => {
+      authTokenInflight = null;
+    });
   }
+  return authTokenInflight;
 }
 
 async function request<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
@@ -465,36 +502,58 @@ export async function claimPublicInviteCode(): Promise<{code: string; credits: n
   return data.invite;
 }
 
-export async function uploadAudio(jobId: string, file: File): Promise<Job> {
-  const maxAttempts = 3;
+async function getAudioDirectUploadTarget(jobId: string): Promise<AudioDirectUploadTarget> {
+  return requestAuthed<AudioDirectUploadTarget>(`/jobs/${jobId}/oss-upload-url`, {
+    method: "POST",
+  });
+}
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const form = new FormData();
-    form.append("file", file);
-
-    try {
-      const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio`, {
-        method: "POST",
-        body: form,
-      });
-      return data.job;
-    } catch (err) {
-      const isTransientNetworkError =
-        err instanceof ApiClientError && err.code === "NETWORK_ERROR";
-      if (!isTransientNetworkError || attempt >= maxAttempts) {
-        throw err;
-      }
-
-      const waitMs = attempt * 1000;
-      console.warn(
-        `[upload-audio] transient network failure, retrying attempt ${attempt + 1}/${maxAttempts} in ${waitMs}ms`,
-        err
-      );
-      await delay(waitMs);
-    }
+async function putAudioToOss(putUrl: string, file: File): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(putUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Type": file.type || "audio/mpeg",
+      },
+      body: file,
+    });
+  } catch (err) {
+    throw new ApiClientError(
+      "音频上传失败，请稍后重试。",
+      "NETWORK_ERROR",
+      0,
+      `PUT network error: ${toMessage(err)}`
+    );
   }
 
-  throw new ApiClientError("音频上传失败，请稍后重试。", "NETWORK_ERROR", 0);
+  if (!response.ok) {
+    const responseText = (await response.text().catch(() => "")).trim();
+    const detail = responseText
+      ? `PUT ${response.status}: ${responseText.slice(0, 300)}`
+      : `PUT ${response.status}`;
+    throw new ApiClientError(
+      "音频上传失败，请稍后重试。",
+      "DIRECT_UPLOAD_FAILED",
+      response.status,
+      detail
+    );
+  }
+}
+
+async function markAudioOssReady(jobId: string, objectKey: string): Promise<Job> {
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio-oss-ready`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({object_key: objectKey}),
+  });
+  return data.job;
+}
+
+export async function uploadAudio(jobId: string, file: File): Promise<Job> {
+  const target = await getAudioDirectUploadTarget(jobId);
+  await putAudioToOss(target.put_url, file);
+  return markAudioOssReady(jobId, target.object_key);
 }
 
 export async function runTest(jobId: string): Promise<TestRunAccepted> {
