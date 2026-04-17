@@ -77,8 +77,7 @@ class RenderCaptionLabelsTest(unittest.TestCase):
                     "labels": [
                         {
                             "index": 1,
-                            "badgeText": "核心结论摘要过长会被截断",
-                            "emphasisSpans": [
+                            "highlights": [
                                 {"startToken": 2, "endToken": 4},
                                 {"startToken": 2, "endToken": 4},
                                 {"startToken": 4, "endToken": 5},
@@ -86,11 +85,11 @@ class RenderCaptionLabelsTest(unittest.TestCase):
                         },
                         {
                             "index": 2,
-                            "emphasisSpans": [{"startToken": 1, "endToken": 1}],
+                            "highlights": [{"startToken": 1, "endToken": 1}],
                         },
                         {
                             "index": 99,
-                            "badgeText": "忽略",
+                            "highlights": [{"startToken": 0, "endToken": 1}],
                         },
                     ]
                 }
@@ -108,8 +107,15 @@ class RenderCaptionLabelsTest(unittest.TestCase):
         self.assertEqual(
             result[0]["label"],
             {
-                "badgeText": "核心结论摘要过长会被截断",
-                "emphasisSpans": [{"startToken": 2, "endToken": 4}],
+                "highlights": [
+                    {
+                        "startToken": 2,
+                        "endToken": 4,
+                        "text": "重点结论",
+                        "color": "#22c55e",
+                        "fontScale": 1.24,
+                    }
+                ],
             },
         )
         self.assertNotIn("label", result[1])

@@ -13,9 +13,7 @@ export const SUBTITLE_PROGRESS_GAP_EM = 0.34;
 const round = (value: number): number => Math.round(value);
 
 export const normalizeSubtitleTheme = (subtitleTheme: string | undefined): "black" | "white" =>
-  subtitleTheme === "white" || subtitleTheme === "box-black-on-white" || subtitleTheme === "text-black"
-    ? "white"
-    : "black";
+  subtitleTheme === "white" ? "white" : "black";
 
 export const isTextSubtitleTheme = (_subtitleTheme: string | undefined): boolean => false;
 

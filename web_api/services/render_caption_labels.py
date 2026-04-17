@@ -9,8 +9,11 @@ from video_auto_cut.editing import llm_client as llm_utils
 from ..config import get_settings
 
 _DEFAULT_LABEL_MAX_TOKENS = 600
+_MAX_HIGHLIGHTS = 3
 _MAX_BADGE_TEXT_LENGTH = 16
 _MAX_EMPHASIS_SPANS = 3
+_DEFAULT_HIGHLIGHT_COLORS = ("#22c55e", "#38bdf8", "#f59e0b")
+_DEFAULT_HIGHLIGHT_SCALES = (1.24, 1.18, 1.14)
 
 
 def attach_llm_labels_to_captions(
@@ -35,8 +38,9 @@ def attach_llm_labels_to_captions(
             repair_retries=1,
             repair_instructions=(
                 "Return one JSON object with a `labels` array. "
-                "Each item must use an existing caption `index`, optional `badgeText`, "
-                "and optional `emphasisSpans` with `startToken`/`endToken` indexes."
+                "Each item must use an existing caption `index` and should prefer "
+                "`highlights` with `startToken`/`endToken` or exact `text`. "
+                "Legacy `badgeText` and `emphasisSpans` are accepted only as fallback."
             ),
         )
     except Exception as exc:
@@ -105,10 +109,14 @@ def _build_label_messages(captions: list[dict[str, Any]]) -> list[dict[str, str]
             "role": "system",
             "content": (
                 "You label short video captions for later rendering. "
-                "Return JSON only. Use a single schema: "
-                "{\"labels\":[{\"index\":1,\"badgeText\":\"...\",\"emphasisSpans\":[{\"startToken\":0,\"endToken\":2}]}]}. "
+                "Return JSON only. Prefer a single schema: "
+                "{\"labels\":[{\"index\":1,\"highlights\":[{\"startToken\":0,\"endToken\":2,\"text\":\"重点结论\",\"color\":\"#22c55e\",\"fontScale\":1.18}]}]}. "
                 "If a caption does not need a label, omit it. "
-                "Keep badgeText short. Use token indexes with endToken exclusive."
+                "Be decisive instead of conservative. Highlight the words or short phrases that carry "
+                "tone, conclusion, contrast, action, product terms, numbers, results, or turning points. "
+                "Prefer 1-3 highlights per caption when there is an obvious focus. "
+                "Prefer highlights over badgeText or emphasisSpans, do not invent abstract badge labels, "
+                "keep highlight text exact, use endToken exclusive, and provide color plus fontScale for every highlight."
             ),
         },
         {
@@ -149,30 +157,38 @@ def _validate_label_payload(
 
 def _normalize_label(raw_label: dict[str, Any], caption: dict[str, Any]) -> dict[str, Any] | None:
     normalized: dict[str, Any] = {}
-
-    badge_text = str(raw_label.get("badgeText") or "").strip()
-    if badge_text:
-        normalized["badgeText"] = badge_text[:_MAX_BADGE_TEXT_LENGTH]
-
     token_count = len(list(caption.get("tokens") or []))
-    spans: list[dict[str, int]] = []
-    raw_spans = raw_label.get("emphasisSpans")
-    if token_count > 0 and isinstance(raw_spans, list):
-        for raw_span in raw_spans[:_MAX_EMPHASIS_SPANS]:
-            if not isinstance(raw_span, dict):
+    highlights: list[dict[str, Any]] = []
+    seen_ranges: set[tuple[int, int]] = set()
+    raw_highlights = raw_label.get("highlights")
+    if token_count > 0 and isinstance(raw_highlights, list):
+        for index, raw_highlight in enumerate(raw_highlights[:_MAX_HIGHLIGHTS]):
+            if not isinstance(raw_highlight, dict):
                 continue
-            start_token = _coerce_int(raw_span.get("startToken"))
-            end_token = _coerce_int(raw_span.get("endToken"))
+            start_token = _coerce_int(raw_highlight.get("startToken"))
+            end_token = _coerce_int(raw_highlight.get("endToken"))
             if start_token is None or end_token is None:
                 continue
             if start_token < 0 or end_token <= start_token or end_token > token_count:
                 continue
-            normalized_span = {"startToken": start_token, "endToken": end_token}
-            if normalized_span in spans:
+            highlight_text = "".join(
+                str(token.get("text") or "")
+                for token in list(caption.get("tokens") or [])[start_token:end_token]
+            ).strip()
+            normalized_highlight = {
+                "startToken": start_token,
+                "endToken": end_token,
+                "text": highlight_text,
+                "color": _DEFAULT_HIGHLIGHT_COLORS[index % len(_DEFAULT_HIGHLIGHT_COLORS)],
+                "fontScale": _DEFAULT_HIGHLIGHT_SCALES[index % len(_DEFAULT_HIGHLIGHT_SCALES)],
+            }
+            range_key = (start_token, end_token)
+            if range_key in seen_ranges:
                 continue
-            spans.append(normalized_span)
-    if spans:
-        normalized["emphasisSpans"] = spans
+            highlights.append(normalized_highlight)
+            seen_ranges.add(range_key)
+    if highlights:
+        normalized["highlights"] = highlights
 
     return normalized or None
 

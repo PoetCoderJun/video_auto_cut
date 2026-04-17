@@ -2,12 +2,7 @@ import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 import {clamp, cn} from "../utils.ts";
-import type {
-  RenderCaption as ApiRenderCaption,
-  RenderCaptionEmphasisSpan,
-  RenderCaptionHighlight,
-  RenderCaptionToken,
-} from "../api";
+import type {RenderCaption as ApiRenderCaption} from "../api";
 
 import {
   applyOverlayScaleToTypography,
@@ -43,6 +38,12 @@ import {
 } from "./typography";
 import {WEB_RENDER_DELAY_RENDER_TIMEOUT_MS} from "./rendering";
 import {coerceStitchVideoWebProps, type SubtitleRenderV1Contract} from "./subtitle-render-v1";
+import {
+  buildCaptionRenderChunks,
+  getCaptionChunkFontScale,
+  normalizeCaptionTokensForRender,
+  type CaptionRenderChunk,
+} from "./caption-highlights";
 
 export type RenderCaption = ApiRenderCaption;
 
@@ -105,118 +106,44 @@ const findActiveTopicIndexByStart = (
   return activeIndex;
 };
 
-type NormalizedCaptionToken = {
-  text: string;
-  start: number;
-  end: number;
-  isEmphasized: boolean;
-  highlightColor?: string;
-  highlightFontScale?: number;
-};
-
-const isCaptionTokenEmphasized = (
-  tokenIndex: number,
-  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined
-): boolean =>
-  Array.isArray(emphasisSpans)
-    ? emphasisSpans.some(
-        (span) =>
-          Number.isFinite(span?.startToken) &&
-          Number.isFinite(span?.endToken) &&
-          tokenIndex >= span.startToken &&
-          tokenIndex < span.endToken
-      )
-    : false;
-
-const resolveCaptionHighlight = (
-  tokenIndex: number,
-  highlights: RenderCaptionHighlight[] | undefined
-): RenderCaptionHighlight | null =>
-  Array.isArray(highlights)
-    ? (
-        highlights.find(
-          (highlight) =>
-            Number.isFinite(highlight?.startToken) &&
-            Number.isFinite(highlight?.endToken) &&
-            tokenIndex >= Number(highlight.startToken) &&
-            tokenIndex < Number(highlight.endToken)
-        ) ?? null
-      )
-    : null;
-
-const normalizeCaptionTokens = (
-  tokens: RenderCaptionToken[] | undefined,
-  caption: RenderCaption | null,
-  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined,
-  highlights: RenderCaptionHighlight[] | undefined
-): NormalizedCaptionToken[] => {
-  if (!caption || !Array.isArray(tokens) || tokens.length === 0) return [];
-  return tokens
-    .map((token, tokenIndex) => ({
-      text: String(token?.text || ""),
-      start: Number(token?.start),
-      end: Number(token?.end),
-      sourceTokenIndex: tokenIndex,
-      highlight: resolveCaptionHighlight(tokenIndex, highlights),
-    }))
-    .filter(
-      (token) =>
-        token.text &&
-        Number.isFinite(token.start) &&
-        Number.isFinite(token.end) &&
-        token.end >= token.start &&
-        token.end >= caption.start &&
-        token.start <= caption.end
-    )
-    .map((token, index, list) => ({
-      text: token.text,
-      start: index === 0 ? caption.start : Math.max(caption.start, token.start),
-      end: index === list.length - 1 ? caption.end : Math.min(caption.end, Math.max(token.start, token.end)),
-      isEmphasized: isCaptionTokenEmphasized(token.sourceTokenIndex, emphasisSpans),
-      highlightColor: String(token.highlight?.color || "").trim() || undefined,
-      highlightFontScale:
-        typeof token.highlight?.fontScale === "number" && Number.isFinite(token.highlight.fontScale) && token.highlight.fontScale > 0
-          ? token.highlight.fontScale
-          : undefined,
-    }));
-};
-
 const renderCaptionTokens = ({
-  tokens,
+  chunks,
   subtitleTheme,
 }: {
-  tokens: NormalizedCaptionToken[];
+  chunks: CaptionRenderChunk[];
   subtitleTheme: SubtitleTheme;
 }): React.ReactNode => {
-  return tokens.map((token, index) => {
-    const isHighlighted = Boolean(token.highlightColor || token.highlightFontScale || token.isEmphasized);
+  return chunks.map((chunk, index) => {
+    const highlightFontScale = getCaptionChunkFontScale(chunk);
     return (
       <span
-        key={`caption-token-${index}-${token.start}-${token.end}-${token.text}`}
+        key={`caption-chunk-${index}-${chunk.start}-${chunk.end}-${chunk.text}`}
         className={cn(
-          "inline whitespace-pre-wrap align-baseline",
-          isHighlighted ? "font-black tracking-[0.01em]" : "font-bold"
+          chunk.isHighlighted
+            ? "inline-block whitespace-pre-wrap align-baseline font-black tracking-[0.01em]"
+            : "inline whitespace-pre-wrap align-baseline font-bold"
         )}
         style={{
           color:
-            token.highlightColor ??
-            (isHighlighted
+            chunk.highlightColor ??
+            (chunk.isHighlighted
               ? subtitleTheme === "white"
                 ? "#0f172a"
                 : "#67e8f9"
               : "inherit"),
           opacity: 1,
           fontSize:
-            token.highlightFontScale && token.highlightFontScale !== 1
-              ? `calc(1em * ${Math.max(0.72, Math.min(1.6, token.highlightFontScale))})`
+            highlightFontScale && highlightFontScale !== 1
+              ? `calc(1em * ${highlightFontScale})`
               : undefined,
           textShadow:
-            isHighlighted && subtitleTheme === "black"
+            chunk.isHighlighted && subtitleTheme === "black"
               ? "0 1px 10px rgba(15, 23, 42, 0.35)"
               : undefined,
+          lineHeight: chunk.isHighlighted ? 1.04 : undefined,
         }}
       >
-        {token.text}
+        {chunk.text}
       </span>
     );
   });
@@ -375,11 +302,10 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   const activeCaptionIndex = wrappedCaptions.findIndex((caption) => t >= caption.start && t < caption.end);
   const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
   const activeCaptionLabel = activeCaptionIndex >= 0 ? captions[activeCaptionIndex]?.label : undefined;
-  const activeCaptionBadgeText = String(activeCaptionLabel?.badgeText || "").trim();
   const subtitleRenderText = activeCaption?.displayText ?? "";
   const activeCaptionTokens = useMemo(
     () =>
-      normalizeCaptionTokens(
+      normalizeCaptionTokensForRender(
         activeCaptionIndex >= 0 ? captions[activeCaptionIndex]?.tokens : undefined,
         activeCaption
           ? {
@@ -394,6 +320,10 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         activeCaptionLabel?.highlights
       ),
     [activeCaption, activeCaptionIndex, activeCaptionLabel?.emphasisSpans, activeCaptionLabel?.highlights, captions]
+  );
+  const activeCaptionChunks = useMemo(
+    () => buildCaptionRenderChunks(activeCaptionTokens),
+    [activeCaptionTokens]
   );
   const subtitleInitialFontSize = subtitleLayoutTypography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
@@ -485,7 +415,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         display: "inline-flex" as const,
         flexDirection: "column" as const,
         alignItems: "flex-start" as const,
-        gap: activeCaptionBadgeText ? Math.max(6, Math.round(subtitleRenderFontSize * 0.14)) : 0,
+        gap: 0,
         width: "fit-content",
         maxWidth: subtitleBoxMaxWidth,
         overflow: "visible" as const,
@@ -506,23 +436,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         wordBreak: "normal" as const,
         overflowWrap: "anywhere" as const,
         overflow: "hidden" as const,
-      },
-      subtitleBadge: {
-        maxWidth: Math.min(subtitleBoxMaxWidth, width * 0.42),
-        padding: "0.24em 0.68em",
-        borderRadius: 999,
-        border: "1px solid rgba(255, 255, 255, 0.16)",
-        background: "linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.82))",
-        color: "rgba(255, 255, 255, 0.96)",
-        fontSize: Math.max(11, Math.round(subtitleRenderFontSize * 0.24)),
-        fontWeight: 700,
-        fontFamily: OVERLAY_FONT_FAMILY,
-        lineHeight: 1.15,
-        letterSpacing: "0.02em",
-        whiteSpace: "nowrap" as const,
-        overflow: "hidden" as const,
-        textOverflow: "ellipsis" as const,
-        boxShadow: "0 14px 30px -22px rgba(2, 6, 23, 0.55)",
       },
       chapterWrap: {
         position: "absolute" as const,
@@ -771,7 +684,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       {showSubtitles ? (
         <div style={scaledStyles.subtitleWrap}>
           <div style={scaledStyles.subtitleFrame}>
-            {activeCaptionBadgeText ? <div style={scaledStyles.subtitleBadge}>{activeCaptionBadgeText}</div> : null}
             <div
               className={subtitleThemeClassName}
               style={{
@@ -783,11 +695,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                 boxShadow: undefined,
               }}
             >
-              {activeCaptionTokens.length > 0 ? (
+              {activeCaptionChunks.length > 0 ? (
                 <span
                   className="inline whitespace-pre-wrap"
                 >
-                  {renderCaptionTokens({tokens: activeCaptionTokens, subtitleTheme: resolvedSubtitleTheme})}
+                  {renderCaptionTokens({chunks: activeCaptionChunks, subtitleTheme: resolvedSubtitleTheme})}
                 </span>
               ) : (
                 activeCaptionLayout?.text ?? subtitleRenderText
