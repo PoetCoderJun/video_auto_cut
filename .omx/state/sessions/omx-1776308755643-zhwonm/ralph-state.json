@@ -1,7 +1,7 @@
 {
-  "active": true,
+  "active": false,
   "mode": "ralph",
-  "current_phase": "complete",
+  "current_phase": "cancelled",
   "started_at": "2026-04-16T04:35:32.014Z",
   "updated_at": "2026-04-16T05:15:23.562Z",
   "session_id": "omx-1776308755643-zhwonm",
@@ -16,5 +16,5 @@
   "last_turn_at": "2026-04-16T05:37:10.787Z",
   "max_iterations_auto_expand_count": 3,
   "max_iterations_auto_expanded_at": "2026-04-16T05:08:04.984Z",
-  "completed_at": "2026-04-16T05:15:07Z"
+  "completed_at": "2026-04-16T06:30:55.852Z"
 }

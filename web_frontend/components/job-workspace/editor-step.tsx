@@ -73,20 +73,26 @@ export function EditorStep({
   );
 
   const resolveDropTargetLineId = (clientY: number): number | null => {
-    const container = containerRef.current;
-    if (!container) return null;
+    let nearestLineId: number | null = null;
+    let minDistance = Infinity;
+
     for (let i = 0; i < lineRefs.current.length; i++) {
       const el = lineRefs.current[i];
       if (!el) continue;
+      const line = lines[i];
+      if (!line || line.user_final_remove) continue;
+
       const rect = el.getBoundingClientRect();
-      if (clientY >= rect.top && clientY <= rect.bottom) {
-        const line = lines[i];
-        if (line && !line.user_final_remove) {
-          return line.line_id;
-        }
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.abs(clientY - centerY);
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestLineId = line.line_id;
       }
     }
-    return null;
+
+    return nearestLineId;
   };
 
   if (lines.length === 0) {

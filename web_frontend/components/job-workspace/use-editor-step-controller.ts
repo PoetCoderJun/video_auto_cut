@@ -96,17 +96,9 @@ export function useEditorStepController({
           line.line_id === lineId ? {...line, ...patch} : line,
         );
         if (Object.prototype.hasOwnProperty.call(patch, "user_final_remove")) {
-          setChapters((previousChapters) => {
-            const nextKeptLines = getKeptTestLines(nextLines);
-            const materialized = materializeChapterRanges(
-              previousChapters,
-              nextKeptLines,
-            );
-            if (materialized.length === previousChapters.length) {
-              return previousChapters;
-            }
-            return syncChaptersWithKeptLines(previousChapters, nextKeptLines);
-          });
+          setChapters((previousChapters) =>
+            syncChaptersWithKeptLines(previousChapters, getKeptTestLines(nextLines)),
+          );
         }
         return nextLines;
       });
