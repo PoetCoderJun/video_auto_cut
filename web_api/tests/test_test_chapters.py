@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -74,6 +75,219 @@ class TestChaptersTests(unittest.TestCase):
             ],
         )
         mock_runner.assert_called_once()
+
+    def test_generate_test_chapters_limits_landscape_jobs_to_six(self) -> None:
+        kept_lines = [
+            {
+                "line_id": index,
+                "start": float((index - 1) * 3),
+                "end": float(index * 3),
+                "original_text": f"第{index}句内容比较完整",
+                "optimized_text": f"第{index}句内容比较完整",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            }
+            for index in range(1, 19)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "chapters_draft.txt"
+            video_path = Path(tmpdir) / "source.mp4"
+            video_path.write_bytes(b"fake")
+            with (
+                patch("web_api.services.test.build_pipeline_options_from_settings"),
+                patch(
+                    "web_api.services.test.build_llm_config",
+                    return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
+                ),
+                patch(
+                    "web_api.services.test.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        args=["ffprobe"],
+                        returncode=0,
+                        stdout='{"streams":[{"width":1920,"height":1080}]}',
+                        stderr="",
+                    ),
+                ),
+                patch(
+                    "web_api.services.test.run_test_pi",
+                    return_value=TestPiArtifacts(
+                        task="chapter",
+                        chapters=[
+                            {"chapter_id": 1, "title": "开场", "block_range": "1-3"},
+                            {"chapter_id": 2, "title": "重点一", "block_range": "4-6"},
+                            {"chapter_id": 3, "title": "重点二", "block_range": "7-9"},
+                            {"chapter_id": 4, "title": "重点三", "block_range": "10-12"},
+                            {"chapter_id": 5, "title": "重点四", "block_range": "13-14"},
+                            {"chapter_id": 6, "title": "重点五", "block_range": "15-16"},
+                            {"chapter_id": 7, "title": "收尾", "block_range": "17-18"},
+                        ],
+                    ),
+                ) as mock_runner,
+            ):
+                chapters = generate_test_chapters(
+                    output_path=output_path,
+                    kept_lines=kept_lines,
+                    video_path=video_path,
+                )
+
+        request = mock_runner.call_args.args[0]
+        self.assertEqual(request.max_chapters, 6)
+        self.assertEqual(request.chapter_policy_hint, "横屏视频章节约束")
+        self.assertEqual(len(chapters), 6)
+        self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-3", "4-6", "7-9", "10-12", "13-16", "17-18"])
+
+    def test_generate_test_chapters_limits_portrait_jobs_to_four(self) -> None:
+        kept_lines = [
+            {
+                "line_id": index,
+                "start": float((index - 1) * 3),
+                "end": float(index * 3),
+                "original_text": f"第{index}句内容比较完整",
+                "optimized_text": f"第{index}句内容比较完整",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            }
+            for index in range(1, 19)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "chapters_draft.txt"
+            video_path = Path(tmpdir) / "source.mp4"
+            video_path.write_bytes(b"fake")
+            with (
+                patch("web_api.services.test.build_pipeline_options_from_settings"),
+                patch(
+                    "web_api.services.test.build_llm_config",
+                    return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
+                ),
+                patch(
+                    "web_api.services.test.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        args=["ffprobe"],
+                        returncode=0,
+                        stdout='{"streams":[{"width":1080,"height":1920}]}',
+                        stderr="",
+                    ),
+                ),
+                patch(
+                    "web_api.services.test.run_test_pi",
+                    return_value=TestPiArtifacts(
+                        task="chapter",
+                        chapters=[
+                            {"chapter_id": 1, "title": "开场", "block_range": "1-4"},
+                            {"chapter_id": 2, "title": "重点一", "block_range": "5-8"},
+                            {"chapter_id": 3, "title": "重点二", "block_range": "9-12"},
+                            {"chapter_id": 4, "title": "重点三", "block_range": "13-14"},
+                            {"chapter_id": 5, "title": "重点四", "block_range": "15-18"},
+                        ],
+                    ),
+                ) as mock_runner,
+            ):
+                chapters = generate_test_chapters(
+                    output_path=output_path,
+                    kept_lines=kept_lines,
+                    video_path=video_path,
+                )
+
+        request = mock_runner.call_args.args[0]
+        self.assertEqual(request.max_chapters, 4)
+        self.assertEqual(request.chapter_policy_hint, "竖屏视频章节约束")
+        self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-4", "5-8", "9-14", "15-18"])
+
+    def test_generate_test_chapters_merges_insubstantial_single_block_bridge(self) -> None:
+        kept_lines = [
+            {
+                "line_id": 1,
+                "start": 0.0,
+                "end": 4.0,
+                "original_text": "前面先交代完整背景",
+                "optimized_text": "前面先交代完整背景",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 2,
+                "start": 4.0,
+                "end": 8.0,
+                "original_text": "继续把背景说明完整",
+                "optimized_text": "继续把背景说明完整",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 3,
+                "start": 8.0,
+                "end": 12.0,
+                "original_text": "最后补一句关键结论",
+                "optimized_text": "最后补一句关键结论",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 4,
+                "start": 12.0,
+                "end": 14.0,
+                "original_text": "嗯",
+                "optimized_text": "嗯",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 5,
+                "start": 14.0,
+                "end": 18.0,
+                "original_text": "然后开始第二段完整方法",
+                "optimized_text": "然后开始第二段完整方法",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 6,
+                "start": 18.0,
+                "end": 22.0,
+                "original_text": "把第二段方法继续展开",
+                "optimized_text": "把第二段方法继续展开",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 7,
+                "start": 22.0,
+                "end": 26.0,
+                "original_text": "最后把方法收住",
+                "optimized_text": "最后把方法收住",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "chapters_draft.txt"
+            with (
+                patch("web_api.services.test.build_pipeline_options_from_settings"),
+                patch(
+                    "web_api.services.test.build_llm_config",
+                    return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
+                ),
+                patch(
+                    "web_api.services.test.run_test_pi",
+                    return_value=TestPiArtifacts(
+                        task="chapter",
+                        chapters=[
+                            {"chapter_id": 1, "title": "前情", "block_range": "1-3"},
+                            {"chapter_id": 2, "title": "过渡", "block_range": "4"},
+                            {"chapter_id": 3, "title": "方法", "block_range": "5-7"},
+                        ],
+                    ),
+                ),
+            ):
+                chapters = generate_test_chapters(
+                    output_path=output_path,
+                    kept_lines=kept_lines,
+                )
+
+        self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-4", "5-7"])
 
     def test_canonicalize_test_chapters_recomputes_timings_from_block_range(self) -> None:
         kept_lines = [

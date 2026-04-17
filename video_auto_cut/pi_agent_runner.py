@@ -47,6 +47,8 @@ class TestPiRequest:
     lines: list[dict[str, Any]] = field(default_factory=list)
     title_max_chars: int = 6
     max_lines: int = DEFAULT_MAX_LINES
+    max_chapters: int | None = None
+    chapter_policy_hint: str = ""
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,8 @@ class PiTextBridge:
             input_path=input_path,
             output_path=output_path,
             title_max_chars=self.request.title_max_chars,
+            max_chapters=self.request.max_chapters,
+            chapter_policy_hint=self.request.chapter_policy_hint,
         )
 
     def parse_output(self, text: str) -> TestPiArtifacts:
@@ -327,19 +331,41 @@ def _build_polish_prompt(*, input_path: Path, output_path: Path) -> str:
     )
 
 
-def _build_chapter_prompt(*, input_path: Path, output_path: Path, title_max_chars: int) -> str:
+def _build_chapter_prompt(
+    *,
+    input_path: Path,
+    output_path: Path,
+    title_max_chars: int,
+    max_chapters: int | None = None,
+    chapter_policy_hint: str = "",
+) -> str:
+    requirements = [
+        "1. 只做 chapter，不改字幕正文。",
+        "2. 只读取上面的输入文件，只写入上面的输出文件；不要探索仓库，不要读取无关文件，不要修改任何源码或其他文件。",
+        "3. 输入文件中每一行都长这样：`【block_index】句子`，只包含保留字幕。",
+    ]
+    if max_chapters is not None and max_chapters > 0:
+        policy_hint = str(chapter_policy_hint or "").strip()
+        if policy_hint:
+            requirements.append(f"4. 当前按{policy_hint}处理，本次最多只能分成 {int(max_chapters)} 章。")
+        else:
+            requirements.append(f"4. 本次最多只能分成 {int(max_chapters)} 章。")
+    next_index = len(requirements) + 1
+    requirements.extend(
+        [
+            f"{next_index}. title 尽量不超过 {title_max_chars} 个字。",
+            f"{next_index + 1}. 只有出现明确话题/阶段切换时才新开章节；寒暄、过渡句、重复补充、没有实质新内容的短段落必须并入相邻章节，不要单独成章。",
+            f"{next_index + 2}. 输出文件必须逐行使用轻量格式：`【start-end】标题`，例如 `【1-3】开场`。",
+            f"{next_index + 3}. 所有 block_range 必须连续覆盖全部 block，不能空洞、重叠、跳号、越界。",
+            f"{next_index + 4}. 不要输出 markdown，不要输出解释；只把章节行写入输出文件，写完后立即结束。",
+        ]
+    )
     return (
         "读取输入 Test 轻量字幕文本，并使用项目自动加载的 chapter skill 生成最终章节。\n"
         f"输入文件: {input_path}\n"
         f"输出文件: {output_path}\n"
         "要求：\n"
-        "1. 只做 chapter，不改字幕正文。\n"
-        "2. 只读取上面的输入文件，只写入上面的输出文件；不要探索仓库，不要读取无关文件，不要修改任何源码或其他文件。\n"
-        "3. 输入文件中每一行都长这样：`【block_index】句子`，只包含保留字幕。\n"
-        f"4. title 尽量不超过 {title_max_chars} 个字。\n"
-        "5. 输出文件必须逐行使用轻量格式：`【start-end】标题`，例如 `【1-3】开场`。\n"
-        "6. 所有 block_range 必须连续覆盖全部 block，不能空洞、重叠、跳号、越界。\n"
-        "7. 不要输出 markdown，不要输出解释；只把章节行写入输出文件，写完后立即结束。"
+        + "\n".join(requirements)
     )
 
 
