@@ -23,6 +23,7 @@ class AsrTranscribeStageCliTests(unittest.TestCase):
             artifacts = SimpleNamespace(
                 media_path=media_path,
                 srt_path=srt_path,
+                asr_words_sidecar_path=Path(tmpdir) / "sample.asr.words.json",
                 test_lines=[
                     {
                         "line_id": 1,
@@ -48,6 +49,10 @@ class AsrTranscribeStageCliTests(unittest.TestCase):
             self.assertIn("【00:00:00.000-00:00:01.000】原文", payload)
 
             cli_payload = json.loads(stdout.getvalue())
+            self.assertEqual(
+                cli_payload["asr_words_sidecar_path"],
+                str((Path(tmpdir) / "sample.asr.words.json")),
+            )
             self.assertEqual(cli_payload["test_text_path"], str(test_text_path))
             self.assertEqual(cli_payload["line_count"], 1)
 

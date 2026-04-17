@@ -177,7 +177,7 @@ class DashScopeFiletransClient:
         payload = self._open_json_url(transcription_url, headers={})
         segments = self._parse_segments(payload)
         logging.info("[asr] dashscope result parsed segments=%s", len(segments))
-        return FiletransResult(task_id="", segments=segments)
+        return FiletransResult(task_id="", segments=segments, raw_payload=payload)
 
     def _parse_segments(self, payload: dict[str, Any]) -> list[FiletransSegment]:
         segments: list[FiletransSegment] = []

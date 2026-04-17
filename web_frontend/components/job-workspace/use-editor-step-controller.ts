@@ -96,12 +96,17 @@ export function useEditorStepController({
           line.line_id === lineId ? {...line, ...patch} : line,
         );
         if (Object.prototype.hasOwnProperty.call(patch, "user_final_remove")) {
-          setChapters((previousChapters) =>
-            syncChaptersWithKeptLines(
+          setChapters((previousChapters) => {
+            const nextKeptLines = getKeptTestLines(nextLines);
+            const materialized = materializeChapterRanges(
               previousChapters,
-              getKeptTestLines(nextLines),
-            ),
-          );
+              nextKeptLines,
+            );
+            if (materialized.length === previousChapters.length) {
+              return previousChapters;
+            }
+            return syncChaptersWithKeptLines(previousChapters, nextKeptLines);
+          });
         }
         return nextLines;
       });
@@ -214,7 +219,7 @@ export function useEditorStepController({
       handleRetryTestDraftLoad,
       moveChapterBoundary,
       removeChapter,
-      resetTestDocument,
+      handleReset: resetTestDocument,
       updateChapter,
       updateLine,
     },

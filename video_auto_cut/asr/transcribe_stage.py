@@ -8,6 +8,7 @@ from typing import Any
 
 from video_auto_cut.orchestration.pipeline_service import ASRProgressCallback, run_transcribe
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
+from video_auto_cut.asr.word_timing_sidecar import sidecar_path_for_srt
 from video_auto_cut.shared.interfaces import PipelineOptions
 from video_auto_cut.shared.test_text_io import build_test_lines_from_srt, write_test_text
 
@@ -17,6 +18,7 @@ class ASRTranscriptionArtifacts:
     media_path: Path
     srt_path: Path
     test_lines: list[dict[str, Any]]
+    asr_words_sidecar_path: Path | None = None
     test_text_path: Path | None = None
 
 def write_test_lines_text(lines: list[dict[str, Any]], output_path: Path) -> None:
@@ -40,6 +42,9 @@ def run_asr_transcription_stage(
         oss_object_key=oss_object_key,
     )
     test_lines = build_test_lines_from_srt(srt_path, options.encoding)
+    words_sidecar_path = sidecar_path_for_srt(srt_path)
+    if not words_sidecar_path.exists():
+        words_sidecar_path = None
     test_text_path: Path | None = None
     if write_test_text_sidecar:
         test_text_path = (
@@ -52,6 +57,7 @@ def run_asr_transcription_stage(
         media_path=normalized_media_path,
         srt_path=srt_path,
         test_lines=test_lines,
+        asr_words_sidecar_path=words_sidecar_path,
         test_text_path=test_text_path,
     )
 
@@ -114,6 +120,9 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "media_path": str(artifacts.media_path),
         "srt_path": str(artifacts.srt_path),
+        "asr_words_sidecar_path": (
+            str(artifacts.asr_words_sidecar_path) if artifacts.asr_words_sidecar_path is not None else None
+        ),
         "test_text_path": str(test_text_path) if test_text_path is not None else None,
         "line_count": len(artifacts.test_lines),
     }

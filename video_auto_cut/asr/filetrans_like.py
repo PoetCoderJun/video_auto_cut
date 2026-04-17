@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from typing import Any
 
 
 TaskStatus = Literal["RUNNING", "SUCCEEDED", "FAILED"]
@@ -31,6 +32,7 @@ class FiletransSegment:
 class FiletransResult:
     task_id: str
     segments: list[FiletransSegment]
+    raw_payload: dict[str, Any] | None = None
 
 def segments_to_tokens(segments: list[FiletransSegment]) -> list[dict]:
     return [{"start": seg.start, "end": seg.end, "text": seg.text} for seg in segments]

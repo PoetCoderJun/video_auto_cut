@@ -365,6 +365,7 @@ def run_test(job_id: str) -> None:
     _persist_test_artifacts(
         job_id,
         srt_path=srt_path,
+        asr_words_sidecar_path=getattr(asr_artifacts, "asr_words_sidecar_path", None),
         optimized_srt_path=optimized_srt_path,
         chapters_draft_path=chapters_draft_path,
         optimized_srt_upload=optimized_srt_upload,
@@ -480,6 +481,7 @@ def _persist_test_artifacts(
     job_id: str,
     *,
     srt_path: Path,
+    asr_words_sidecar_path: Path | None,
     optimized_srt_path: Path,
     chapters_draft_path: Path,
     optimized_srt_upload: dict[str, str] | None,
@@ -487,6 +489,9 @@ def _persist_test_artifacts(
     upsert_job_files(
         job_id,
         srt_path=str(srt_path),
+        asr_words_sidecar_path=(
+            str(asr_words_sidecar_path) if asr_words_sidecar_path is not None else None
+        ),
         optimized_srt_path=str(optimized_srt_path),
         chapters_draft_path=str(chapters_draft_path),
         optimized_srt_oss_key=(

@@ -41,20 +41,9 @@ _TURSO_CONNECT_ONLY_SIGNALS = (
 )
 
 
-def _is_local_only_mode() -> bool:
-    raw = (os.getenv("WEB_DB_LOCAL_ONLY") or "").strip().lower()
-    return raw in {"1", "true", "yes"}
-
-
 def _is_turso_enabled() -> bool:
-    if _is_local_only_mode():
-        return False
     settings = get_settings()
     return bool(settings.turso_database_url and settings.turso_auth_token)
-
-
-def is_local_only_mode() -> bool:
-    return _is_local_only_mode()
 
 
 def is_turso_enabled() -> bool:
@@ -111,6 +100,21 @@ def _is_wal_conflict_error(exc: Exception) -> bool:
     message = str(exc or "")
     normalized = message.lower()
     return "wal frame insert conflict" in normalized or "walconflict" in normalized
+
+
+def _is_invalid_local_replica_state_error(exc: Exception) -> bool:
+    message = str(exc or "")
+    normalized = message.lower()
+    return (
+        "invalid local state" in normalized
+        or "metadata file does not exist" in normalized
+        or "metadata file missing" in normalized
+        or "db file exists but metadata file does not" in normalized
+    )
+
+
+def _should_reset_local_replica(exc: Exception) -> bool:
+    return _is_wal_conflict_error(exc) or _is_invalid_local_replica_state_error(exc)
 
 
 def _normalized_error_text(exc: Exception) -> str:
@@ -293,8 +297,9 @@ def _connect_turso(settings: Any) -> Any:
 
 def _create_conn() -> Any:
     settings = get_settings()
-    if _is_local_only_mode():
+    if not settings.turso_database_url or not settings.turso_auth_token:
         return _create_local_conn()
+    reset_reason = "unknown local replica issue"
     try:
         conn = _connect_turso(settings)
         try:
@@ -309,14 +314,17 @@ def _create_conn() -> Any:
                 )
                 return conn
             conn.close()
-            if not _is_wal_conflict_error(exc):
+            if not _should_reset_local_replica(exc):
                 raise RuntimeError(f"Turso connect failed: {exc}") from exc
+            reset_reason = "WAL conflict" if _is_wal_conflict_error(exc) else "invalid local replica state"
     except Exception as exc:
-        if not _is_wal_conflict_error(exc):
+        if not _should_reset_local_replica(exc):
             raise RuntimeError(f"Turso connect failed: {exc}") from exc
+        reset_reason = "WAL conflict" if _is_wal_conflict_error(exc) else "invalid local replica state"
 
     logging.warning(
-        "[web_api] detected WAL conflict for local replica %s, resetting and retrying once",
+        "[web_api] detected %s for local replica %s, resetting and retrying once",
+        reset_reason,
         settings.turso_local_replica_path,
     )
     _reset_local_replica(settings.turso_local_replica_path)
@@ -340,9 +348,6 @@ def _sync_best_effort(conn: Any, *, stage: str, raise_on_error: bool = False) ->
 
 
 def _executescript(conn: Any, script: str) -> None:
-    if hasattr(conn, "executescript"):
-        conn.executescript(script)
-        return
     for statement in script.split(";"):
         sql = statement.strip()
         if not sql:
@@ -372,10 +377,28 @@ def ensure_current_schema(conn: Any) -> None:
     )
 
 
+def ensure_runtime_schema_ready(conn: Any) -> None:
+    required_tables = (
+        "users",
+        "coupon_codes",
+        "credit_ledger",
+        "public_invite_claims",
+        "public_invite_settings",
+    )
+    missing = [table_name for table_name in required_tables if not _table_exists(conn, table_name)]
+    if missing:
+        raise RuntimeError(
+            "Business schema is missing required tables in Turso: " + ", ".join(sorted(missing))
+        )
+
+
 def init_db() -> None:
     from .user_identity import ensure_user_identity_schema
 
     with get_conn() as conn:
+        if is_turso_enabled():
+            ensure_runtime_schema_ready(conn)
+            return
         ensure_current_schema(conn)
         ensure_user_identity_schema(conn)
         conn.commit()

@@ -2,15 +2,19 @@ import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 import {clamp} from "../utils.ts";
+import type {RenderCaption as ApiRenderCaption, RenderCaptionEmphasisSpan, RenderCaptionToken} from "../api";
 
 import {
   applyOverlayScaleToTypography,
+  DEFAULT_OVERLAY_CONTROLS,
+  resolveOverlayAnchorBottom,
   type ProgressLabelMode,
 } from "./overlay-controls";
 import {
   PROGRESS_LABEL_PADDING_X_EM,
   getChapterCardStyle,
   getProgressLabelPaddingX,
+  reserveSubtitleBottomForProgress,
   getSubtitleBoxMaxWidth,
   getSubtitleTextMaxWidth,
   getSubtitleThemeFitWidth,
@@ -20,11 +24,10 @@ import {
   isTextSubtitleTheme,
 } from "./overlay-presentation";
 import {
-  fitUniformSingleLineText,
-  fitUniformTextToBox,
-  fitUniformAdaptiveTextToBox,
   CHAPTER_TITLE_LINE_HEIGHT,
+  fitAdaptiveTextToBox,
   fitChapterTitleToBox,
+  fitSingleLineText,
   getChapterCardLayoutMetrics,
   getResponsiveOverlayTypography,
   getSafeSubtitleScale,
@@ -33,13 +36,9 @@ import {
   prepareCaptionDisplayText,
 } from "./typography";
 import {WEB_RENDER_DELAY_RENDER_TIMEOUT_MS} from "./rendering";
+import {coerceStitchVideoWebProps, type SubtitleRenderV1Contract} from "./subtitle-render-v1";
 
-export type RenderCaption = {
-  index: number;
-  start: number;
-  end: number;
-  text: string;
-};
+export type RenderCaption = ApiRenderCaption;
 
 export type RenderTopic = {
   title: string;
@@ -104,25 +103,106 @@ const findActiveTopicIndexByStart = (
   return activeIndex;
 };
 
-export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
-  src,
-  captions,
-  topics,
-  segments,
-  fps,
-  width,
-  height,
-  subtitleTheme = "box-white-on-black",
-  subtitleScale = 1,
-  subtitleYPercent = 90,
-  progressScale = 1,
-  progressYPercent = 97,
-  chapterScale = 1,
-  showSubtitles = true,
-  showProgress = true,
-  showChapter = true,
-  progressLabelMode = "auto",
-}) => {
+type NormalizedCaptionToken = {
+  text: string;
+  start: number;
+  end: number;
+  isEmphasized: boolean;
+};
+
+const isCaptionTokenEmphasized = (
+  tokenIndex: number,
+  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined
+): boolean =>
+  Array.isArray(emphasisSpans)
+    ? emphasisSpans.some(
+        (span) =>
+          Number.isFinite(span?.startToken) &&
+          Number.isFinite(span?.endToken) &&
+          tokenIndex >= span.startToken &&
+          tokenIndex < span.endToken
+      )
+    : false;
+
+const normalizeCaptionTokens = (
+  tokens: RenderCaptionToken[] | undefined,
+  caption: RenderCaption | null,
+  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined
+): NormalizedCaptionToken[] => {
+  if (!caption || !Array.isArray(tokens) || tokens.length === 0) return [];
+  return tokens
+    .map((token, tokenIndex) => ({
+      text: String(token?.text || ""),
+      start: Number(token?.start),
+      end: Number(token?.end),
+      sourceTokenIndex: tokenIndex,
+    }))
+    .filter(
+      (token) =>
+        token.text &&
+        Number.isFinite(token.start) &&
+        Number.isFinite(token.end) &&
+        token.end >= token.start &&
+        token.end >= caption.start &&
+        token.start <= caption.end
+    )
+    .map((token, index, list) => ({
+      text: token.text,
+      start: index === 0 ? caption.start : Math.max(caption.start, token.start),
+      end: index === list.length - 1 ? caption.end : Math.min(caption.end, Math.max(token.start, token.end)),
+      isEmphasized: isCaptionTokenEmphasized(token.sourceTokenIndex, emphasisSpans),
+    }));
+};
+
+const renderCaptionTokens = ({
+  tokens,
+}: {
+  tokens: NormalizedCaptionToken[];
+}): React.ReactNode => {
+  return tokens.map((token, index) => {
+    return (
+      <span
+        key={`caption-token-${index}-${token.start}-${token.end}-${token.text}`}
+        style={{
+          display: "inline",
+          color: "inherit",
+          opacity: 1,
+          fontWeight: token.isEmphasized ? 900 : 700,
+          letterSpacing: token.isEmphasized ? "0.01em" : undefined,
+          backgroundImage: token.isEmphasized
+            ? "linear-gradient(180deg, transparent 0%, transparent 58%, rgba(56, 189, 248, 0.28) 58%, rgba(56, 189, 248, 0.28) 100%)"
+            : undefined,
+          backgroundRepeat: "no-repeat",
+          boxDecorationBreak: token.isEmphasized ? "clone" : undefined,
+          WebkitBoxDecorationBreak: token.isEmphasized ? "clone" : undefined,
+        }}
+      >
+        {token.text}
+      </span>
+    );
+  });
+};
+
+export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Contract> = (rawProps) => {
+  const {
+    src,
+    captions,
+    topics,
+    segments,
+    fps,
+    width,
+    height,
+    subtitleTheme = "box-white-on-black",
+    subtitleScale = 1,
+    subtitleYPercent = 90,
+    progressScale = 1,
+    progressYPercent = 97,
+    chapterScale = 1,
+    showSubtitles = true,
+    showProgress = true,
+    showChapter = true,
+    progressLabelMode = "auto",
+  } = coerceStitchVideoWebProps(rawProps as Record<string, unknown>) as StitchVideoWebProps;
   const frame = useCurrentFrame();
   const baseTypography = useMemo(() => getResponsiveOverlayTypography({width, height}), [width, height]);
   const safeSubtitleScale = useMemo(
@@ -180,6 +260,18 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
   const progressLabelPaddingX = getProgressLabelPaddingX(typography.progressLabelFontSize);
   const subtitleLineHeight = getSubtitleLineHeight({subtitleScale: safeSubtitleScale, isPortrait});
+  const resolvedSubtitleBottom = resolveOverlayAnchorBottom({
+    frameHeight: height,
+    baselineBottom: typography.subtitleBottom,
+    currentPercent: clamp(subtitleYPercent, 0, 100),
+    defaultPercent: DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
+  });
+  const resolvedProgressBottom = resolveOverlayAnchorBottom({
+    frameHeight: height,
+    baselineBottom: typography.progressBottom,
+    currentPercent: clamp(progressYPercent, 0, 100),
+    defaultPercent: DEFAULT_OVERLAY_CONTROLS.progressYPercent,
+  });
   const progressStrokeWidth = Math.min(
     2,
     Math.max(1, Math.round((typography.progressHeight * 0.034 + Number.EPSILON) * 4) / 4)
@@ -242,38 +334,67 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
   const t = mappedTimelineTime;
   const activeCaptionIndex = wrappedCaptions.findIndex((caption) => t >= caption.start && t < caption.end);
   const activeCaption = activeCaptionIndex >= 0 ? wrappedCaptions[activeCaptionIndex] : null;
+  const activeCaptionLabel = activeCaptionIndex >= 0 ? captions[activeCaptionIndex]?.label : undefined;
+  const activeCaptionBadgeText = String(activeCaptionLabel?.badgeText || "").trim();
   const subtitleRenderText = activeCaption?.displayText ?? "";
+  const activeCaptionTokens = useMemo(
+    () =>
+      normalizeCaptionTokens(
+        activeCaptionIndex >= 0 ? captions[activeCaptionIndex]?.tokens : undefined,
+        activeCaption
+          ? {
+              index: activeCaption.index,
+              start: activeCaption.start,
+              end: activeCaption.end,
+              text: activeCaption.text,
+              tokens: captions[activeCaptionIndex]?.tokens,
+            }
+          : null,
+        activeCaptionLabel?.emphasisSpans
+      ),
+    [activeCaption, activeCaptionIndex, activeCaptionLabel?.emphasisSpans, captions]
+  );
   const subtitleInitialFontSize = subtitleLayoutTypography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
     isPortrait ? 23 : 26,
     Math.floor(subtitleLayoutTypography.subtitleFontSize * (isPortrait ? 0.44 : 0.68))
   );
-  const resolvedSubtitleSet = useMemo(
+  const activeCaptionLayout = useMemo(
     () =>
-      fitUniformAdaptiveTextToBox({
-        items: wrappedCaptions.map((caption) => ({
-          text: caption.displayText,
-          maxWidth: subtitleFitMaxWidth,
-        })),
-        baseFontSize: subtitleInitialFontSize,
-        minFontSize: subtitleMinFontSize,
-        preferredMaxLines: 2,
-        fallbackMaxLines: 3,
-        finalMaxLines: 4,
-        fontWeight: 700,
-        fontFamily: OVERLAY_FONT_FAMILY,
-      }),
-    [subtitleFitMaxWidth, subtitleInitialFontSize, subtitleMinFontSize, wrappedCaptions]
+      activeCaption
+        ? fitAdaptiveTextToBox({
+            text: activeCaption.displayText,
+            maxWidth: subtitleFitMaxWidth,
+            baseFontSize: subtitleInitialFontSize,
+            minFontSize: subtitleMinFontSize,
+            preferredMaxLines: 2,
+            fallbackMaxLines: 3,
+            finalMaxLines: 4,
+            fontWeight: 700,
+            fontFamily: OVERLAY_FONT_FAMILY,
+          })
+        : null,
+    [activeCaption, subtitleFitMaxWidth, subtitleInitialFontSize, subtitleMinFontSize]
   );
-  const activeCaptionLayout = activeCaptionIndex >= 0 ? resolvedSubtitleSet.labels[activeCaptionIndex] : null;
   const subtitleRenderFontSize = useMemo(
     () =>
       getSubtitleThemeRenderFontSize({
-        fittedFontSize: resolvedSubtitleSet.fontSize,
+        fittedFontSize: activeCaptionLayout?.fontSize ?? subtitleInitialFontSize,
         subtitleScale: safeSubtitleScale,
         isTextTheme: subtitleThemeIsText,
       }),
-    [resolvedSubtitleSet.fontSize, safeSubtitleScale, subtitleThemeIsText]
+    [activeCaptionLayout?.fontSize, safeSubtitleScale, subtitleInitialFontSize, subtitleThemeIsText]
+  );
+  const reservedSubtitleBottom = useMemo(
+    () =>
+      reserveSubtitleBottomForProgress({
+        subtitleBottom: resolvedSubtitleBottom,
+        progressBottom: resolvedProgressBottom,
+        progressHeight: typography.progressHeight,
+        subtitleFontSize: subtitleRenderFontSize,
+        showProgress,
+      }),
+    [resolvedProgressBottom, resolvedSubtitleBottom, showProgress, subtitleRenderFontSize, typography.progressHeight]
   );
 
   const normalizedTopics = useMemo(() => {
@@ -311,13 +432,22 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         position: "absolute" as const,
         left: 0,
         right: 0,
-        top: `${clamp(subtitleYPercent, 0, 100)}%`,
-        transform: "translateY(-50%)",
+        bottom: reservedSubtitleBottom,
         display: "flex" as const,
         justifyContent: "center" as const,
         pointerEvents: "none" as const,
         paddingLeft: typography.subtitleSidePadding,
         paddingRight: typography.subtitleSidePadding,
+      },
+      subtitleFrame: {
+        position: "relative" as const,
+        display: "inline-flex" as const,
+        flexDirection: "column" as const,
+        alignItems: "flex-start" as const,
+        gap: activeCaptionBadgeText ? Math.max(6, Math.round(subtitleRenderFontSize * 0.14)) : 0,
+        width: "fit-content",
+        maxWidth: subtitleBoxMaxWidth,
+        overflow: "visible" as const,
       },
       subtitleBox: {
         boxSizing: "border-box" as const,
@@ -329,12 +459,29 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         lineBreak: "auto" as const,
         fontKerning: "none" as const,
         fontVariantLigatures: "none" as const,
-        textAlign: "center" as const,
-        textShadow: "0 1px 1px rgba(0, 0, 0, 0.75), 0 0 2px rgba(0, 0, 0, 0.55)",
+        textAlign: "left" as const,
+        textShadow: "0 1px 1px rgba(0, 0, 0, 0.72)",
         whiteSpace: "normal" as const,
         wordBreak: "normal" as const,
         overflowWrap: "anywhere" as const,
         overflow: "hidden" as const,
+      },
+      subtitleBadge: {
+        maxWidth: Math.min(subtitleBoxMaxWidth, width * 0.42),
+        padding: "0.24em 0.68em",
+        borderRadius: 999,
+        border: "1px solid rgba(255, 255, 255, 0.16)",
+        background: "linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(30, 41, 59, 0.82))",
+        color: "rgba(255, 255, 255, 0.96)",
+        fontSize: Math.max(11, Math.round(subtitleRenderFontSize * 0.24)),
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        lineHeight: 1.15,
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap" as const,
+        overflow: "hidden" as const,
+        textOverflow: "ellipsis" as const,
+        boxShadow: "0 14px 30px -22px rgba(2, 6, 23, 0.55)",
       },
       chapterWrap: {
         position: "absolute" as const,
@@ -370,8 +517,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         position: "absolute" as const,
         left: typography.progressInsetX,
         right: typography.progressInsetX,
-        top: `${clamp(progressYPercent, 0, 100)}%`,
-        transform: "translateY(-50%)",
+        bottom: resolvedProgressBottom,
         height: typography.progressHeight,
         pointerEvents: "none" as const,
       },
@@ -421,9 +567,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
     currentActiveTopicIndex,
     chapterCardMetrics.cardMaxWidth,
     progressLabelLineHeight,
+    resolvedProgressBottom,
+    reservedSubtitleBottom,
     progressStrokeWidth,
     subtitleLineHeight,
+    subtitleBoxMaxWidth,
+    subtitleRenderFontSize,
     typography,
+    width,
   ]);
 
   const topicDurationEnd = normalizedTopics.reduce((max, item) => Math.max(max, item.end), 0);
@@ -461,54 +612,54 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
         } => item !== null
       );
 
-    const uniformLabelFit = allowWrappedProgressLabels
-      ? fitUniformTextToBox({
-          items: segmentsForLayout.map((segment) => ({
-            text: segment.title,
-            maxWidth: segment.segmentWidth,
-          })),
+    return segmentsForLayout.map((segment) => {
+      if (allowWrappedProgressLabels) {
+        const layout = fitAdaptiveTextToBox({
+          text: segment.title,
+          maxWidth: Math.max(1, segment.segmentWidth - progressLabelPaddingX * 2),
           baseFontSize: typography.progressLabelFontSize,
           minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
-          maxLines: 2,
-          maxFontSize: Math.max(
-            typography.progressLabelFontSize,
-            Math.floor(typography.progressHeight / (progressLabelLineHeight * 1.82))
-          ),
-          maxHeight: typography.progressHeight,
-          lineHeight: progressLabelLineHeight,
-          targetWidthRatio: 0.9,
-          horizontalPadding: progressLabelPaddingX,
+          preferredMaxLines: 2,
+          fallbackMaxLines: 2,
+          finalMaxLines: 2,
           fontWeight: 700,
           fontFamily: OVERLAY_FONT_FAMILY,
-        })
-      : fitUniformSingleLineText({
-          items: segmentsForLayout.map((segment) => ({
-            text: segment.title,
-            maxWidth: segment.segmentWidth,
-          })),
-          baseFontSize: typography.progressLabelFontSize,
-          minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
-          maxFontSize: Math.max(typography.progressLabelFontSize, Math.floor(typography.progressHeight * 0.7)),
-          maxHeight: typography.progressHeight,
-          lineHeight: 1.2,
-          targetWidthRatio: 0.84,
-          horizontalPadding: progressLabelPaddingX,
-          fontWeight: 700,
-          fontFamily: OVERLAY_FONT_FAMILY,
-          fontSizeStep: 0.25,
         });
 
-    return segmentsForLayout.map((segment, index) => ({
-      ...segment,
-      labelFit: {
-        fontSize: uniformLabelFit.fontSize,
-        visible: uniformLabelFit.labels[index]?.visible ?? false,
-        text:
-          allowWrappedProgressLabels
-            ? (uniformLabelFit.labels[index] as {text?: string} | undefined)?.text ?? segment.title
-            : segment.title,
-      },
-    }));
+        return {
+          ...segment,
+          labelFit: {
+            fontSize: layout.fontSize,
+            visible: !layout.truncated,
+            text: layout.text,
+          },
+        };
+      }
+
+      const layout = fitSingleLineText({
+        text: segment.title,
+        maxWidth: segment.segmentWidth,
+        baseFontSize: typography.progressLabelFontSize,
+        minFontSize: Math.max(12, Math.floor(typography.progressLabelFontSize * 0.45)),
+        maxFontSize: Math.max(typography.progressLabelFontSize, Math.floor(typography.progressHeight * 0.7)),
+        maxHeight: typography.progressHeight,
+        lineHeight: 1.2,
+        targetWidthRatio: 0.84,
+        horizontalPadding: progressLabelPaddingX,
+        fontWeight: 700,
+        fontFamily: OVERLAY_FONT_FAMILY,
+        fontSizeStep: 0.25,
+      });
+
+      return {
+        ...segment,
+        labelFit: {
+          fontSize: layout.fontSize,
+          visible: layout.visible,
+          text: segment.title,
+        },
+      };
+    });
   }, [
     allowWrappedProgressLabels,
     normalizedTopics,
@@ -527,6 +678,12 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
       textMaxWidth: subtitleTextMaxWidth,
     });
   }, [subtitleBoxMaxWidth, subtitleTextMaxWidth, subtitleTheme]);
+  const hasSubtitleCardBackground =
+    typeof subtitleStyleOverrides.backgroundColor === "string" &&
+    subtitleStyleOverrides.backgroundColor !== "transparent";
+  const subtitleUsesDarkText =
+    typeof subtitleStyleOverrides.color === "string" &&
+    subtitleStyleOverrides.color.trim().toLowerCase() === "#111111";
 
   return (
     <AbsoluteFill
@@ -575,15 +732,39 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps> = ({
 
       {showSubtitles ? (
         <div style={scaledStyles.subtitleWrap}>
-          <div
-            style={{
-              ...scaledStyles.subtitleBox,
-              ...subtitleStyleOverrides,
-              fontSize: subtitleRenderFontSize,
-              whiteSpace: "pre-line",
-            }}
-          >
-            {activeCaptionLayout?.text ?? subtitleRenderText}
+          <div style={scaledStyles.subtitleFrame}>
+            {activeCaptionBadgeText ? <div style={scaledStyles.subtitleBadge}>{activeCaptionBadgeText}</div> : null}
+            <div
+              style={{
+                ...scaledStyles.subtitleBox,
+                ...subtitleStyleOverrides,
+                fontSize: subtitleRenderFontSize,
+                whiteSpace: "pre-line",
+                border: hasSubtitleCardBackground
+                  ? subtitleUsesDarkText
+                    ? "1px solid rgba(15, 23, 42, 0.08)"
+                    : "1px solid rgba(255, 255, 255, 0.14)"
+                  : undefined,
+                boxShadow: hasSubtitleCardBackground
+                  ? subtitleUsesDarkText
+                    ? "0 20px 44px -28px rgba(15, 23, 42, 0.18)"
+                    : "0 24px 48px -30px rgba(2, 6, 23, 0.48)"
+                  : undefined,
+              }}
+            >
+              {activeCaptionTokens.length > 0 ? (
+                <span
+                  style={{
+                    display: "inline",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {renderCaptionTokens({tokens: activeCaptionTokens})}
+                </span>
+              ) : (
+                activeCaptionLayout?.text ?? subtitleRenderText
+              )}
+            </div>
           </div>
         </div>
       ) : null}

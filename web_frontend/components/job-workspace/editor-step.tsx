@@ -1,6 +1,6 @@
 "use client";
 
-import React, {useMemo, useState} from "react";
+import React, {useMemo, useRef, useState} from "react";
 
 import type {Chapter, TestLine} from "@/lib/api";
 import {Badge} from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import {Card, CardContent} from "@/components/ui/card";
 import {Textarea} from "@/components/ui/textarea";
 import {formatDuration} from "@/lib/source-video-guard";
 import {cn} from "@/lib/utils";
-import {ArrowRight, GripVertical, Loader2, X} from "lucide-react";
+import {ArrowRight, Check, Loader2, X} from "lucide-react";
 
 import {getTimelineChapterMarkers} from "./chapter-utils";
 import {autoResize} from "./workspace-utils";
@@ -21,6 +21,7 @@ export function EditorStep({
 }: {
   actions: {
     handleConfirmTest: () => void;
+    handleReset: () => void;
     handleRetryTestDraftLoad: () => void;
     moveChapterBoundary: (draggedPosition: number, targetChapterId: number) => void;
     removeChapter: (chapterId: number) => void;
@@ -57,6 +58,9 @@ export function EditorStep({
   } = state;
   const [draggedChapterId, setDraggedChapterId] = useState<number | null>(null);
   const [dropTargetLineId, setDropTargetLineId] = useState<number | null>(null);
+  const lineRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   const chapterMarkerByLineId = useMemo(
     () =>
       getTimelineChapterMarkers(
@@ -67,6 +71,23 @@ export function EditorStep({
       ),
     [chapterByStartPosition, displayChapters, keptLinePositionById, lines],
   );
+
+  const resolveDropTargetLineId = (clientY: number): number | null => {
+    const container = containerRef.current;
+    if (!container) return null;
+    for (let i = 0; i < lineRefs.current.length; i++) {
+      const el = lineRefs.current[i];
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (clientY >= rect.top && clientY <= rect.bottom) {
+        const line = lines[i];
+        if (line && !line.user_final_remove) {
+          return line.line_id;
+        }
+      }
+    }
+    return null;
+  };
 
   if (lines.length === 0) {
     return (
@@ -111,8 +132,34 @@ export function EditorStep({
       </div>
 
       <div className="relative min-h-[500px] w-full rounded-md bg-white border border-[#e2e8f0] shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6">
-        <div className="max-w-3xl mx-auto flex flex-col gap-[6px]">
-          {lines.map((line) => {
+        <div
+          ref={containerRef}
+          className="max-w-3xl mx-auto flex flex-col gap-[6px]"
+          onDragOver={(event) => {
+            if (draggedChapterId === null) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "move";
+            const nextLineId = resolveDropTargetLineId(event.clientY);
+            if (nextLineId !== dropTargetLineId) {
+              setDropTargetLineId(nextLineId);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            const droppedChapterId = parseInt(
+              event.dataTransfer.getData("text/plain"),
+              10,
+            );
+            const targetLineId = resolveDropTargetLineId(event.clientY);
+            setDraggedChapterId(null);
+            setDropTargetLineId(null);
+            if (Number.isNaN(droppedChapterId) || targetLineId == null) return;
+            const linePosition = keptLinePositionById.get(targetLineId);
+            if (linePosition == null) return;
+            actions.moveChapterBoundary(linePosition, droppedChapterId);
+          }}
+        >
+          {lines.map((line, index) => {
             const isRemoved = line.user_final_remove;
             const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
             const lineTime = formatDuration(Number(line.start) || 0);
@@ -137,37 +184,32 @@ export function EditorStep({
                   <div className="h-1 rounded-full bg-blue-500/50 my-1" />
                 )}
                 {chapter && (
-                  <div className="group relative flex items-center gap-2">
-                    {chapterIndex > 0 && (
-                      <div
-                        draggable={currentChapterLines.length > 0}
-                        onDragStart={(event) => {
-                          event.dataTransfer.setData(
-                            "text/plain",
-                            chapter.chapter_id.toString(),
-                          );
-                          event.dataTransfer.effectAllowed = "move";
-                          setDraggedChapterId(chapter.chapter_id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedChapterId(null);
-                          setDropTargetLineId(null);
-                        }}
-                        className={cn(
-                          "flex h-full cursor-grab select-none items-center p-1 text-slate-300 transition hover:text-slate-500 active:cursor-grabbing",
-                          draggedChapterId === chapter.chapter_id && "opacity-40",
-                        )}
-                        title="拖拽以调整章节边界"
-                      >
-                        <GripVertical className="h-4 w-4" />
-                      </div>
+                  <div
+                    draggable={chapterIndex > 0 && currentChapterLines.length > 0}
+                    onDragStart={(event) => {
+                      if (chapterIndex === 0) return;
+                      event.dataTransfer.setData(
+                        "text/plain",
+                        chapter.chapter_id.toString(),
+                      );
+                      event.dataTransfer.effectAllowed = "move";
+                      setDraggedChapterId(chapter.chapter_id);
+                    }}
+                    onDragEnd={() => {
+                      if (chapterIndex === 0) return;
+                      setDraggedChapterId(null);
+                      setDropTargetLineId(null);
+                    }}
+                    className={cn(
+                      "group relative flex items-center gap-2 select-none transition",
+                      chapterIndex > 0
+                        ? "cursor-grab hover:bg-slate-50 active:cursor-grabbing"
+                        : "cursor-not-allowed",
+                      draggedChapterId === chapter.chapter_id && chapterIndex > 0 && "opacity-40",
                     )}
-                    <span
-                      className={cn(
-                        "text-xs font-semibold",
-                        badgeColorClass.replace("bg-", "text-"),
-                      )}
-                    >
+                    title={chapterIndex > 0 ? "拖拽以调整章节边界" : "第一章节无法拖动"}
+                  >
+                    <span className={cn("text-xs font-semibold", badgeColorClass)}>
                       章节{chapterIndex + 1}
                     </span>
                     <input
@@ -184,7 +226,7 @@ export function EditorStep({
                     {displayChapters.length > 1 && (
                       <button
                         type="button"
-                        className="rounded p-1 text-slate-400 transition hover:bg-white hover:text-red-500"
+                        className={cn("rounded p-1 transition hover:bg-white hover:text-red-500", badgeColorClass)}
                         onClick={() => actions.removeChapter(chapter.chapter_id)}
                         title="删除分隔符并并入相邻章节"
                       >
@@ -195,34 +237,10 @@ export function EditorStep({
                 )}
 
                 <div
+                  ref={(el) => {
+                    lineRefs.current[index] = el;
+                  }}
                   className="group relative flex items-start gap-3"
-                  onDragEnter={() => {
-                    if (isRemoved || draggedChapterId === null) return;
-                    setDropTargetLineId(line.line_id);
-                  }}
-                  onDragLeave={() => {
-                    if (draggedChapterId === null) return;
-                    setDropTargetLineId(null);
-                  }}
-                  onDragOver={(event) => {
-                    if (isRemoved || draggedChapterId === null) return;
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect = "move";
-                  }}
-                  onDrop={(event) => {
-                    if (isRemoved) return;
-                    event.preventDefault();
-                    const draggedChapterId = parseInt(
-                      event.dataTransfer.getData("text/plain"),
-                      10,
-                    );
-                    setDraggedChapterId(null);
-                    setDropTargetLineId(null);
-                    if (Number.isNaN(draggedChapterId)) return;
-                    const linePosition = keptLinePositionById.get(line.line_id);
-                    if (!linePosition) return;
-                    actions.moveChapterBoundary(linePosition, draggedChapterId);
-                  }}
                 >
                   <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
                     {lineTime}
@@ -232,7 +250,7 @@ export function EditorStep({
                     {isRemoved ? (
                       <button
                         type="button"
-                        className="py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
+                        className="block py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
                         onClick={() =>
                           actions.updateLine(line.line_id, {
                             user_final_remove: false,
@@ -262,9 +280,21 @@ export function EditorStep({
                       />
                     )}
                   </div>
-                  {!isRemoved && (
+                  {isRemoved ? (
                     <div
-                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] opacity-0 transition-opacity hover:text-[#ef4444] group-hover:opacity-100"
+                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] transition hover:text-[#22c55e]"
+                      onClick={() =>
+                        actions.updateLine(line.line_id, {
+                          user_final_remove: false,
+                        })
+                      }
+                      title="恢复此行"
+                    >
+                      <Check className="h-4 w-4" />
+                    </div>
+                  ) : (
+                    <div
+                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] transition hover:text-[#ef4444]"
                       onClick={() =>
                         actions.updateLine(line.line_id, {
                           user_final_remove: true,
@@ -300,25 +330,35 @@ export function EditorStep({
                 </div>
               </div>
             </div>
-            <Button
-              size="lg"
-              onClick={actions.handleConfirmTest}
-              disabled={
-                lines.length === 0 ||
-                keptLines.length === 0 ||
-                displayChapters.length === 0 ||
-                busy
-              }
-            >
-              {busy ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  正在保存编辑结果...
-                </>
-              ) : (
-                "保存并进入导出"
-              )}
-            </Button>
+            <div className="flex items-center gap-4">
+              <Button
+                size="lg"
+                variant="ghost"
+                onClick={actions.handleReset}
+                disabled={busy}
+              >
+                重置所有修改
+              </Button>
+              <Button
+                size="lg"
+                onClick={actions.handleConfirmTest}
+                disabled={
+                  lines.length === 0 ||
+                  keptLines.length === 0 ||
+                  displayChapters.length === 0 ||
+                  busy
+                }
+              >
+                {busy ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    正在保存编辑结果...
+                  </>
+                ) : (
+                  "保存并进入导出"
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>

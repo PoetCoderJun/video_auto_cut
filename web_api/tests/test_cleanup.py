@@ -21,7 +21,6 @@ class CleanupTests(unittest.TestCase):
                 os.environ,
                 {
                     "WORK_DIR": tmpdir,
-                    "WEB_DB_LOCAL_ONLY": "1",
                 },
                 clear=False,
             ):
@@ -65,7 +64,6 @@ class CleanupTests(unittest.TestCase):
                 os.environ,
                 {
                     "WORK_DIR": tmpdir,
-                    "WEB_DB_LOCAL_ONLY": "1",
                 },
                 clear=False,
             ):

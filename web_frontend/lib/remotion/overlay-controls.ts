@@ -118,6 +118,22 @@ export const normalizeOverlayScaleControls = (
     : DEFAULT_OVERLAY_CONTROLS.progressLabelMode,
 });
 
+export const resolveOverlayAnchorBottom = ({
+  frameHeight,
+  baselineBottom,
+  currentPercent,
+  defaultPercent,
+}: {
+  frameHeight: number;
+  baselineBottom: number;
+  currentPercent: number;
+  defaultPercent: number;
+}): number => {
+  const resolvedHeight = Math.max(1, frameHeight);
+  const deltaPercent = defaultPercent - currentPercent;
+  return Math.max(0, roundToStep(baselineBottom + (resolvedHeight * deltaPercent) / 100, 0.25));
+};
+
 export const applyOverlayScaleToTypography = (
   typography: OverlayTypography,
   controls: OverlayScaleControls

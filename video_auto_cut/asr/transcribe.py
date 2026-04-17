@@ -14,6 +14,11 @@ from ..shared.interfaces import PipelineOptions
 from .dashscope_filetrans import DashScopeFiletransClient, DashScopeFiletransConfig
 from .filetrans_like import FiletransSegment, FiletransTask, segments_to_tokens
 from .oss_uploader import OSSAudioUploader, create_oss_uploader_from_config
+from .word_timing_sidecar import (
+    build_sidecar_from_dashscope_payload,
+    sidecar_path_for_srt,
+    write_sidecar,
+)
 
 
 class Transcribe:
@@ -131,7 +136,7 @@ class Transcribe:
                     continue
 
             tic = time.time()
-            tokens = self._dashscope_filetrans_transcribe(
+            tokens, sidecar_payload = self._dashscope_filetrans_transcribe(
                 media_path=input_path,
                 lang=self.lang,
                 prompt=self.prompt,
@@ -144,6 +149,10 @@ class Transcribe:
             with open(output_srt, "wb") as f:
                 f.write(srt.compose(subs).encode(self.encoding, "replace"))
             logging.info("Transcribed %s to %s", input_path, output_srt)
+            if sidecar_payload:
+                sidecar_path = sidecar_path_for_srt(Path(output_srt))
+                write_sidecar(sidecar_path, sidecar_payload)
+                logging.info("Saved ASR word timing sidecar to %s", sidecar_path)
 
     def _dashscope_filetrans_transcribe(
         self,
@@ -153,7 +162,7 @@ class Transcribe:
         prompt: str,
         progress_callback,
         oss_object_key: str | None = None,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], dict[str, Any] | None]:
         if self.filetrans_client is None:
             raise RuntimeError("DashScope Filetrans backend not initialized.")
 
@@ -215,6 +224,15 @@ class Transcribe:
         self._emit_progress(progress_callback, 1.0)
 
         segments = result.segments
+        sidecar_payload = (
+            build_sidecar_from_dashscope_payload(
+                result.raw_payload,
+                asset_id=Path(media_path).name,
+                upstream_task_id=task.task_id,
+            )
+            if isinstance(result.raw_payload, dict)
+            else None
+        )
         source = self.options or self.args
         if bool(getattr(source, "asr_dashscope_insert_no_speech", True)):
             segments = self._insert_no_speech_segments(
@@ -228,7 +246,7 @@ class Transcribe:
         enable_words = bool(getattr(source, "asr_dashscope_enable_words", False))
         if sentence_rule_with_punc and not enable_words:
             segments = self._split_segments_by_punctuation(segments)
-        return segments_to_tokens(segments)
+        return segments_to_tokens(segments), sidecar_payload
 
     @staticmethod
     def _insert_no_speech_segments(

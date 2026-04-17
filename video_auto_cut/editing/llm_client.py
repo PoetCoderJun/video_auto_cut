@@ -32,6 +32,43 @@ def _env_flag(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _normalized_base_url(value: Optional[str]) -> str:
+    return str(value or "").strip().rstrip("/").lower()
+
+
+def _is_moonshot_base_url(value: Optional[str]) -> bool:
+    base_url = _normalized_base_url(value)
+    return "api.moonshot.cn/v1" in base_url or "platform.moonshot.cn" in base_url
+
+
+def _is_kimi_k2_family_model(value: Optional[str]) -> bool:
+    model = str(value or "").strip().lower()
+    return model.startswith("kimi-k2")
+
+
+def _resolve_api_key(*, api_key: Optional[str], base_url: Optional[str]) -> str:
+    candidates = [
+        api_key,
+        os.environ.get("LLM_API_KEY"),
+        os.environ.get("DASHSCOPE_API_KEY"),
+        os.environ.get("KIMI_API_KEY"),
+        os.environ.get("MOONSHOT_API_KEY"),
+    ]
+    if _is_moonshot_base_url(base_url):
+        candidates = [
+            api_key,
+            os.environ.get("LLM_API_KEY"),
+            os.environ.get("KIMI_API_KEY"),
+            os.environ.get("MOONSHOT_API_KEY"),
+            os.environ.get("DASHSCOPE_API_KEY"),
+        ]
+    for candidate in candidates:
+        stripped = str(candidate or "").strip()
+        if stripped:
+            return stripped
+    return ""
+
+
 def build_llm_config(
     base_url: Optional[str],
     model: Optional[str],
@@ -48,11 +85,11 @@ def build_llm_config(
             Path(__file__).resolve().parents[2] / ".env",
         ]
     )
-    fallback_key = os.environ.get("DASHSCOPE_API_KEY") or ""
+    resolved_base_url = (base_url or os.environ.get("LLM_BASE_URL") or "").strip()
     cfg = {
-        "base_url": (base_url or os.environ.get("LLM_BASE_URL") or "").strip(),
+        "base_url": resolved_base_url,
         "model": (model or os.environ.get("LLM_MODEL") or "").strip(),
-        "api_key": (api_key or os.environ.get("LLM_API_KEY") or fallback_key).strip(),
+        "api_key": _resolve_api_key(api_key=api_key, base_url=resolved_base_url),
         "timeout": int(timeout),
         "temperature": float(temperature),
         "max_tokens": int(max_tokens) if max_tokens is not None else None,
@@ -119,13 +156,23 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
         raise RuntimeError("LLM base_url/model is required for this operation.")
 
     client = _get_openai_client(cfg)
+    is_moonshot_kimi_k2 = _is_moonshot_base_url(base_url) and _is_kimi_k2_family_model(model)
     request_kwargs: Dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": cfg.get("temperature", 0.2),
     }
-    if cfg.get("enable_thinking"):
-        request_kwargs["extra_body"] = {"enable_thinking": True}
+    if not is_moonshot_kimi_k2:
+        request_kwargs["temperature"] = cfg.get("temperature", 0.2)
+    extra_body: Dict[str, Any] = {}
+    if is_moonshot_kimi_k2:
+        if cfg.get("enable_thinking") is True:
+            extra_body["thinking"] = {"type": "enabled"}
+        elif cfg.get("enable_thinking") is False:
+            extra_body["thinking"] = {"type": "disabled"}
+    elif cfg.get("enable_thinking"):
+        extra_body["enable_thinking"] = True
+    if extra_body:
+        request_kwargs["extra_body"] = extra_body
     max_tokens = cfg.get("max_tokens")
     if max_tokens is not None:
         request_kwargs["max_tokens"] = int(max_tokens)

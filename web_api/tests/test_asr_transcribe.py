@@ -50,7 +50,7 @@ class TranscribeRunTests(unittest.TestCase):
                 Transcribe,
                 "_dashscope_filetrans_transcribe",
                 autospec=True,
-                return_value=[{"start": 0.0, "end": 1.0, "text": "新的字幕"}],
+                return_value=([{"start": 0.0, "end": 1.0, "text": "新的字幕"}], None),
             ) as mock_transcribe:
                 Transcribe(self._make_args(media_path, force=True)).run()
 
@@ -58,6 +58,36 @@ class TranscribeRunTests(unittest.TestCase):
             output = srt_path.read_text(encoding="utf-8")
             self.assertIn("新的字幕", output)
             self.assertNotIn("old content", output)
+
+    def test_run_writes_word_timing_sidecar_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            media_path = Path(tmpdir) / "sample.wav"
+            media_path.write_bytes(b"fake")
+            srt_path = media_path.with_suffix(".srt")
+            sidecar_path = media_path.with_suffix(".asr.words.json")
+            sidecar_payload = {
+                "version": 1,
+                "source": "dashscope",
+                "asset_id": "sample.wav",
+                "language": "zh",
+                "created_at": "2026-04-17T00:00:00Z",
+                "audio": {"duration_ms": 1000},
+                "words": [{"index": 0, "text": "新", "start_ms": 0, "end_ms": 500, "speaker": None, "confidence": None, "punct": ""}],
+                "sentences": [],
+                "meta": {"upstream_task_id": "task-1", "schema_note": "raw word timings sidecar"},
+            }
+
+            with patch.object(Transcribe, "_init_dashscope_filetrans", autospec=True, return_value=None), patch.object(
+                Transcribe,
+                "_dashscope_filetrans_transcribe",
+                autospec=True,
+                return_value=([{"start": 0.0, "end": 1.0, "text": "新的字幕"}], sidecar_payload),
+            ):
+                Transcribe(self._make_args(media_path, force=True)).run()
+
+            self.assertTrue(srt_path.exists())
+            self.assertTrue(sidecar_path.exists())
+            self.assertIn("\"words\"", sidecar_path.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -42,6 +42,12 @@ source .env
 set +a
 ```
 
+项目默认约定：
+
+- **PI/Test agent 默认优先走 `PI_PROVIDER=kimi-coding`**
+- 只要配置了 `KIMI_API_KEY`，项目里的 PI runner 会默认使用 Kimi Coding
+- 如果没有 `KIMI_API_KEY`，才回退到 `.env` 中的 `LLM_BASE_URL` / `LLM_MODEL` / `DASHSCOPE_API_KEY` 这条阿里云兼容链路
+
 当前仓库的 Python 依赖仍通过 `requirements.txt` 安装，尚未切换到 `uv sync` 项目结构。
 
 ## 本地启动 PI 并直接执行四步剪辑
@@ -53,6 +59,11 @@ set +a
 ```bash
 ./scripts/run_pi_test.sh test_data/media/1.wav
 ```
+
+默认情况下：
+
+- 若 `.env` 里有 `KIMI_API_KEY`，脚本会自动按 `kimi-coding/k2p5` 跑 PI
+- 若没有 `KIMI_API_KEY`，脚本会自动回退到现有 `LLM_BASE_URL + LLM_MODEL` provider
 
 它会自动执行：
 
@@ -87,12 +98,18 @@ cd web_frontend && npm install && cd ..
 pkill -f "uvicorn web_api.app:app" || true
 pkill -f "python -m web_api" || true
 pkill -f "next dev --hostname 127.0.0.1 --port 3000" || true
-WEB_DB_LOCAL_ONLY=1 ./scripts/start_web_mvp.sh debug
 ./scripts/start_web_mvp.sh
 ```
 
 - Frontend: `http://127.0.0.1:3000`
 - API: `http://127.0.0.1:8000/api/v1`
+
+本地 Web 启动现在只保留 **Turso + 本地 replica** 模式：请先在 `.env` 配置 `TURSO_DATABASE_URL`、`TURSO_AUTH_TOKEN`、`TURSO_LOCAL_REPLICA_PATH`，然后运行：
+
+```bash
+./scripts/start_web_mvp.sh debug   # 开发模式
+./scripts/start_web_mvp.sh         # 生产构建模式（等价于 build）
+```
 
 ## Railway 部署
 

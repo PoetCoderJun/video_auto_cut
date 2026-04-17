@@ -8,6 +8,7 @@ export const CHAPTER_CARD_PADDING_X_EM = 0.38;
 export const CHAPTER_CARD_PADDING_Y_EM = 0.32;
 export const CHAPTER_CARD_RADIUS_EM = 0.36;
 export const PROGRESS_LABEL_PADDING_X_EM = 0.22;
+export const SUBTITLE_PROGRESS_GAP_EM = 0.34;
 
 const round = (value: number): number => Math.round(value);
 
@@ -163,3 +164,21 @@ export const getChapterCardStyle = ({
 
 export const getProgressLabelPaddingX = (fontSize: number): number =>
   Math.max(2, round(fontSize * PROGRESS_LABEL_PADDING_X_EM * 4) / 4);
+
+export const reserveSubtitleBottomForProgress = ({
+  subtitleBottom,
+  progressBottom,
+  progressHeight,
+  subtitleFontSize,
+  showProgress,
+}: {
+  subtitleBottom: number;
+  progressBottom: number;
+  progressHeight: number;
+  subtitleFontSize: number;
+  showProgress: boolean;
+}): number => {
+  if (!showProgress) return subtitleBottom;
+  const gap = Math.max(12, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
+  return Math.max(subtitleBottom, progressBottom + progressHeight + gap);
+};

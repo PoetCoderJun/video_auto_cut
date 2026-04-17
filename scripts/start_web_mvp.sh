@@ -33,23 +33,17 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
-DB_LOCAL_ONLY_RAW="${WEB_DB_LOCAL_ONLY:-0}"
-DB_LOCAL_ONLY="$(printf '%s' "$DB_LOCAL_ONLY_RAW" | tr '[:upper:]' '[:lower:]')"
-if [[ "$DB_LOCAL_ONLY" == "1" || "$DB_LOCAL_ONLY" == "true" || "$DB_LOCAL_ONLY" == "yes" ]]; then
-  echo "[start_web_mvp] WEB_DB_LOCAL_ONLY enabled: use local sqlite replica only (no Turso network)"
-else
-  if [[ -z "${TURSO_DATABASE_URL:-}" ]]; then
-    echo "[start_web_mvp] TURSO_DATABASE_URL is required (set WEB_DB_LOCAL_ONLY=1 to run without Turso network)"
-    exit 1
-  fi
-
-  if [[ -z "${TURSO_AUTH_TOKEN:-}" ]]; then
-    echo "[start_web_mvp] TURSO_AUTH_TOKEN is required (set WEB_DB_LOCAL_ONLY=1 to run without Turso network)"
-    exit 1
-  fi
-
-  echo "[start_web_mvp] Turso mode enabled"
+if [[ -z "${TURSO_DATABASE_URL:-}" ]]; then
+  echo "[start_web_mvp] TURSO_DATABASE_URL is required"
+  exit 1
 fi
+
+if [[ -z "${TURSO_AUTH_TOKEN:-}" ]]; then
+  echo "[start_web_mvp] TURSO_AUTH_TOKEN is required"
+  exit 1
+fi
+
+echo "[start_web_mvp] Turso replica mode enabled"
 
 SHARED_REPLICA_DEFAULT="${TURSO_LOCAL_REPLICA_PATH:-$ROOT_DIR/workdir/web_api_turso_replica.db}"
 API_TURSO_LOCAL_REPLICA_PATH="${API_TURSO_LOCAL_REPLICA_PATH:-$SHARED_REPLICA_DEFAULT}"

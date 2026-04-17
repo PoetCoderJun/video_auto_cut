@@ -31,6 +31,7 @@ JOB_FILE_FIELDS = (
     "optimized_srt_oss_key",
     "optimized_srt_oss_signed_url",
     "srt_path",
+    "asr_words_sidecar_path",
     "optimized_srt_path",
     "chapters_draft_path",
     "final_test_text_path",
@@ -54,6 +55,19 @@ def _parse_iso(value: str | None) -> datetime:
     return parse_iso_datetime_or_epoch(value)
 
 
+def _row_value(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except Exception:
+        pass
+    try:
+        return row[index]
+    except Exception:
+        return None
+
+
 @retry_turso_operation("ensure user")
 def ensure_user(user_id: str, email: str | None) -> None:
     with get_conn() as conn:
@@ -72,10 +86,10 @@ def get_user(user_id: str) -> dict[str, Any] | None:
     if not row:
         return None
     return {
-        "user_id": str(row["user_id"]),
-        "email": row["email"],
-        "status": row["status"] or USER_STATUS_PENDING_COUPON,
-        "activated_at": row["activated_at"],
+        "user_id": str(_row_value(row, "user_id", 0)),
+        "email": _row_value(row, "email", 1),
+        "status": _row_value(row, "status", 2) or USER_STATUS_PENDING_COUPON,
+        "activated_at": _row_value(row, "activated_at", 3),
     }
 
 
@@ -156,7 +170,7 @@ def claim_public_coupon_code(
             """,
             (ip_hash,),
         ).fetchone()
-        existing_code = str(claim["code"] or "").strip() if claim else ""
+        existing_code = str(_row_value(claim, "code", 0) or "").strip() if claim else ""
         has_existing_claim = bool(existing_code)
         if existing_code:
             coupon = conn.execute(
@@ -180,8 +194,8 @@ def claim_public_coupon_code(
                     )
                     conn.commit()
                     return {
-                        "code": str(coupon["code"]),
-                        "credits": int(coupon["credits"] or normalized_credits),
+                        "code": str(_row_value(coupon, "code", 0)),
+                        "credits": int(_row_value(coupon, "credits", 1) or normalized_credits),
                         "already_claimed": True,
                     }
 
@@ -194,11 +208,11 @@ def claim_public_coupon_code(
                 LIMIT 1
                 """
             ).fetchone()
-            max_claims = int(settings_row["max_claims"] or 0) if settings_row else 0
+            max_claims = int(_row_value(settings_row, "max_claims", 0) or 0) if settings_row else 0
             claim_count_row = conn.execute(
                 "SELECT COUNT(*) AS total FROM public_invite_claims"
             ).fetchone()
-            claim_count = int(claim_count_row["total"] or 0) if claim_count_row else 0
+            claim_count = int(_row_value(claim_count_row, "total", 0) or 0) if claim_count_row else 0
             if max_claims > 0 and claim_count >= max_claims:
                 conn.rollback()
                 raise LookupError("PUBLIC_INVITE_EXHAUSTED")
@@ -265,7 +279,7 @@ def get_credit_balance(user_id: str) -> int:
         ).fetchone()
     if not row:
         return 0
-    return int(row["balance"] or 0)
+    return int(_row_value(row, "balance", 0) or 0)
 
 
 @retry_turso_operation("get recent credit ledger")
@@ -283,12 +297,12 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
         ).fetchall()
     return [
         {
-            "entry_id": int(row["entry_id"]),
-            "delta": int(row["delta"]),
-            "reason": str(row["reason"]),
-            "job_id": row["job_id"],
-            "idempotency_key": str(row["idempotency_key"]),
-            "created_at": str(row["created_at"]),
+            "entry_id": int(_row_value(row, "entry_id", 0)),
+            "delta": int(_row_value(row, "delta", 1)),
+            "reason": str(_row_value(row, "reason", 2)),
+            "job_id": _row_value(row, "job_id", 3),
+            "idempotency_key": str(_row_value(row, "idempotency_key", 4)),
+            "created_at": str(_row_value(row, "created_at", 5)),
         }
         for row in rows
     ]
@@ -350,15 +364,15 @@ def _assert_not_expired_or_invalid(expires_at: Any) -> None:
 
 
 def _assert_coupon_usable_in_tx(coupon: Any) -> None:
-    used_count = int(coupon["used_count"] or 0)
+    used_count = int(_row_value(coupon, "used_count", 2) or 0)
     if used_count >= 1:
         raise LookupError("COUPON_CODE_EXHAUSTED")
 
-    status = str(coupon["status"] or "").upper()
+    status = str(_row_value(coupon, "status", 4) or "").upper()
     if status != "ACTIVE":
         raise LookupError("COUPON_CODE_INVALID")
 
-    _assert_not_expired_or_invalid(coupon["expires_at"])
+    _assert_not_expired_or_invalid(_row_value(coupon, "expires_at", 3))
 
 
 @retry_turso_operation("preview coupon code")
@@ -380,7 +394,7 @@ def preview_coupon_code(code: str) -> dict[str, Any]:
         raise LookupError("COUPON_CODE_INVALID")
 
     _assert_coupon_usable_in_tx(coupon)
-    credits = int(coupon["credits"] or 0)
+    credits = int(_row_value(coupon, "credits", 1) or 0)
     if credits <= 0:
         raise LookupError("COUPON_CODE_INVALID")
     return {"code": normalized, "credits": credits}
@@ -422,8 +436,8 @@ def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
             )
             already_activated = False
         else:
-            user_status = str(user["status"] or "").upper()
-            already_activated = user_status == USER_STATUS_ACTIVE or bool(user["activated_at"])
+            user_status = str(_row_value(user, "status", 1) or "").upper()
+            already_activated = user_status == USER_STATUS_ACTIVE or bool(_row_value(user, "activated_at", 2))
 
         coupon = conn.execute(
             """
@@ -443,7 +457,7 @@ def redeem_coupon_code(user_id: str, code: str) -> dict[str, Any]:
             conn.rollback()
             raise
 
-        credits = int(coupon["credits"] or 0)
+        credits = int(_row_value(coupon, "credits", 1) or 0)
         if credits <= 0:
             conn.rollback()
             raise LookupError("COUPON_CODE_INVALID")
@@ -487,4 +501,4 @@ def _get_balance_in_tx(conn: Any, user_id: str) -> int:
         "SELECT COALESCE(SUM(delta), 0) AS balance FROM credit_ledger WHERE user_id = ?",
         (user_id,),
     ).fetchone()
-    return int(row["balance"] or 0)
+    return int(_row_value(row, "balance", 0) or 0)

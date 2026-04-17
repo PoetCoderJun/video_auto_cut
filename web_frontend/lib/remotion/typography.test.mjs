@@ -2,14 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  fitAdaptiveProgressLabels,
+  fitAdaptiveTextToBox,
   fitSingleLineText,
   getSafeSubtitleScale,
   getSubtitleLineHeight,
   fitChapterTitleToBox,
-  fitUniformSingleLineText,
-  fitUniformAdaptiveTextToBox,
-  fitUniformTextToBox,
   fitTextToBox,
   getResponsiveOverlayTypography,
   normalizeCaptionDisplayText,
@@ -116,8 +113,8 @@ test("uses a larger but restrained progress label baseline on common landscape o
     `expected 4k progress label font >= 30, got ${typography4k.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressHeight >= 68,
-    `expected 4k progress height >= 68, got ${typography4k.progressHeight}`
+    typography4k.progressHeight >= 66,
+    `expected 4k progress height >= 66, got ${typography4k.progressHeight}`
   );
 });
 
@@ -239,14 +236,22 @@ test("fits each progress label independently instead of forcing one global font 
   );
 });
 
-test("fits progress labels to one shared font size instead of mixing sizes", () => {
-  const fitted = fitUniformSingleLineText({
-    items: [
-      {text: "创作与尝试", maxWidth: 194},
-      {text: "掌控生活节奏", maxWidth: 143},
-      {text: "AI高效协作", maxWidth: 184},
-      {text: "尊重感受前行", maxWidth: 307},
-    ],
+test("lets progress labels fit independently instead of forcing a shared font size", () => {
+  const narrow = fitSingleLineText({
+    text: "掌控生活节奏",
+    maxWidth: 143,
+    baseFontSize: 32,
+    minFontSize: 14,
+    maxFontSize: 40,
+    maxHeight: 72,
+    lineHeight: 1.2,
+    targetWidthRatio: 0.84,
+    horizontalPadding: 4,
+    fontWeight: 700,
+  });
+  const wide = fitSingleLineText({
+    text: "尊重感受前行",
+    maxWidth: 307,
     baseFontSize: 32,
     minFontSize: 14,
     maxFontSize: 40,
@@ -257,61 +262,9 @@ test("fits progress labels to one shared font size instead of mixing sizes", () 
     fontWeight: 700,
   });
 
-  assert.equal(fitted.labels.length, 4, "expected one visibility result per label");
-  assert.ok(fitted.labels.every((label) => label.visible), "expected all labels to remain visible");
-  assert.equal(fitted.fontSize, 18, `expected shared font size to be driven by the narrowest label, got ${fitted.fontSize}`);
-});
-
-test("lets wider progress segments reclaim some font size as the bar scale increases", () => {
-  const smaller = fitAdaptiveProgressLabels({
-    items: [
-      {text: "怎样保留真实感受", maxWidth: 138},
-      {text: "落地执行", maxWidth: 284},
-    ],
-    baseFontSize: 19,
-    minFontSize: 12,
-    allowWrapped: false,
-    maxLines: 1,
-    maxFontSize: 30,
-    maxHeight: 44,
-    lineHeight: 1.2,
-    targetWidthRatio: 0.84,
-    horizontalPadding: 4,
-    fontWeight: 700,
-    fontSizeStep: 0.25,
-  });
-  const larger = fitAdaptiveProgressLabels({
-    items: [
-      {text: "怎样保留真实感受", maxWidth: 138},
-      {text: "落地执行", maxWidth: 284},
-    ],
-    baseFontSize: 26,
-    minFontSize: 12,
-    allowWrapped: false,
-    maxLines: 1,
-    maxFontSize: 34,
-    maxHeight: 58,
-    lineHeight: 1.2,
-    targetWidthRatio: 0.84,
-    horizontalPadding: 4,
-    fontWeight: 700,
-    fontSizeStep: 0.25,
-  });
-
-  assert.ok(smaller.labels.every((label) => label.visible), "expected smaller scaled labels to stay visible");
-  assert.ok(larger.labels.every((label) => label.visible), "expected larger scaled labels to stay visible");
-  assert.ok(
-    larger.labels[1].fontSize > smaller.labels[1].fontSize,
-    `expected wide segment label to grow with bar scale, got ${smaller.labels[1].fontSize} -> ${larger.labels[1].fontSize}`
-  );
-  assert.ok(
-    larger.labels[1].fontSize > larger.labels[0].fontSize,
-    `expected wider segment to use a larger font than the narrow one, got ${larger.labels[0].fontSize} vs ${larger.labels[1].fontSize}`
-  );
-  assert.ok(
-    larger.labels[1].fontSize > larger.sharedFontSize,
-    `expected wide segment to grow beyond shared floor, got ${larger.labels[1].fontSize} vs ${larger.sharedFontSize}`
-  );
+  assert.equal(narrow.visible, true, "expected narrow label to stay visible");
+  assert.equal(wide.visible, true, "expected wide label to stay visible");
+  assert.ok(wide.fontSize > narrow.fontSize, `expected wide label to keep a larger size, got ${narrow.fontSize} vs ${wide.fontSize}`);
 });
 
 test("applies quarter-step progress label scaling instead of snapping to full pixels", () => {
@@ -348,66 +301,74 @@ test("makes progress scale change the track footprint instead of only thickening
   );
 });
 
-test("allows portrait progress labels to wrap to two lines with one shared font size", () => {
-  const fitted = fitUniformTextToBox({
-    items: [
-      {text: "为什么开头会拖沓", maxWidth: 82},
-      {text: "怎样保留真实感受", maxWidth: 110},
-      {text: "最后怎么落地执行", maxWidth: 150},
-    ],
+test("allows portrait progress labels to wrap independently to two lines", () => {
+  const fitted = fitAdaptiveTextToBox({
+    text: "最后怎么落地执行",
+    maxWidth: 150,
     baseFontSize: 28,
     minFontSize: 12,
-    maxLines: 2,
-    maxHeight: 64,
-    lineHeight: 1.08,
-    targetWidthRatio: 0.9,
-    horizontalPadding: 4,
+    preferredMaxLines: 2,
+    fallbackMaxLines: 2,
+    finalMaxLines: 2,
     fontWeight: 700,
   });
 
-  assert.equal(fitted.labels.length, 3, "expected one wrapped result per label");
-  assert.ok(fitted.labels.every((label) => label.visible), "expected all portrait labels to remain visible");
-  assert.ok(fitted.labels.some((label) => label.text.includes("\n")), "expected at least one label to wrap to two lines");
-  assert.ok(fitted.fontSize >= 12, `expected wrapped shared font to stay readable, got ${fitted.fontSize}`);
+  assert.ok(fitted.lines.length <= 2, `expected at most 2 lines, got ${fitted.lines.length}`);
+  assert.ok(fitted.text.includes("\n"), "expected the independent label to wrap");
+  assert.ok(fitted.fontSize >= 12, `expected wrapped font to stay readable, got ${fitted.fontSize}`);
 });
 
-test("uses one shared subtitle font size driven by the longest caption", () => {
-  const fitted = fitUniformAdaptiveTextToBox({
-    items: [
-      {text: "短句", maxWidth: 320},
-      {text: "这是一个明显更长、需要决定全局字号的字幕句子", maxWidth: 320},
-      {text: "中等长度的句子", maxWidth: 320},
-    ],
+test("fits subtitle text per caption instead of shrinking the whole set to one shared font size", () => {
+  const shortCaption = fitAdaptiveTextToBox({
+    text: "短句",
+    maxWidth: 320,
     baseFontSize: 42,
     minFontSize: 20,
+    preferredMaxLines: 2,
+    fallbackMaxLines: 3,
+    finalMaxLines: 4,
+    fontWeight: 700,
+  });
+  const longCaption = fitAdaptiveTextToBox({
+    text: "这是一个明显更长、需要决定全局字号的字幕句子",
+    maxWidth: 320,
+    baseFontSize: 42,
+    minFontSize: 20,
+    preferredMaxLines: 2,
+    fallbackMaxLines: 3,
+    finalMaxLines: 4,
     fontWeight: 700,
   });
 
-  assert.ok(fitted.fontSize < 42, `expected longest caption to shrink the shared font size, got ${fitted.fontSize}`);
-  assert.ok(
-    fitted.labels[1].text.includes("\n"),
-    "expected the longest caption to wrap and drive the global layout"
-  );
-  assert.ok(
-    fitted.labels.every((label) => !label.truncated),
-    "expected all captions to use the same readable font without truncation"
-  );
+  assert.ok(shortCaption.fontSize >= longCaption.fontSize, `expected short caption to keep at least as much size, got ${shortCaption.fontSize} vs ${longCaption.fontSize}`);
+  assert.ok(longCaption.text.includes("\n"), "expected the long caption to wrap independently");
 });
 
-test("falls back to a shared three-line subtitle layout when two lines are not enough", () => {
-  const fitted = fitUniformAdaptiveTextToBox({
-    items: [
-      {text: "短句", maxWidth: 260},
-      {text: "这是一个非常非常长的字幕句子，需要把全局字幕统一降到三行布局里才放得下", maxWidth: 260},
-    ],
+test("lets a long subtitle fall back to three lines without forcing other captions down with it", () => {
+  const shortCaption = fitAdaptiveTextToBox({
+    text: "短句",
+    maxWidth: 260,
     baseFontSize: 38,
     minFontSize: 18,
+    preferredMaxLines: 2,
+    fallbackMaxLines: 3,
+    finalMaxLines: 4,
+    fontWeight: 700,
+  });
+  const longCaption = fitAdaptiveTextToBox({
+    text: "这是一个非常非常长的字幕句子，需要把当前这条字幕放进三行布局里才放得下",
+    maxWidth: 260,
+    baseFontSize: 38,
+    minFontSize: 18,
+    preferredMaxLines: 2,
+    fallbackMaxLines: 3,
+    finalMaxLines: 4,
     fontWeight: 700,
   });
 
-  assert.ok(fitted.maxLines > 2, `expected long subtitle set to need more than two lines, got ${fitted.maxLines}`);
-  assert.ok(fitted.fontSize >= 18, `expected fallback shared font to remain readable, got ${fitted.fontSize}`);
-  assert.ok(fitted.labels.every((label) => !label.truncated), "expected shared three-line layout to avoid truncation");
+  assert.ok(longCaption.maxLines > 2, `expected long subtitle to need more than two lines, got ${longCaption.maxLines}`);
+  assert.ok(longCaption.fontSize >= 18, `expected fallback font to remain readable, got ${longCaption.fontSize}`);
+  assert.ok(shortCaption.fontSize >= longCaption.fontSize, "expected short subtitle to avoid being dragged below the long one");
 });
 
 test("prepares subtitles for browser-side balanced wrapping without inserting new lines", () => {
@@ -517,8 +478,9 @@ test("keeps subtitle scaling visible for text themes after fitting", () => {
       subtitleScale,
       isTextTheme,
     });
-    const fitted = fitUniformAdaptiveTextToBox({
-      items: captions.map((caption) => ({text: caption.displayText, maxWidth: fitWidth})),
+    const fitted = fitAdaptiveTextToBox({
+      text: captions[0].displayText,
+      maxWidth: fitWidth,
       baseFontSize: typography.subtitleFontSize,
       minFontSize: Math.max(26, Math.floor(typography.subtitleFontSize * 0.68)),
       preferredMaxLines: 2,

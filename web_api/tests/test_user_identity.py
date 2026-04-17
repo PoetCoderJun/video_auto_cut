@@ -5,11 +5,13 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from web_api.config import get_settings
 from web_api.db import init_db
 from web_api.db_repository import ensure_user, get_credit_balance
 from web_api.job_file_repository import create_job, get_job_owner_user_id
+from web_api.user_identity import _load_business_rows_by_email
 
 
 class UserIdentityTests(unittest.TestCase):
@@ -17,11 +19,13 @@ class UserIdentityTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self._original_env = {
-            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
+            "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL"),
+            "TURSO_AUTH_TOKEN": os.environ.get("TURSO_AUTH_TOKEN"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
         }
-        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
+        os.environ.pop("TURSO_DATABASE_URL", None)
+        os.environ.pop("TURSO_AUTH_TOKEN", None)
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "test.db")
         get_settings.cache_clear()
@@ -125,3 +129,36 @@ class UserIdentityTests(unittest.TestCase):
 
         self.assertEqual(users, [("auth-user-2", "owner@example.com", "ACTIVE")])
         self.assertIn("idx_users_email_ci_unique", indexes)
+
+    def test_load_business_rows_by_email_accepts_tuple_rows(self) -> None:
+        class _FakeCursor:
+            def fetchall(self) -> list[tuple[str, str, str, str | None, str, str]]:
+                return [
+                    (
+                        "tuple-user",
+                        "tuple@example.com",
+                        "ACTIVE",
+                        "2026-04-01T00:00:00Z",
+                        "2026-04-01T00:00:00Z",
+                        "2026-04-01T00:00:00Z",
+                    )
+                ]
+
+        class _FakeConn:
+            def execute(self, _sql: str, _params: Any) -> _FakeCursor:
+                return _FakeCursor()
+
+        rows = _load_business_rows_by_email(_FakeConn(), "tuple@example.com")
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "user_id": "tuple-user",
+                    "email": "tuple@example.com",
+                    "status": "ACTIVE",
+                    "activated_at": "2026-04-01T00:00:00Z",
+                    "created_at": "2026-04-01T00:00:00Z",
+                    "updated_at": "2026-04-01T00:00:00Z",
+                }
+            ],
+        )

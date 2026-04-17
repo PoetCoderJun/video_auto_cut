@@ -27,6 +27,31 @@ def normalize_email(raw: str | None) -> str | None:
     return normalized or None
 
 
+def _row_value(row: Any, key: str, index: int) -> Any:
+    if isinstance(row, dict):
+        return row.get(key)
+    if isinstance(row, sqlite3.Row):
+        try:
+            return row[key]
+        except Exception:
+            pass
+    try:
+        return row[index]
+    except Exception:
+        return None
+
+
+def _business_row_to_dict(row: Any) -> dict[str, Any]:
+    return {
+        "user_id": _row_value(row, "user_id", 0),
+        "email": _row_value(row, "email", 1),
+        "status": _row_value(row, "status", 2),
+        "activated_at": _row_value(row, "activated_at", 3),
+        "created_at": _row_value(row, "created_at", 4),
+        "updated_at": _row_value(row, "updated_at", 5),
+    }
+
+
 def ensure_user_identity_schema(conn: Any) -> int:
     _prefer_row_mapping(conn)
     reconciled = reconcile_user_identities(conn)
@@ -52,7 +77,7 @@ def reconcile_user_identities(conn: Any) -> int:
         HAVING COUNT(*) > 1
         """
     ).fetchall():
-        normalized_email = normalize_email(row["normalized_email"])
+        normalized_email = normalize_email(_row_value(row, "normalized_email", 0))
         if normalized_email:
             normalized_targets[normalized_email] = None
 
@@ -64,8 +89,8 @@ def reconcile_user_identities(conn: Any) -> int:
             WHERE email IS NOT NULL AND TRIM(email) <> ''
             """
         ).fetchall():
-            normalized_email = normalize_email(row["normalized_email"])
-            target_user_id = str(row["id"] or "").strip()
+            normalized_email = normalize_email(_row_value(row, "normalized_email", 1))
+            target_user_id = str(_row_value(row, "id", 0) or "").strip()
             if not normalized_email or not target_user_id:
                 continue
             business_user_ids = {
@@ -314,7 +339,7 @@ def _load_auth_user_id(conn: Any, normalized_email: str) -> str | None:
     ).fetchone()
     if not row:
         return None
-    user_id = str(row["id"] or "").strip()
+    user_id = str(_row_value(row, "id", 0) or "").strip()
     return user_id or None
 
 
@@ -328,7 +353,7 @@ def _load_business_rows_by_email(conn: Any, normalized_email: str) -> list[dict[
         """,
         (normalized_email,),
     ).fetchall()
-    return [dict(row) for row in rows]
+    return [_business_row_to_dict(row) for row in rows]
 
 
 def _load_business_row(conn: Any, user_id: str) -> dict[str, Any] | None:
@@ -343,7 +368,7 @@ def _load_business_row(conn: Any, user_id: str) -> dict[str, Any] | None:
     ).fetchone()
     if not row:
         return None
-    return dict(row)
+    return _business_row_to_dict(row)
 
 
 def _is_active_business_row(row: dict[str, Any]) -> bool:

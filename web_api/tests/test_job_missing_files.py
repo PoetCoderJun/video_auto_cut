@@ -25,10 +25,8 @@ class _TempWorkDirTestCase(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self._original_env = {
-            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
         }
-        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
         os.environ["WORK_DIR"] = self.tmpdir.name
         get_settings.cache_clear()
 

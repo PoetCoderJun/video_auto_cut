@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import os
 import re
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -29,6 +31,22 @@ PROJECT_PI_APPEND_SYSTEM = PROJECT_PI_DIR / "APPEND_SYSTEM.md"
 REMOVE_TOKEN = "<remove>"
 DEFAULT_MAX_LINES = 400
 PROJECT_PI_PROVIDER = "vac-llm"
+KIMI_CODING_PROVIDER = "kimi-coding"
+DEFAULT_KIMI_CODING_MODEL = "k2p5"
+DEFAULT_PI_REQUEST_RETRIES = 3
+DEFAULT_PI_RETRY_BACKOFF_SECONDS = 1.0
+RETRYABLE_PI_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+RETRYABLE_PI_ERROR_MARKERS = (
+    "rate_limit_error",
+    "currently overloaded",
+    "try again later",
+    "too many requests",
+    "temporarily unavailable",
+    "service unavailable",
+    "gateway timeout",
+    "timed out",
+    "timeout",
+)
 TestTask = Literal["delete", "polish", "chapter"]
 
 
@@ -117,13 +135,57 @@ def build_pi_command(*, pi_bin: str = "pi", pi_args: list[str] | None = None) ->
     return [str(pi_bin), *(pi_args or [])]
 
 
-def _resolve_pi_model(model: str) -> str:
+def _normalized_url(value: str) -> str:
+    return str(value or "").strip().rstrip("/").lower()
+
+
+def _is_kimi_coding_base_url(value: str) -> bool:
+    normalized = _normalized_url(value)
+    return normalized.startswith("https://api.kimi.com/coding")
+
+
+def _resolve_pi_provider(llm_config: dict[str, Any], env: dict[str, str] | None = None) -> str:
+    runtime_env = env or os.environ
+    provider_override = str(runtime_env.get("PI_PROVIDER") or "").strip().lower()
+    if provider_override:
+        return provider_override
+    if str(runtime_env.get("KIMI_API_KEY") or runtime_env.get("MOONSHOT_API_KEY") or "").strip():
+        return KIMI_CODING_PROVIDER
+    base_url = str(llm_config.get("base_url") or runtime_env.get("LLM_BASE_URL") or "").strip()
+    if _is_kimi_coding_base_url(base_url):
+        return KIMI_CODING_PROVIDER
+    return PROJECT_PI_PROVIDER
+
+
+def _normalize_kimi_coding_model(model: str) -> str:
     value = str(model or "").strip()
     if not value:
-        raise RuntimeError("LLM model is required for PI execution.")
-    if "/" in value:
+        return f"{KIMI_CODING_PROVIDER}/{DEFAULT_KIMI_CODING_MODEL}"
+    lowered = value.lower()
+    if lowered.startswith(f"{KIMI_CODING_PROVIDER}/"):
         return value
-    return f"{PROJECT_PI_PROVIDER}/{value}"
+    if lowered in {"kimi-k2.5", "kimi-for-coding", "k2p5"}:
+        return f"{KIMI_CODING_PROVIDER}/{DEFAULT_KIMI_CODING_MODEL}"
+    if lowered == "kimi-k2-thinking":
+        return f"{KIMI_CODING_PROVIDER}/kimi-k2-thinking"
+    return f"{KIMI_CODING_PROVIDER}/{value}"
+
+
+def _resolve_pi_model(llm_config: dict[str, Any], env: dict[str, str] | None = None) -> str:
+    runtime_env = env or os.environ
+    base_url = str(llm_config.get("base_url") or runtime_env.get("LLM_BASE_URL") or "").strip()
+    model = (
+        str(runtime_env.get("PI_MODEL") or "").strip()
+        or str(llm_config.get("model") or "").strip()
+        or str(runtime_env.get("LLM_MODEL") or "").strip()
+    )
+    if _resolve_pi_provider(llm_config, runtime_env) == KIMI_CODING_PROVIDER or _is_kimi_coding_base_url(base_url):
+        return _normalize_kimi_coding_model(model)
+    if not model:
+        raise RuntimeError("LLM model is required for PI execution.")
+    if "/" in model:
+        return model
+    return f"{PROJECT_PI_PROVIDER}/{model}"
 
 
 def _normalize_line_text(text: str) -> str:
@@ -144,8 +206,16 @@ def _canonical_special_placeholder(text: str) -> str:
         return "< low speech >"
     return value
 
+
 def _time_range_tag(start: float, end: float) -> str:
     return render_time_range_tag(start, end)
+
+
+def _time_range_key(start: float, end: float) -> tuple[int, int]:
+    return (
+        int(round(float(start) * 1000.0)),
+        int(round(float(end) * 1000.0)),
+    )
 
 
 def _render_test_line(*, start: float, end: float, text: str, remove: bool) -> str:
@@ -258,14 +328,52 @@ def _pi_env(llm_config: dict[str, Any]) -> dict[str, str]:
     if api_key:
         env["LLM_API_KEY"] = api_key
         env.setdefault("DASHSCOPE_API_KEY", api_key)
+    if _resolve_pi_model(llm_config, env).startswith(f"{KIMI_CODING_PROVIDER}/"):
+        kimi_api_key = (
+            str(env.get("KIMI_API_KEY") or "").strip()
+            or str(env.get("MOONSHOT_API_KEY") or "").strip()
+            or str(llm_config.get("api_key") or "").strip()
+        )
+        if kimi_api_key:
+            env["KIMI_API_KEY"] = kimi_api_key
     return env
 
 
+def _pi_retry_attempts(llm_config: dict[str, Any]) -> int:
+    return max(1, int(llm_config.get("request_retries", DEFAULT_PI_REQUEST_RETRIES) or 1))
+
+
+def _pi_retry_backoff_seconds(llm_config: dict[str, Any]) -> float:
+    return max(
+        0.0,
+        float(llm_config.get("retry_backoff_seconds", DEFAULT_PI_RETRY_BACKOFF_SECONDS) or 0.0),
+    )
+
+
+def _is_retryable_pi_failure(completed: subprocess.CompletedProcess[str]) -> bool:
+    combined_output = "\n".join(
+        part for part in ((completed.stdout or "").strip(), (completed.stderr or "").strip()) if part
+    ).lower()
+    if not combined_output:
+        return False
+    if any(marker in combined_output for marker in RETRYABLE_PI_ERROR_MARKERS):
+        return True
+    return any(re.search(rf"(?<!\d){status}(?!\d)", combined_output) for status in RETRYABLE_PI_STATUS_CODES)
+
+
+def _format_pi_failure(completed: subprocess.CompletedProcess[str]) -> str:
+    return (
+        f"PI task failed (exit={completed.returncode}).\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+    )
+
+
 def _run_pi_prompt(*, llm_config: dict[str, Any], prompt: str) -> subprocess.CompletedProcess[str]:
+    command_env = _pi_env(llm_config)
+    model = _resolve_pi_model(llm_config, command_env)
     command = build_pi_command(
         pi_args=[
             "--model",
-            _resolve_pi_model(str(llm_config.get("model") or "")),
+            model,
             "--thinking",
             "off",
             "--tools",
@@ -275,19 +383,36 @@ def _run_pi_prompt(*, llm_config: dict[str, Any], prompt: str) -> subprocess.Com
             prompt,
         ]
     )
-    completed = subprocess.run(
-        command,
-        cwd=str(PROJECT_ROOT),
-        env=_pi_env(llm_config),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"PI task failed (exit={completed.returncode}).\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
+    attempts = _pi_retry_attempts(llm_config)
+    backoff_seconds = _pi_retry_backoff_seconds(llm_config)
+    completed: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, attempts + 1):
+        completed = subprocess.run(
+            command,
+            cwd=str(PROJECT_ROOT),
+            env=command_env,
+            check=False,
+            capture_output=True,
+            text=True,
         )
-    return completed
+        if completed.returncode == 0:
+            return completed
+        if attempt >= attempts or not _is_retryable_pi_failure(completed):
+            raise RuntimeError(_format_pi_failure(completed))
+        delay = backoff_seconds * (2 ** (attempt - 1))
+        logging.warning(
+            "PI task transient failure model=%s attempt=%s/%s retry_in=%.1fs stderr=%s",
+            model,
+            attempt,
+            attempts,
+            delay,
+            (completed.stderr or completed.stdout or "").strip(),
+        )
+        if delay > 0:
+            time.sleep(delay)
+    if completed is not None:
+        raise RuntimeError(_format_pi_failure(completed))
+    raise RuntimeError("PI task failed before subprocess execution started.")
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -370,15 +495,15 @@ def _build_chapter_prompt(
 
 
 def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, Any]]:
-    expected: dict[tuple[float, float], dict[str, Any]] = {
-        (round(float(segment.get("start") or 0.0), 3), round(float(segment.get("end") or 0.0), 3)): segment
+    expected: dict[tuple[int, int], dict[str, Any]] = {
+        _time_range_key(float(segment.get("start") or 0.0), float(segment.get("end") or 0.0)): segment
         for segment in request.segments
     }
     parsed = parse_timed_lines(text)
-    seen: set[tuple[float, float]] = set()
+    seen: set[tuple[int, int]] = set()
     lines: list[dict[str, Any]] = []
     for start, end, remove, body in parsed:
-        key = (round(start, 3), round(end, 3))
+        key = _time_range_key(start, end)
         if key not in expected:
             raise RuntimeError(f"Delete output time range not found in input: {_time_range_tag(start, end)}")
         if key in seen:
@@ -407,15 +532,15 @@ def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, An
 
 
 def _parse_polish_output(text: str, request: TestPiRequest) -> list[dict[str, Any]]:
-    expected: dict[tuple[float, float], dict[str, Any]] = {
-        (round(float(line.get("start") or 0.0), 3), round(float(line.get("end") or 0.0), 3)): line
+    expected: dict[tuple[int, int], dict[str, Any]] = {
+        _time_range_key(float(line.get("start") or 0.0), float(line.get("end") or 0.0)): line
         for line in request.lines
     }
     parsed = parse_timed_lines(text)
-    seen: set[tuple[float, float]] = set()
+    seen: set[tuple[int, int]] = set()
     lines: list[dict[str, Any]] = []
     for start, end, remove, body in parsed:
-        key = (round(start, 3), round(end, 3))
+        key = _time_range_key(start, end)
         if key not in expected:
             raise RuntimeError(f"Polish output time range not found in input: {_time_range_tag(start, end)}")
         if key in seen:

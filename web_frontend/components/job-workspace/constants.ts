@@ -7,12 +7,12 @@ export const STEPS = [
 ] as const;
 
 export const CHAPTER_BADGE_COLORS = [
-  "bg-blue-500",
-  "bg-emerald-500",
-  "bg-amber-500",
-  "bg-red-500",
-  "bg-violet-500",
-  "bg-pink-500",
+  "text-sky-700",
+  "text-emerald-700",
+  "text-amber-700",
+  "text-rose-700",
+  "text-violet-700",
+  "text-teal-700",
 ];
 
 export const SUPPORTED_UPLOAD_EXTENSIONS = [

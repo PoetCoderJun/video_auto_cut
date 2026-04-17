@@ -1,3 +1,5 @@
+import {coerceWebRenderConfig} from "./remotion/subtitle-render-v1.ts";
+
 export type JobStatus =
   | "CREATED"
   | "UPLOAD_READY"
@@ -41,11 +43,31 @@ export type TestDocument = {
 
 export type TestConfirmChapter = Pick<Chapter, "chapter_id" | "title" | "block_range">;
 
+export type RenderCaptionToken = {
+  text: string;
+  start: number;
+  end: number;
+  sourceWordIndex?: number;
+};
+
+export type RenderCaptionEmphasisSpan = {
+  startToken: number;
+  endToken: number;
+};
+
+export type RenderCaptionLabel = {
+  badgeText?: string;
+  emphasisSpans?: RenderCaptionEmphasisSpan[];
+};
+
 export type RenderCaption = {
   index: number;
   start: number;
   end: number;
   text: string;
+  tokens?: RenderCaptionToken[];
+  label?: RenderCaptionLabel;
+  alignmentMode?: "exact" | "fuzzy" | "degraded" | "missing";
 };
 
 export type RenderSegment = {
@@ -613,7 +635,7 @@ export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta
     params.set("duration_sec", String(meta.duration_sec));
   }
   const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config?${params.toString()}`);
-  return data.render;
+  return coerceWebRenderConfig(data.render);
 }
 
 export async function markRenderSucceeded(

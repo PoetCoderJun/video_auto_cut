@@ -88,6 +88,20 @@ class LlmClientThinkingTest(unittest.TestCase):
 
         self.assertTrue(cfg["enable_thinking"])
 
+    def test_build_llm_config_falls_back_to_kimi_api_key(self) -> None:
+        overrides = {
+            "LLM_API_KEY": "",
+            "DASHSCOPE_API_KEY": "",
+            "KIMI_API_KEY": "kimi-secret",
+        }
+        with patch.dict(os.environ, overrides, clear=False):
+            cfg = llm_client.build_llm_config(
+                base_url="https://api.moonshot.cn/v1",
+                model="kimi-k2.5",
+            )
+
+        self.assertEqual(cfg["api_key"], "kimi-secret")
+
     def test_chat_completion_uses_openai_sdk_and_thinking_flag(self) -> None:
         cfg = {
             "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -117,6 +131,30 @@ class LlmClientThinkingTest(unittest.TestCase):
         self.assertEqual(kwargs["model"], "kimi-k2.5")
         self.assertEqual(kwargs["messages"], [{"role": "user", "content": "hello"}])
         self.assertEqual(kwargs["extra_body"], {"enable_thinking": True})
+
+    def test_chat_completion_uses_moonshot_thinking_payload_and_omits_temperature(self) -> None:
+        cfg = {
+            "base_url": "https://api.moonshot.cn/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.2,
+            "max_tokens": 256,
+            "request_retries": 1,
+            "enable_thinking": False,
+        }
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+
+        with patch("video_auto_cut.editing.llm_client.OpenAI", return_value=client):
+            result = llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "ok")
+        kwargs = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "disabled"}})
+        self.assertNotIn("temperature", kwargs)
 
     def test_chat_completion_reuses_client_for_same_connection(self) -> None:
         cfg_a = {

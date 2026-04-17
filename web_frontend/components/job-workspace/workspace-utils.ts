@@ -11,7 +11,7 @@ import {formatDuration} from "../../lib/source-video-guard.ts";
 
 const PREVIEW_MAX_LONG_EDGE = 960;
 const PREVIEW_MAX_PIXEL_COUNT = 960 * 540;
-const PREVIEW_MAX_FPS = 20;
+const PREVIEW_MAX_FPS = 10;
 
 function ensureEvenDimension(value: number): number {
   const rounded = Math.max(2, Math.round(value));

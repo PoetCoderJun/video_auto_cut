@@ -36,9 +36,30 @@ if [[ -f ".env" ]]; then
   set +a
 fi
 
-if [[ -z "${LLM_BASE_URL:-}" || -z "${LLM_MODEL:-}" ]]; then
-  echo "缺少 LLM 配置：请先在 .env 或当前 shell 中设置 LLM_BASE_URL 和 LLM_MODEL。" >&2
-  exit 1
+PI_PROVIDER_NORMALIZED="$(printf '%s' "${PI_PROVIDER:-}" | tr '[:upper:]' '[:lower:]')"
+if [[ -z "$PI_PROVIDER_NORMALIZED" && -n "${KIMI_API_KEY:-${MOONSHOT_API_KEY:-}}" ]]; then
+  PI_PROVIDER_NORMALIZED="kimi-coding"
+fi
+if [[ "$PI_PROVIDER_NORMALIZED" == "kimi-coding" ]]; then
+  if [[ -z "${KIMI_API_KEY:-}" ]]; then
+    if [[ -n "${MOONSHOT_API_KEY:-}" ]]; then
+      export KIMI_API_KEY="${MOONSHOT_API_KEY}"
+    else
+      echo "缺少 Kimi Coding 配置：PI_PROVIDER=kimi-coding 时，请先设置 KIMI_API_KEY（或 MOONSHOT_API_KEY）。" >&2
+      exit 1
+    fi
+  fi
+  if [[ -z "${PI_PROVIDER:-}" ]]; then
+    export PI_PROVIDER="kimi-coding"
+  fi
+  if [[ -z "${PI_MODEL:-}" ]]; then
+    export PI_MODEL="k2p5"
+  fi
+else
+  if [[ -z "${LLM_BASE_URL:-}" || -z "${LLM_MODEL:-}" ]]; then
+    echo "缺少 LLM 配置：请先设置 LLM_BASE_URL 和 LLM_MODEL；若要走 Kimi Coding，请设置 PI_PROVIDER=kimi-coding 和 KIMI_API_KEY。" >&2
+    exit 1
+  fi
 fi
 
 RUN_STEM="$(basename "${INPUT_PATH%.*}")"
@@ -51,6 +72,11 @@ mkdir -p "$OUTPUT_DIR"
 echo ">>> PI 四步剪辑启动"
 echo ">>> 输入: $INPUT_PATH"
 echo ">>> 输出目录: $OUTPUT_DIR"
+if [[ "$PI_PROVIDER_NORMALIZED" == "kimi-coding" ]]; then
+  echo ">>> PI Provider: kimi-coding/${PI_MODEL}"
+else
+  echo ">>> PI Provider: vac-llm/${LLM_MODEL}"
+fi
 
 python -m video_auto_cut.pi_agent_runner \
   --task test \

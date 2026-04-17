@@ -20,12 +20,14 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self._original_env = {
-            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
+            "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL"),
+            "TURSO_AUTH_TOKEN": os.environ.get("TURSO_AUTH_TOKEN"),
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "WEB_AUTH_ENABLED": os.environ.get("WEB_AUTH_ENABLED"),
         }
-        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
+        os.environ.pop("TURSO_DATABASE_URL", None)
+        os.environ.pop("TURSO_AUTH_TOKEN", None)
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "test.db")
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ["WEB_AUTH_ENABLED"] = "0"

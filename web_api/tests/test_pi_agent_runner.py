@@ -39,6 +39,12 @@ class PiAgentRunnerTests(unittest.TestCase):
         self.assertIn('id === "kimi-k2.5"', extension_text)
         self.assertIn("delete next.thinking", extension_text)
 
+    def test_pi_runner_has_builtin_kimi_coding_provider_constants(self) -> None:
+        runner_text = (PROJECT_ROOT / "video_auto_cut" / "pi_agent_runner.py").read_text(encoding="utf-8")
+        self.assertIn('KIMI_CODING_PROVIDER = "kimi-coding"', runner_text)
+        self.assertIn('DEFAULT_KIMI_CODING_MODEL = "k2p5"', runner_text)
+        self.assertIn('normalized.startswith("https://api.kimi.com/coding")', runner_text)
+
 
 if __name__ == "__main__":
     unittest.main()

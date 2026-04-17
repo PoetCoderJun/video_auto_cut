@@ -19,6 +19,7 @@ from .constants import (
     JOB_STATUS_UPLOAD_READY,
 )
 from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch
+from video_auto_cut.asr.word_timing_sidecar import sidecar_path_for_srt
 from video_auto_cut.shared.test_text_io import (
     load_test_chapters,
     load_test_lines,
@@ -38,6 +39,7 @@ JOB_FILE_FIELDS = (
     "optimized_srt_oss_key",
     "optimized_srt_oss_signed_url",
     "srt_path",
+    "asr_words_sidecar_path",
     "optimized_srt_path",
     "chapters_draft_path",
     "final_test_text_path",
@@ -183,6 +185,10 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         result["video_path"] = _existing_video_path(job_id)
     if not result["audio_path"]:
         result["audio_path"] = _existing_audio_path(job_id)
+    if not result["asr_words_sidecar_path"] and result.get("srt_path"):
+        candidate_sidecar_path = sidecar_path_for_srt(Path(str(result["srt_path"])))
+        if candidate_sidecar_path.exists():
+            result["asr_words_sidecar_path"] = str(candidate_sidecar_path)
 
     test_srt = job_dir(job_id) / "test" / "final_test.srt"
     if test_srt.exists():

@@ -4,10 +4,12 @@ import assert from "node:assert/strict";
 import {
   CHAPTER_CARD_PADDING_X_EM,
   PROGRESS_LABEL_PADDING_X_EM,
+  SUBTITLE_PROGRESS_GAP_EM,
   SUBTITLE_BOX_PADDING_X_EM,
   getChapterCardStyle,
   getChapterCardTitleMaxWidth,
   getProgressLabelPaddingX,
+  reserveSubtitleBottomForProgress,
   getSubtitleTextMaxWidth,
   getSubtitleThemeStyle,
 } from "./overlay-presentation.ts";
@@ -58,4 +60,19 @@ test("subtitle theme styles keep boxed presentation in CSS rather than typograph
 test("progress label fit budget follows CSS-side em padding", () => {
   const padding = getProgressLabelPaddingX(20);
   assert.equal(padding, Math.round(20 * PROGRESS_LABEL_PADDING_X_EM * 4) / 4);
+});
+
+test("subtitle default bottom reserves space above the progress bar", () => {
+  const reserved = reserveSubtitleBottomForProgress({
+    subtitleBottom: 65,
+    progressBottom: 24,
+    progressHeight: 40,
+    subtitleFontSize: 48,
+    showProgress: true,
+  });
+
+  assert.equal(
+    reserved,
+    24 + 40 + Math.max(12, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
+  );
 });

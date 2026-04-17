@@ -20,11 +20,13 @@ class LegacyDbMigrationTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self._original_env = {
-            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
+            "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL"),
+            "TURSO_AUTH_TOKEN": os.environ.get("TURSO_AUTH_TOKEN"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
         }
-        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
+        os.environ.pop("TURSO_DATABASE_URL", None)
+        os.environ.pop("TURSO_AUTH_TOKEN", None)
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ.pop("TURSO_LOCAL_REPLICA_PATH", None)
         get_settings.cache_clear()
@@ -214,11 +216,13 @@ class LegacyStep2JobMigrationTests(unittest.TestCase):
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         self._original_env = {
-            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
+            "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL"),
+            "TURSO_AUTH_TOKEN": os.environ.get("TURSO_AUTH_TOKEN"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
         }
-        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
+        os.environ.pop("TURSO_DATABASE_URL", None)
+        os.environ.pop("TURSO_AUTH_TOKEN", None)
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ.pop("TURSO_LOCAL_REPLICA_PATH", None)
         get_settings.cache_clear()

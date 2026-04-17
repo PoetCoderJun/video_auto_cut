@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "node .next/standalone/server.js",
-    "test:unit": "node --experimental-strip-types --test lib/job-status.test.mjs lib/device.test.mjs lib/auth-client.test.mjs lib/upload-error.test.mjs lib/remotion/typography.test.mjs lib/remotion/subtitle-dom-layout.test.mjs lib/remotion/overlay-presentation.test.mjs lib/remotion/rendering.test.mjs lib/upload-render-validation.test.mjs lib/upload-source-preflight.test.mjs lib/video-render-compatibility.test.mjs lib/api.test.mjs components/job-workspace/chapter-utils.test.mjs components/job-workspace/workspace-state.test.mjs"
+    "test:unit": "node --experimental-strip-types --test lib/job-status.test.mjs lib/device.test.mjs lib/auth-client.test.mjs lib/upload-error.test.mjs lib/remotion/overlay-controls.test.mjs lib/remotion/typography.test.mjs lib/remotion/subtitle-dom-layout.test.mjs lib/remotion/overlay-presentation.test.mjs lib/remotion/rendering.test.mjs lib/remotion/subtitle-render-v1.test.mjs lib/upload-render-validation.test.mjs lib/upload-source-preflight.test.mjs lib/video-render-compatibility.test.mjs lib/api.test.mjs components/job-workspace/chapter-utils.test.mjs components/job-workspace/workspace-state.test.mjs"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
@@ -23,7 +23,10 @@
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "@remotion/layout-utils": "4.0.419",
     "@remotion/media": "4.0.419",
+    "@remotion/player": "4.0.419",
+    "@remotion/preload": "^4.0.419",
     "@remotion/web-renderer": "4.0.419",
     "better-auth": "1.4.19",
     "better-auth-ui": "^3.2.6",
