@@ -12,11 +12,14 @@ export const SUBTITLE_PROGRESS_GAP_EM = 0.34;
 
 const round = (value: number): number => Math.round(value);
 
-export const isTextSubtitleTheme = (subtitleTheme: string | undefined): boolean =>
-  subtitleTheme === "text-black" || subtitleTheme === "text-white";
+export const normalizeSubtitleTheme = (subtitleTheme: string | undefined): "black" | "white" =>
+  subtitleTheme === "white" || subtitleTheme === "box-black-on-white" || subtitleTheme === "text-black"
+    ? "white"
+    : "black";
 
-export const isBoxedSubtitleTheme = (subtitleTheme: string | undefined): boolean =>
-  subtitleTheme === "box-white-on-black" || subtitleTheme === "box-black-on-white";
+export const isTextSubtitleTheme = (_subtitleTheme: string | undefined): boolean => false;
+
+export const isBoxedSubtitleTheme = (_subtitleTheme: string | undefined): boolean => true;
 
 export const getSubtitleBoxMaxWidth = ({
   width,
@@ -81,36 +84,18 @@ export const getSubtitleThemeStyle = ({
   boxMaxWidth: number;
   textMaxWidth: number;
 }): CSSProperties => {
-  switch (subtitleTheme) {
-    case "text-black":
-      return {
-        color: "#111111",
-        backgroundColor: "transparent",
-        padding: "0",
-        borderRadius: 0,
-        maxWidth: textMaxWidth,
-        textShadow: "0 1px 1px rgba(255, 255, 255, 0.45)",
-      };
-    case "text-white":
-      return {
-        color: "#ffffff",
-        backgroundColor: "transparent",
-        padding: "0",
-        borderRadius: 0,
-        maxWidth: textMaxWidth,
-        textShadow: "0 1px 2px rgba(0, 0, 0, 0.75)",
-      };
-    case "box-black-on-white":
+  switch (normalizeSubtitleTheme(subtitleTheme)) {
+    case "white":
       return {
         boxSizing: "border-box",
         color: "#111111",
         backgroundColor: "rgba(255, 255, 255, 0.92)",
         padding: `${SUBTITLE_BOX_PADDING_Y_EM}em ${SUBTITLE_BOX_PADDING_X_EM}em`,
         borderRadius: `${SUBTITLE_BOX_RADIUS_EM}em`,
-        maxWidth: boxMaxWidth,
+        maxWidth: boxMaxWidth || textMaxWidth,
         textShadow: "none",
       };
-    case "box-white-on-black":
+    case "black":
     default:
       return {
         boxSizing: "border-box",
@@ -118,7 +103,7 @@ export const getSubtitleThemeStyle = ({
         backgroundColor: "rgba(0, 0, 0, 0.82)",
         padding: `${SUBTITLE_BOX_PADDING_Y_EM}em ${SUBTITLE_BOX_PADDING_X_EM}em`,
         borderRadius: `${SUBTITLE_BOX_RADIUS_EM}em`,
-        maxWidth: boxMaxWidth,
+        maxWidth: boxMaxWidth || textMaxWidth,
         textShadow: "none",
       };
   }

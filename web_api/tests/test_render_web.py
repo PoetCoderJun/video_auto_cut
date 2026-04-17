@@ -301,7 +301,9 @@ class RenderWebConfigTest(unittest.TestCase):
                         ],
                         "label": {
                             "badgeText": "重点",
-                            "emphasisSpans": [{"startToken": 0, "endToken": 1}],
+                            "highlights": [
+                                {"text": "先", "color": "#22c55e", "fontScale": 1.2}
+                            ],
                         },
                         "alignmentMode": "exact",
                     }
@@ -312,7 +314,7 @@ class RenderWebConfigTest(unittest.TestCase):
                 "topics": [
                     {"title": "第一段", "start": 0.0, "end": 1.8},
                 ],
-                "subtitleTheme": "text-white",
+                "subtitleTheme": "black",
             }
         }
 
@@ -326,8 +328,54 @@ class RenderWebConfigTest(unittest.TestCase):
         self.assertEqual(config["input_props"]["segments"], [{"start": 3.0, "end": 4.8}])
         self.assertEqual(config["input_props"]["captions"][0]["tokens"][0]["text"], "先")
         self.assertEqual(config["input_props"]["captions"][0]["label"]["badgeText"], "重点")
+        self.assertEqual(config["input_props"]["captions"][0]["label"]["highlights"][0]["text"], "先")
         self.assertEqual(config["input_props"]["captions"][0]["alignmentMode"], "exact")
-        self.assertEqual(config["input_props"]["subtitleTheme"], "text-white")
+        self.assertEqual(config["input_props"]["subtitleTheme"], "black")
+
+    @patch("web_api.services.render_web.get_job_files")
+    def test_build_web_render_config_accepts_timed_string_highlights_without_segments(
+        self,
+        mock_get_job_files,
+    ) -> None:
+        mock_get_job_files.return_value = {
+            "subtitle_render_v1": {
+                "version": "subtitle-render.v1",
+                "composition": {
+                    "width": 1080,
+                    "height": 1920,
+                    "fps": 30,
+                },
+                "captions": [
+                    {
+                        "start": "00:00:00.000",
+                        "end": "00:00:01.200",
+                        "text": "重点结论先出来",
+                        "label": {
+                            "highlights": [
+                                {"text": "重点", "color": "#f97316", "fontScale": 1.16}
+                            ]
+                        },
+                    }
+                ],
+                "subtitleTheme": "white",
+            }
+        }
+
+        config = build_web_render_config("job-render-highlight-contract")
+
+        self.assertEqual(config["input_props"]["segments"], [{"start": 0.0, "end": 1.2}])
+        self.assertEqual(config["input_props"]["subtitleTheme"], "white")
+        self.assertEqual(config["input_props"]["captions"][0]["tokens"][0]["text"], "重")
+        self.assertEqual(
+            config["input_props"]["captions"][0]["label"]["highlights"][0],
+            {
+                "text": "重点",
+                "startToken": 0,
+                "endToken": 2,
+                "color": "#f97316",
+                "fontScale": 1.16,
+            },
+        )
 
 
 

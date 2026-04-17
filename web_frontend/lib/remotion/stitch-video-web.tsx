@@ -1,8 +1,13 @@
 import React, {useMemo} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
-import {clamp} from "../utils.ts";
-import type {RenderCaption as ApiRenderCaption, RenderCaptionEmphasisSpan, RenderCaptionToken} from "../api";
+import {clamp, cn} from "../utils.ts";
+import type {
+  RenderCaption as ApiRenderCaption,
+  RenderCaptionEmphasisSpan,
+  RenderCaptionHighlight,
+  RenderCaptionToken,
+} from "../api";
 
 import {
   applyOverlayScaleToTypography,
@@ -22,6 +27,7 @@ import {
   getSubtitleThemeStyle,
   isBoxedSubtitleTheme,
   isTextSubtitleTheme,
+  normalizeSubtitleTheme,
 } from "./overlay-presentation";
 import {
   CHAPTER_TITLE_LINE_HEIGHT,
@@ -52,10 +58,8 @@ export type RenderSegment = {
 };
 
 export type SubtitleTheme =
-  | "text-black"
-  | "text-white"
-  | "box-white-on-black"
-  | "box-black-on-white";
+  | "black"
+  | "white";
 
 export type StitchVideoWebProps = {
   src: string;
@@ -85,8 +89,6 @@ type TimelineSegment = {
   cutEnd: number;
 };
 
-const round = (n: number) => Math.round(n);
-
 const findActiveTopicIndexByStart = (
   topics: Array<{start: number}>,
   timeSec: number
@@ -108,6 +110,8 @@ type NormalizedCaptionToken = {
   start: number;
   end: number;
   isEmphasized: boolean;
+  highlightColor?: string;
+  highlightFontScale?: number;
 };
 
 const isCaptionTokenEmphasized = (
@@ -124,10 +128,27 @@ const isCaptionTokenEmphasized = (
       )
     : false;
 
+const resolveCaptionHighlight = (
+  tokenIndex: number,
+  highlights: RenderCaptionHighlight[] | undefined
+): RenderCaptionHighlight | null =>
+  Array.isArray(highlights)
+    ? (
+        highlights.find(
+          (highlight) =>
+            Number.isFinite(highlight?.startToken) &&
+            Number.isFinite(highlight?.endToken) &&
+            tokenIndex >= Number(highlight.startToken) &&
+            tokenIndex < Number(highlight.endToken)
+        ) ?? null
+      )
+    : null;
+
 const normalizeCaptionTokens = (
   tokens: RenderCaptionToken[] | undefined,
   caption: RenderCaption | null,
-  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined
+  emphasisSpans: RenderCaptionEmphasisSpan[] | undefined,
+  highlights: RenderCaptionHighlight[] | undefined
 ): NormalizedCaptionToken[] => {
   if (!caption || !Array.isArray(tokens) || tokens.length === 0) return [];
   return tokens
@@ -136,6 +157,7 @@ const normalizeCaptionTokens = (
       start: Number(token?.start),
       end: Number(token?.end),
       sourceTokenIndex: tokenIndex,
+      highlight: resolveCaptionHighlight(tokenIndex, highlights),
     }))
     .filter(
       (token) =>
@@ -151,30 +173,47 @@ const normalizeCaptionTokens = (
       start: index === 0 ? caption.start : Math.max(caption.start, token.start),
       end: index === list.length - 1 ? caption.end : Math.min(caption.end, Math.max(token.start, token.end)),
       isEmphasized: isCaptionTokenEmphasized(token.sourceTokenIndex, emphasisSpans),
+      highlightColor: String(token.highlight?.color || "").trim() || undefined,
+      highlightFontScale:
+        typeof token.highlight?.fontScale === "number" && Number.isFinite(token.highlight.fontScale) && token.highlight.fontScale > 0
+          ? token.highlight.fontScale
+          : undefined,
     }));
 };
 
 const renderCaptionTokens = ({
   tokens,
+  subtitleTheme,
 }: {
   tokens: NormalizedCaptionToken[];
+  subtitleTheme: SubtitleTheme;
 }): React.ReactNode => {
   return tokens.map((token, index) => {
+    const isHighlighted = Boolean(token.highlightColor || token.highlightFontScale || token.isEmphasized);
     return (
       <span
         key={`caption-token-${index}-${token.start}-${token.end}-${token.text}`}
+        className={cn(
+          "inline whitespace-pre-wrap align-baseline",
+          isHighlighted ? "font-black tracking-[0.01em]" : "font-bold"
+        )}
         style={{
-          display: "inline",
-          color: "inherit",
+          color:
+            token.highlightColor ??
+            (isHighlighted
+              ? subtitleTheme === "white"
+                ? "#0f172a"
+                : "#67e8f9"
+              : "inherit"),
           opacity: 1,
-          fontWeight: token.isEmphasized ? 900 : 700,
-          letterSpacing: token.isEmphasized ? "0.01em" : undefined,
-          backgroundImage: token.isEmphasized
-            ? "linear-gradient(180deg, transparent 0%, transparent 58%, rgba(56, 189, 248, 0.28) 58%, rgba(56, 189, 248, 0.28) 100%)"
-            : undefined,
-          backgroundRepeat: "no-repeat",
-          boxDecorationBreak: token.isEmphasized ? "clone" : undefined,
-          WebkitBoxDecorationBreak: token.isEmphasized ? "clone" : undefined,
+          fontSize:
+            token.highlightFontScale && token.highlightFontScale !== 1
+              ? `calc(1em * ${Math.max(0.72, Math.min(1.6, token.highlightFontScale))})`
+              : undefined,
+          textShadow:
+            isHighlighted && subtitleTheme === "black"
+              ? "0 1px 10px rgba(15, 23, 42, 0.35)"
+              : undefined,
         }}
       >
         {token.text}
@@ -192,7 +231,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     fps,
     width,
     height,
-    subtitleTheme = "box-white-on-black",
+    subtitleTheme = "black",
     subtitleScale = 1,
     subtitleYPercent = 90,
     progressScale = 1,
@@ -234,8 +273,9 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     [typography, width]
   );
   const progressInnerWidth = Math.max(1, width - typography.progressInsetX * 2);
-  const subtitleBoxedTheme = isBoxedSubtitleTheme(subtitleTheme);
-  const subtitleThemeIsText = isTextSubtitleTheme(subtitleTheme);
+  const resolvedSubtitleTheme = normalizeSubtitleTheme(subtitleTheme);
+  const subtitleBoxedTheme = isBoxedSubtitleTheme(resolvedSubtitleTheme);
+  const subtitleThemeIsText = isTextSubtitleTheme(resolvedSubtitleTheme);
   const subtitleLayoutTypography = subtitleThemeIsText ? baseTypography : typography;
   const subtitleBoxMaxWidth = Math.max(
     1,
@@ -350,9 +390,10 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
               tokens: captions[activeCaptionIndex]?.tokens,
             }
           : null,
-        activeCaptionLabel?.emphasisSpans
+        activeCaptionLabel?.emphasisSpans,
+        activeCaptionLabel?.highlights
       ),
-    [activeCaption, activeCaptionIndex, activeCaptionLabel?.emphasisSpans, captions]
+    [activeCaption, activeCaptionIndex, activeCaptionLabel?.emphasisSpans, activeCaptionLabel?.highlights, captions]
   );
   const subtitleInitialFontSize = subtitleLayoutTypography.subtitleFontSize;
   const subtitleMinFontSize = Math.max(
@@ -673,17 +714,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
 
   const subtitleStyleOverrides = useMemo(() => {
     return getSubtitleThemeStyle({
-      subtitleTheme,
+      subtitleTheme: resolvedSubtitleTheme,
       boxMaxWidth: subtitleBoxMaxWidth,
       textMaxWidth: subtitleTextMaxWidth,
     });
-  }, [subtitleBoxMaxWidth, subtitleTextMaxWidth, subtitleTheme]);
-  const hasSubtitleCardBackground =
-    typeof subtitleStyleOverrides.backgroundColor === "string" &&
-    subtitleStyleOverrides.backgroundColor !== "transparent";
-  const subtitleUsesDarkText =
-    typeof subtitleStyleOverrides.color === "string" &&
-    subtitleStyleOverrides.color.trim().toLowerCase() === "#111111";
+  }, [resolvedSubtitleTheme, subtitleBoxMaxWidth, subtitleTextMaxWidth]);
+  const subtitleThemeClassName = resolvedSubtitleTheme === "white"
+    ? "rounded-[0.24em] border border-slate-900/8 bg-white/92 text-slate-950 shadow-[0_20px_44px_-28px_rgba(15,23,42,0.18)]"
+    : "rounded-[0.24em] border border-white/14 bg-black/82 text-white shadow-[0_24px_48px_-30px_rgba(2,6,23,0.48)]";
 
   return (
     <AbsoluteFill
@@ -735,31 +773,21 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
           <div style={scaledStyles.subtitleFrame}>
             {activeCaptionBadgeText ? <div style={scaledStyles.subtitleBadge}>{activeCaptionBadgeText}</div> : null}
             <div
+              className={subtitleThemeClassName}
               style={{
                 ...scaledStyles.subtitleBox,
                 ...subtitleStyleOverrides,
                 fontSize: subtitleRenderFontSize,
                 whiteSpace: "pre-line",
-                border: hasSubtitleCardBackground
-                  ? subtitleUsesDarkText
-                    ? "1px solid rgba(15, 23, 42, 0.08)"
-                    : "1px solid rgba(255, 255, 255, 0.14)"
-                  : undefined,
-                boxShadow: hasSubtitleCardBackground
-                  ? subtitleUsesDarkText
-                    ? "0 20px 44px -28px rgba(15, 23, 42, 0.18)"
-                    : "0 24px 48px -30px rgba(2, 6, 23, 0.48)"
-                  : undefined,
+                border: undefined,
+                boxShadow: undefined,
               }}
             >
               {activeCaptionTokens.length > 0 ? (
                 <span
-                  style={{
-                    display: "inline",
-                    whiteSpace: "pre-wrap",
-                  }}
+                  className="inline whitespace-pre-wrap"
                 >
-                  {renderCaptionTokens({tokens: activeCaptionTokens})}
+                  {renderCaptionTokens({tokens: activeCaptionTokens, subtitleTheme: resolvedSubtitleTheme})}
                 </span>
               ) : (
                 activeCaptionLayout?.text ?? subtitleRenderText

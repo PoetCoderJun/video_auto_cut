@@ -13,8 +13,6 @@ export const SUBTITLE_THEME_OPTIONS: Array<{
   value: SubtitleTheme;
   label: string;
 }> = [
-  { value: "box-white-on-black", label: "黑底白字" },
-  { value: "box-black-on-white", label: "白底黑字" },
-  { value: "text-white", label: "白字透明" },
-  { value: "text-black", label: "黑字透明" },
+  { value: "black", label: "黑底" },
+  { value: "white", label: "白底" },
 ];

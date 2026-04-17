@@ -40,12 +40,12 @@ test("boxed subtitle themes reduce text width by CSS-side padding while text the
 
 test("subtitle theme styles keep boxed presentation in CSS rather than typography tokens", () => {
   const boxed = getSubtitleThemeStyle({
-    subtitleTheme: "box-white-on-black",
+    subtitleTheme: "black",
     boxMaxWidth: 520,
     textMaxWidth: 460,
   });
   const plain = getSubtitleThemeStyle({
-    subtitleTheme: "text-white",
+    subtitleTheme: "white",
     boxMaxWidth: 520,
     textMaxWidth: 460,
   });
@@ -53,8 +53,8 @@ test("subtitle theme styles keep boxed presentation in CSS rather than typograph
   assert.equal(boxed.maxWidth, 520);
   assert.match(String(boxed.padding), /em/);
   assert.match(String(boxed.borderRadius), /em/);
-  assert.equal(plain.maxWidth, 460);
-  assert.equal(plain.padding, "0");
+  assert.equal(plain.maxWidth, 520);
+  assert.match(String(plain.padding), /em/);
 });
 
 test("progress label fit budget follows CSS-side em padding", () => {

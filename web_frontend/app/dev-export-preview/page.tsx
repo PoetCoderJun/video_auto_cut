@@ -112,7 +112,7 @@ const buildInitialOverlayControls = (scenarioId: string): OverlayScaleControls =
 };
 
 const buildInitialSubtitleTheme = (scenarioId: string): SubtitleTheme =>
-  getMockScenarioPreset(scenarioId).defaultSubtitleTheme ?? "box-white-on-black";
+  getMockScenarioPreset(scenarioId).defaultSubtitleTheme ?? "black";
 
 const parseLineList = (value: string): string[] =>
   value
@@ -267,7 +267,7 @@ function DevExportPreviewPageInner() {
   const applyScenarioPreset = (scenarioId: string) => {
     const scenario = getMockScenarioPreset(scenarioId);
     setSelectedScenarioId(scenario.id);
-    setSubtitleTheme(scenario.defaultSubtitleTheme ?? "box-white-on-black");
+    setSubtitleTheme(scenario.defaultSubtitleTheme ?? "black");
     setOverlayControls(
       scenario.defaultOverlayControls ?? {
         ...DEFAULT_OVERLAY_CONTROLS,

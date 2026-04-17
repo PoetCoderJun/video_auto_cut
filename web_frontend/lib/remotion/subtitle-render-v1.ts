@@ -7,6 +7,14 @@ export type SubtitleRenderV1CaptionToken = {
   sourceWordIndex?: number;
 };
 
+export type SubtitleRenderV1CaptionHighlight = {
+  text?: string;
+  startToken?: number;
+  endToken?: number;
+  color?: string;
+  fontScale?: number;
+};
+
 export type SubtitleRenderV1Caption = {
   index: number;
   start: number;
@@ -16,6 +24,7 @@ export type SubtitleRenderV1Caption = {
   label?: {
     badgeText?: string;
     emphasisSpans?: Array<{startToken: number; endToken: number}>;
+    highlights?: SubtitleRenderV1CaptionHighlight[];
   };
   alignmentMode?: "exact" | "fuzzy" | "degraded" | "missing";
 };
@@ -61,7 +70,41 @@ const asNumber = (value: unknown): number | null => {
   return Number.isFinite(normalized) ? normalized : null;
 };
 
+const TIMECODE_RE = /^(?<hh>\d{2}):(?<mm>\d{2}):(?<ss>\d{2})\.(?<ms>\d{3})$/;
+
+const asTimeSeconds = (value: unknown): number | null => {
+  const numeric = asNumber(value);
+  if (numeric !== null) return numeric;
+  const text = asString(value);
+  const match = TIMECODE_RE.exec(text);
+  if (!match?.groups) return null;
+  const hours = Number(match.groups.hh);
+  const minutes = Number(match.groups.mm);
+  const seconds = Number(match.groups.ss);
+  const milliseconds = Number(match.groups.ms);
+  if ([hours, minutes, seconds, milliseconds].some((item) => !Number.isFinite(item))) {
+    return null;
+  }
+  return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
+};
+
 const asString = (value: unknown): string => String(value ?? "").trim();
+
+const normalizeSubtitleTheme = (value: unknown): "black" | "white" | null => {
+  const raw = asString(value);
+  switch (raw) {
+    case "black":
+    case "box-white-on-black":
+    case "text-white":
+      return "black";
+    case "white":
+    case "box-black-on-white":
+    case "text-black":
+      return "white";
+    default:
+      return null;
+  }
+};
 
 const pickPayload = (contract: SubtitleRenderV1Contract): AnyRecord => {
   const render = asRecord(contract.render);
@@ -87,8 +130,8 @@ const normalizeCaptionToken = (value: unknown): SubtitleRenderV1CaptionToken | n
   const record = asRecord(value);
   if (!record) return null;
   const text = asString(record.text);
-  const start = asNumber(record.start);
-  const end = asNumber(record.end);
+  const start = asTimeSeconds(record.start);
+  const end = asTimeSeconds(record.end);
   if (!text || start === null || end === null || end < start) return null;
   const sourceWordIndex = asNumber(record.sourceWordIndex);
   return {
@@ -99,20 +142,137 @@ const normalizeCaptionToken = (value: unknown): SubtitleRenderV1CaptionToken | n
   };
 };
 
+type GeneratedCaptionToken = SubtitleRenderV1CaptionToken & {
+  charStart: number;
+  charEnd: number;
+};
+
+const tokenizeCaptionText = (
+  text: string,
+  start: number,
+  end: number
+): GeneratedCaptionToken[] => {
+  if (!text) return [];
+  const total = text.length;
+  if (total <= 0) return [];
+  const duration = Math.max(0, end - start);
+  const tokens: GeneratedCaptionToken[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const remaining = text.slice(cursor);
+    const asciiWord = remaining.match(/^[A-Za-z0-9]+(?:['._:-][A-Za-z0-9]+)*/);
+    const tokenText = asciiWord?.[0] ?? text[cursor];
+    const charStart = cursor;
+    const charEnd = cursor + tokenText.length;
+    const tokenStart = start + duration * (charStart / total);
+    const tokenEnd = start + duration * (charEnd / total);
+    tokens.push({
+      text: tokenText,
+      start: tokenStart,
+      end: tokenEnd,
+      charStart,
+      charEnd,
+    });
+    cursor = charEnd;
+  }
+  return tokens;
+};
+
+const buildTokenMetaFromTokens = (tokens: SubtitleRenderV1CaptionToken[]): GeneratedCaptionToken[] => {
+  let cursor = 0;
+  return tokens.map((token) => {
+    const text = String(token.text || "");
+    const charStart = cursor;
+    const charEnd = cursor + text.length;
+    cursor = charEnd;
+    return {
+      ...token,
+      charStart,
+      charEnd,
+    };
+  });
+};
+
+const findHighlightTokenRange = (
+  tokenMeta: GeneratedCaptionToken[],
+  highlightText: string,
+  usedCharStarts: Set<number>
+): {startToken: number; endToken: number} | null => {
+  const joined = tokenMeta.map((token) => token.text).join("");
+  if (!highlightText || !joined) return null;
+  let searchFrom = 0;
+  while (searchFrom < joined.length) {
+    const charStart = joined.indexOf(highlightText, searchFrom);
+    if (charStart < 0) return null;
+    if (usedCharStarts.has(charStart)) {
+      searchFrom = charStart + Math.max(1, highlightText.length);
+      continue;
+    }
+    const charEnd = charStart + highlightText.length;
+    const startToken = tokenMeta.findIndex((token) => token.charStart <= charStart && token.charEnd > charStart);
+    const endTokenExclusive = tokenMeta.findIndex((token) => token.charStart < charEnd && token.charEnd >= charEnd);
+    if (startToken >= 0 && endTokenExclusive >= startToken) {
+      usedCharStarts.add(charStart);
+      return {startToken, endToken: endTokenExclusive + 1};
+    }
+    searchFrom = charStart + Math.max(1, highlightText.length);
+  }
+  return null;
+};
+
+const normalizeCaptionHighlights = (
+  value: unknown,
+  tokenMeta: GeneratedCaptionToken[]
+): SubtitleRenderV1CaptionHighlight[] => {
+  if (!Array.isArray(value)) return [];
+  const usedCharStarts = new Set<number>();
+  const normalized: SubtitleRenderV1CaptionHighlight[] = [];
+  for (const item of value) {
+      const record = asRecord(item);
+      if (!record) continue;
+      const text = asString(record.text);
+      const startToken = asNumber(record.startToken);
+      const endToken = asNumber(record.endToken);
+      const resolvedRange =
+        startToken !== null &&
+        endToken !== null &&
+        Math.trunc(endToken) > Math.trunc(startToken)
+          ? {startToken: Math.trunc(startToken), endToken: Math.trunc(endToken)}
+          : text
+            ? findHighlightTokenRange(tokenMeta, text, usedCharStarts)
+            : null;
+      if (!resolvedRange) continue;
+      const color = asString(record.color);
+      const fontScale = asNumber(record.fontScale);
+      normalized.push({
+        ...(text ? {text} : {}),
+        startToken: resolvedRange.startToken,
+        endToken: resolvedRange.endToken,
+        ...(color ? {color} : {}),
+        ...(fontScale !== null && fontScale > 0 ? {fontScale} : {}),
+      });
+  }
+  return normalized;
+};
+
 const normalizeCaption = (value: unknown, fallbackIndex: number): SubtitleRenderV1Caption | null => {
   const record = asRecord(value);
   if (!record) return null;
   const text = asString(record.text);
-  const start = asNumber(record.start);
-  const end = asNumber(record.end);
+  const start = asTimeSeconds(record.start);
+  const end = asTimeSeconds(record.end);
   if (!text || start === null || end === null || end <= start) return null;
   const index = asNumber(record.index);
-  const tokens = Array.isArray(record.tokens)
+  let tokens = Array.isArray(record.tokens)
     ? record.tokens
         .map((item) => normalizeCaptionToken(item))
         .filter((item): item is SubtitleRenderV1CaptionToken => item !== null)
     : [];
   const labelRecord = asRecord(record.label);
+  const generatedTokenMeta = tokenizeCaptionText(text, start, end);
+  if (tokens.length === 0 && Array.isArray(labelRecord?.highlights) && generatedTokenMeta.length > 0) {
+    tokens = generatedTokenMeta.map(({charStart: _charStart, charEnd: _charEnd, ...token}) => token);
+  }
   const emphasisSpans = Array.isArray(labelRecord?.emphasisSpans)
     ? labelRecord?.emphasisSpans
         .map((span) => {
@@ -125,6 +285,10 @@ const normalizeCaption = (value: unknown, fallbackIndex: number): SubtitleRender
         })
         .filter((item): item is {startToken: number; endToken: number} => item !== null)
     : [];
+  const highlightSourceTokens = tokens.length > 0
+    ? buildTokenMetaFromTokens(tokens)
+    : generatedTokenMeta;
+  const highlights = normalizeCaptionHighlights(labelRecord?.highlights, highlightSourceTokens);
   const badgeText = asString(labelRecord?.badgeText);
   const alignmentMode = asString(record.alignmentMode);
 
@@ -139,9 +303,17 @@ const normalizeCaption = (value: unknown, fallbackIndex: number): SubtitleRender
           label: {
             ...(badgeText ? {badgeText} : {}),
             ...(emphasisSpans.length ? {emphasisSpans} : {}),
+            ...(highlights.length ? {highlights} : {}),
           },
         }
-      : {}),
+      : highlights.length
+        ? {
+            label: {
+              highlights,
+            },
+          }
+        : {}
+    ),
     ...(alignmentMode === "exact" || alignmentMode === "fuzzy" || alignmentMode === "degraded" || alignmentMode === "missing"
       ? {alignmentMode: alignmentMode as SubtitleRenderV1Caption["alignmentMode"]}
       : {}),
@@ -154,8 +326,8 @@ const normalizeTimelineItems = (values: unknown, titleKey: "title" | null) => {
     .map((value) => {
       const record = asRecord(value);
       if (!record) return null;
-      const start = asNumber(record.start);
-      const end = asNumber(record.end);
+      const start = asTimeSeconds(record.start);
+      const end = asTimeSeconds(record.end);
       if (start === null || end === null || end <= start) return null;
       if (titleKey) {
         const title = asString(record[titleKey]);
@@ -194,7 +366,10 @@ export const coerceWebRenderConfig = <T extends AnyRecord>(value: T): T => {
   const normalizedCaptions = (Array.isArray(payload.captions) ? payload.captions : [])
     .map((item, index) => normalizeCaption(item, index + 1))
     .filter((item): item is SubtitleRenderV1Caption => item !== null);
-  const normalizedSegments = normalizeTimelineItems(payload.segments, null) as Array<{start: number; end: number}>;
+  const explicitSegments = normalizeTimelineItems(payload.segments, null) as Array<{start: number; end: number}>;
+  const normalizedSegments = explicitSegments.length
+    ? explicitSegments
+    : normalizedCaptions.map((caption) => ({start: caption.start, end: caption.end}));
   const normalizedTopics = normalizeTimelineItems(payload.topics ?? payload.chapters, "title") as Array<{title: string; start: number; end: number}>;
   const durationInFrames =
     asNumber(composition.durationInFrames) ??
@@ -210,7 +385,6 @@ export const coerceWebRenderConfig = <T extends AnyRecord>(value: T): T => {
     height,
   };
   for (const key of [
-    "subtitleTheme",
     "subtitleScale",
     "subtitleYPercent",
     "progressScale",
@@ -225,6 +399,10 @@ export const coerceWebRenderConfig = <T extends AnyRecord>(value: T): T => {
     if (candidate !== undefined && candidate !== null) {
       inputProps[key] = candidate;
     }
+  }
+  const subtitleTheme = normalizeSubtitleTheme(payload.subtitleTheme);
+  if (subtitleTheme) {
+    inputProps.subtitleTheme = subtitleTheme;
   }
 
   return {

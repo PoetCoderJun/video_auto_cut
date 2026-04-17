@@ -55,9 +55,18 @@ export type RenderCaptionEmphasisSpan = {
   endToken: number;
 };
 
+export type RenderCaptionHighlight = {
+  text?: string;
+  startToken?: number;
+  endToken?: number;
+  color?: string;
+  fontScale?: number;
+};
+
 export type RenderCaptionLabel = {
   badgeText?: string;
   emphasisSpans?: RenderCaptionEmphasisSpan[];
+  highlights?: RenderCaptionHighlight[];
 };
 
 export type RenderCaption = {
@@ -81,11 +90,7 @@ export type RenderTopic = {
   end: number;
 };
 
-export type SubtitleTheme =
-  | "text-black"
-  | "text-white"
-  | "box-white-on-black"
-  | "box-black-on-white";
+export type SubtitleTheme = "black" | "white";
 
 export type ProgressLabelMode = "auto" | "single" | "double";
 

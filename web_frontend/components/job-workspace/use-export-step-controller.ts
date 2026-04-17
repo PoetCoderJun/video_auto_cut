@@ -101,7 +101,7 @@ export function useExportStepController({
   const [renderSetupError, setRenderSetupError] = useState("");
   const [previewTimeSec, setPreviewTimeSec] = useState(0);
   const [subtitleTheme, setSubtitleTheme] =
-    useState<SubtitleTheme>("box-white-on-black");
+    useState<SubtitleTheme>("black");
   const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>({
     ...DEFAULT_OVERLAY_CONTROLS,
   });
@@ -240,7 +240,7 @@ export function useExportStepController({
       return null;
     });
     setRenderFileName("output.mp4");
-    setSubtitleTheme("box-white-on-black");
+    setSubtitleTheme("black");
     setOverlayControls({...DEFAULT_OVERLAY_CONTROLS});
     setSelectedFile(null);
   }, [jobId, setSelectedFile]);

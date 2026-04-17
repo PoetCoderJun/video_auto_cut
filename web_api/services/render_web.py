@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from .render_typography import (
     remap_topics_to_cut_timeline,
     resolve_dimensions as _resolve_dimensions,
 )
+
+_TIMECODE_RE = re.compile(r"^(?P<hh>\d{2}):(?P<mm>\d{2}):(?P<ss>\d{2})\.(?P<ms>\d{3})$")
 
 
 def build_web_render_config(
@@ -189,7 +192,10 @@ def _subtitle_render_v1_to_web_render_config(
     segments = [_normalize_segment(item) for item in list(payload.get("segments") or [])]
     segments = [item for item in segments if item is not None]
     if not segments:
-        raise RuntimeError("subtitle-render.v1 segments missing")
+        segments = [
+            {"start": float(item["start"]), "end": float(item["end"])}
+            for item in captions
+        ]
 
     raw_topics = payload.get("topics") or payload.get("chapters") or []
     topics = [_normalize_topic(item) for item in list(raw_topics)]
@@ -226,7 +232,6 @@ def _subtitle_render_v1_to_web_render_config(
         "height": resolved_height,
     }
     for key in (
-        "subtitleTheme",
         "subtitleScale",
         "subtitleYPercent",
         "progressScale",
@@ -240,6 +245,9 @@ def _subtitle_render_v1_to_web_render_config(
         value = payload.get(key)
         if value is not None:
             input_props[key] = value
+    subtitle_theme = _normalize_subtitle_theme(payload.get("subtitleTheme"))
+    if subtitle_theme is not None:
+        input_props["subtitleTheme"] = subtitle_theme
 
     output_name = str(contract.get("output_name") or contract.get("outputName") or "subtitle-render_export.mp4")
     if not output_name.strip():
@@ -284,12 +292,10 @@ def _resolve_asr_words_sidecar_path(files: dict[str, Any]) -> str | None:
 
 
 def _normalize_caption(raw: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        start = float(raw.get("start"))
-        end = float(raw.get("end"))
-    except (TypeError, ValueError):
+    start = _parse_time_value(raw.get("start"))
+    end = _parse_time_value(raw.get("end"))
+    if start is None or end is None:
         return None
-
     if end <= start:
         return None
 
@@ -312,10 +318,22 @@ def _normalize_caption(raw: dict[str, Any]) -> dict[str, Any] | None:
 
     tokens = [_normalize_caption_token(item) for item in list(raw.get("tokens") or [])]
     tokens = [item for item in tokens if item is not None]
+    label_raw = raw.get("label")
+    token_meta = _tokenize_caption_text(text, start, end)
+    if not tokens and isinstance(label_raw, dict) and list(label_raw.get("highlights") or []):
+        tokens = [
+            {
+                "text": item["text"],
+                "start": item["start"],
+                "end": item["end"],
+            }
+            for item in token_meta
+        ]
     if tokens:
         normalized["tokens"] = tokens
 
-    label = _normalize_caption_label(raw.get("label"))
+    normalized_token_meta = _build_token_meta_from_tokens(tokens) if tokens else token_meta
+    label = _normalize_caption_label(label_raw, normalized_token_meta)
     if label is not None:
         normalized["label"] = label
 
@@ -332,10 +350,9 @@ def _normalize_caption_token(raw: Any) -> dict[str, Any] | None:
     text = str(raw.get("text") or "").strip()
     if not text:
         return None
-    try:
-        start = float(raw.get("start"))
-        end = float(raw.get("end"))
-    except (TypeError, ValueError):
+    start = _parse_time_value(raw.get("start"))
+    end = _parse_time_value(raw.get("end"))
+    if start is None or end is None:
         return None
     if end < start:
         return None
@@ -354,7 +371,7 @@ def _normalize_caption_token(raw: Any) -> dict[str, Any] | None:
     return normalized
 
 
-def _normalize_caption_label(raw: Any) -> dict[str, Any] | None:
+def _normalize_caption_label(raw: Any, token_meta: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     normalized: dict[str, Any] = {}
@@ -365,7 +382,47 @@ def _normalize_caption_label(raw: Any) -> dict[str, Any] | None:
     emphasis_spans = [item for item in emphasis_spans if item is not None]
     if emphasis_spans:
         normalized["emphasisSpans"] = emphasis_spans
+    highlights = _normalize_caption_highlights(raw.get("highlights"), token_meta)
+    if highlights:
+        normalized["highlights"] = highlights
     return normalized or None
+
+
+def _normalize_caption_highlights(raw: Any, token_meta: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    used_char_starts: set[int] = set()
+    normalized: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        try:
+            start_token = int(item.get("startToken"))
+            end_token = int(item.get("endToken"))
+            if end_token <= start_token:
+                raise ValueError
+            resolved = {"startToken": start_token, "endToken": end_token}
+        except (TypeError, ValueError):
+            resolved = _find_highlight_token_range(token_meta, text, used_char_starts) if text else None
+        if resolved is None:
+            continue
+        entry: dict[str, Any] = {
+            **resolved,
+        }
+        if text:
+            entry["text"] = text
+        color = str(item.get("color") or "").strip()
+        if color:
+            entry["color"] = color
+        try:
+            font_scale = float(item.get("fontScale"))
+        except (TypeError, ValueError):
+            font_scale = None
+        if font_scale is not None and math.isfinite(font_scale) and font_scale > 0:
+            entry["fontScale"] = font_scale
+        normalized.append(entry)
+    return normalized
 
 
 def _normalize_caption_emphasis_span(raw: Any) -> dict[str, int] | None:
@@ -385,10 +442,9 @@ def _normalize_caption_emphasis_span(raw: Any) -> dict[str, int] | None:
 
 
 def _normalize_segment(raw: dict[str, Any]) -> dict[str, float] | None:
-    try:
-        start = float(raw.get("start"))
-        end = float(raw.get("end"))
-    except (TypeError, ValueError):
+    start = _parse_time_value(raw.get("start"))
+    end = _parse_time_value(raw.get("end"))
+    if start is None or end is None:
         return None
 
     if end <= start:
@@ -401,10 +457,9 @@ def _normalize_segment(raw: dict[str, Any]) -> dict[str, float] | None:
 
 
 def _normalize_topic(raw: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        start = float(raw.get("start"))
-        end = float(raw.get("end"))
-    except (TypeError, ValueError):
+    start = _parse_time_value(raw.get("start"))
+    end = _parse_time_value(raw.get("end"))
+    if start is None or end is None:
         return None
 
     if end <= start:
@@ -416,6 +471,122 @@ def _normalize_topic(raw: dict[str, Any]) -> dict[str, Any] | None:
         "start": round(start, 3),
         "end": round(end, 3),
     }
+
+
+def _parse_time_value(raw: Any) -> float | None:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = None
+    if value is not None and math.isfinite(value):
+        return value
+    text = str(raw or "").strip()
+    match = _TIMECODE_RE.match(text)
+    if not match:
+        return None
+    try:
+        hours = int(match.group("hh"))
+        minutes = int(match.group("mm"))
+        seconds = int(match.group("ss"))
+        milliseconds = int(match.group("ms"))
+    except (TypeError, ValueError):
+        return None
+    return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
+
+
+def _normalize_subtitle_theme(raw: Any) -> str | None:
+    value = str(raw or "").strip()
+    if value in {"black", "box-white-on-black", "text-white"}:
+        return "black"
+    if value in {"white", "box-black-on-white", "text-black"}:
+        return "white"
+    return None
+
+
+def _tokenize_caption_text(text: str, start: float, end: float) -> list[dict[str, Any]]:
+    if not text:
+        return []
+    total = len(text)
+    if total <= 0:
+        return []
+    duration = max(0.0, end - start)
+    tokens: list[dict[str, Any]] = []
+    cursor = 0
+    while cursor < len(text):
+        remaining = text[cursor:]
+        match = re.match(r"[A-Za-z0-9]+(?:['._:-][A-Za-z0-9]+)*", remaining)
+        token_text = match.group(0) if match else text[cursor]
+        char_start = cursor
+        char_end = cursor + len(token_text)
+        tokens.append(
+            {
+                "text": token_text,
+                "start": round(start + duration * (char_start / total), 3),
+                "end": round(start + duration * (char_end / total), 3),
+                "char_start": char_start,
+                "char_end": char_end,
+            }
+        )
+        cursor = char_end
+    return tokens
+
+
+def _build_token_meta_from_tokens(tokens: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    meta: list[dict[str, Any]] = []
+    cursor = 0
+    for token in tokens:
+        text = str(token.get("text") or "")
+        char_start = cursor
+        char_end = cursor + len(text)
+        cursor = char_end
+        meta.append(
+            {
+                **token,
+                "char_start": char_start,
+                "char_end": char_end,
+            }
+        )
+    return meta
+
+
+def _find_highlight_token_range(
+    token_meta: list[dict[str, Any]],
+    highlight_text: str,
+    used_char_starts: set[int],
+) -> dict[str, int] | None:
+    if not highlight_text or not token_meta:
+        return None
+    joined = "".join(str(item.get("text") or "") for item in token_meta)
+    search_from = 0
+    while search_from < len(joined):
+        char_start = joined.find(highlight_text, search_from)
+        if char_start < 0:
+            return None
+        if char_start in used_char_starts:
+            search_from = char_start + max(1, len(highlight_text))
+            continue
+        char_end = char_start + len(highlight_text)
+        start_token = next(
+            (
+                index
+                for index, item in enumerate(token_meta)
+                if int(item.get("char_start") or 0) <= char_start and int(item.get("char_end") or 0) > char_start
+            ),
+            -1,
+        )
+        end_token = next(
+            (
+                index
+                for index, item in enumerate(token_meta)
+                if int(item.get("char_start") or 0) < char_end and int(item.get("char_end") or 0) >= char_end
+            ),
+            -1,
+        )
+        if start_token >= 0 and end_token >= start_token:
+            used_char_starts.add(char_start)
+            return {"startToken": start_token, "endToken": end_token + 1}
+        search_from = char_start + max(1, len(highlight_text))
+    return None
 
 
 def _resolve_fps(override: float | None) -> float:
