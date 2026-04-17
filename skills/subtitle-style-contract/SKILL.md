@@ -6,7 +6,20 @@ description: Use when turning subtitle lines into directly usable Remotion + Tai
 # Subtitle Style Contract
 
 ## Task
-输入是逐句字幕，可带 `line_id`、`text`、`tokens`、`label.badgeText`、`label.emphasisSpans`。
+主输入是**一个完整的轻量字幕文本文件**，按行提供整段字幕。
+
+默认格式：
+`【00:00:00.000-00:00:02.000】字幕文本`
+
+也就是：
+- 一行一条字幕
+- 整个文件 = `【time】text` * N
+- 按原顺序处理整份文件，不是只处理单独摘出来的几句
+
+可选补充输入：
+- `tokens`
+- `label.badgeText`
+- `label.emphasisSpans`
 
 目标只有一个：
 **针对每一句字幕，直接生成可粘贴的 Remotion + Tailwind v4 JSX 代码块。**
@@ -17,7 +30,7 @@ description: Use when turning subtitle lines into directly usable Remotion + Tai
 - 完整主题系统 / 多方案设计分析
 
 ## Output
-按输入顺序逐句输出：
+按输入文件中的原顺序逐句输出：
 
 ### `Line <line_id>`
 - 最多一句简短说明，可省略
