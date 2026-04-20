@@ -128,8 +128,8 @@ const renderCaptionTokens = ({
             chunk.highlightColor ??
             (chunk.isHighlighted
               ? subtitleTheme === "white"
-                ? "#0f172a"
-                : "#67e8f9"
+                ? "#67e8f9"
+                : "#2563eb"
               : "inherit"),
           opacity: 1,
           fontSize:
@@ -137,8 +137,10 @@ const renderCaptionTokens = ({
               ? `calc(1em * ${highlightFontScale})`
               : undefined,
           textShadow:
-            chunk.isHighlighted && subtitleTheme === "black"
-              ? "0 1px 10px rgba(15, 23, 42, 0.35)"
+            chunk.isHighlighted
+              ? subtitleTheme === "white"
+                ? "0 0 16px rgba(103, 232, 249, 0.32)"
+                : "0 0 14px rgba(37, 99, 235, 0.24)"
               : undefined,
           lineHeight: chunk.isHighlighted ? 1.04 : undefined,
         }}
@@ -158,7 +160,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     fps,
     width,
     height,
-    subtitleTheme = "black",
+    subtitleTheme = "white",
     subtitleScale = 1,
     subtitleYPercent = 90,
     progressScale = 1,
@@ -309,11 +311,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         activeCaptionIndex >= 0 ? captions[activeCaptionIndex]?.tokens : undefined,
         activeCaption
           ? {
-              index: activeCaption.index,
               start: activeCaption.start,
               end: activeCaption.end,
-              text: activeCaption.text,
-              tokens: captions[activeCaptionIndex]?.tokens,
             }
           : null,
         activeCaptionLabel?.emphasisSpans,
@@ -412,17 +411,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       },
       subtitleFrame: {
         position: "relative" as const,
-        display: "inline-flex" as const,
-        flexDirection: "column" as const,
-        alignItems: "flex-start" as const,
-        gap: 0,
-        width: "fit-content",
-        maxWidth: subtitleBoxMaxWidth,
+        display: "block" as const,
+        width: "100%",
+        maxWidth: subtitleTextMaxWidth,
         overflow: "visible" as const,
       },
       subtitleBox: {
         boxSizing: "border-box" as const,
-        color: "#ffffff",
+        color: resolvedSubtitleTheme === "black" ? "#020617" : "#f8fafc",
         fontSize: typography.subtitleFontSize,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
@@ -430,12 +426,15 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         lineBreak: "auto" as const,
         fontKerning: "none" as const,
         fontVariantLigatures: "none" as const,
-        textAlign: "left" as const,
-        textShadow: "0 1px 1px rgba(0, 0, 0, 0.72)",
+        textAlign: "center" as const,
+        textShadow:
+          resolvedSubtitleTheme === "black"
+            ? "0 1px 8px rgba(255, 255, 255, 0.7)"
+            : "0 2px 10px rgba(15, 23, 42, 0.72)",
         whiteSpace: "normal" as const,
         wordBreak: "normal" as const,
         overflowWrap: "anywhere" as const,
-        overflow: "hidden" as const,
+        overflow: "visible" as const,
       },
       chapterWrap: {
         position: "absolute" as const,
@@ -524,8 +523,10 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     resolvedProgressBottom,
     reservedSubtitleBottom,
     progressStrokeWidth,
+    resolvedSubtitleTheme,
     subtitleLineHeight,
     subtitleBoxMaxWidth,
+    subtitleTextMaxWidth,
     subtitleRenderFontSize,
     typography,
     width,
@@ -633,8 +634,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     });
   }, [resolvedSubtitleTheme, subtitleBoxMaxWidth, subtitleTextMaxWidth]);
   const subtitleThemeClassName = resolvedSubtitleTheme === "white"
-    ? "rounded-[0.24em] border border-slate-900/8 bg-white/92 text-slate-950 shadow-[0_20px_44px_-28px_rgba(15,23,42,0.18)]"
-    : "rounded-[0.24em] border border-white/14 bg-black/82 text-white shadow-[0_24px_48px_-30px_rgba(2,6,23,0.48)]";
+    ? "text-slate-50"
+    : "text-slate-950";
 
   return (
     <AbsoluteFill
@@ -691,8 +692,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                 ...subtitleStyleOverrides,
                 fontSize: subtitleRenderFontSize,
                 whiteSpace: "pre-line",
-                border: undefined,
-                boxShadow: undefined,
+                border: "none",
+                boxShadow: "none",
+                background: "transparent",
+                padding: 0,
+                borderRadius: 0,
               }}
             >
               {activeCaptionChunks.length > 0 ? (

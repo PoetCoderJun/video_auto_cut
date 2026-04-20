@@ -66,7 +66,7 @@ export const MOCK_SCENARIO_PRESETS: MockScenarioPreset[] = [
       {title: "这是一个专门用来压测章节卡片换行和字号过渡是否自然的长标题", start: 0, end: 8},
     ],
     segments: [{start: 41, end: 49}],
-    defaultSubtitleTheme: "black",
+    defaultSubtitleTheme: "white",
     defaultOverlayControls: {
       subtitleScale: 1.12,
       progressScale: 1.18,
@@ -91,7 +91,7 @@ export const MOCK_SCENARIO_PRESETS: MockScenarioPreset[] = [
     ],
     topics: [{title: "核心结论", start: 0, end: 8}],
     segments: [{start: 41, end: 49}],
-    defaultSubtitleTheme: "black",
+    defaultSubtitleTheme: "white",
     defaultOverlayControls: {
       subtitleScale: 1.08,
       progressScale: 1.12,
@@ -126,7 +126,7 @@ export const MOCK_SCENARIO_PRESETS: MockScenarioPreset[] = [
       {start: 47, end: 50},
       {start: 50, end: 53},
     ],
-    defaultSubtitleTheme: "black",
+    defaultSubtitleTheme: "white",
     defaultOverlayControls: {
       subtitleScale: 1,
       progressScale: 1,

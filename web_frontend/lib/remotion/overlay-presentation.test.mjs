@@ -38,23 +38,23 @@ test("boxed subtitle themes reduce text width by CSS-side padding while text the
   );
 });
 
-test("subtitle theme styles keep boxed presentation in CSS rather than typography tokens", () => {
-  const boxed = getSubtitleThemeStyle({
+test("subtitle theme styles now keep text-only rendering with no background box", () => {
+  const darkText = getSubtitleThemeStyle({
     subtitleTheme: "black",
     boxMaxWidth: 520,
     textMaxWidth: 460,
   });
-  const plain = getSubtitleThemeStyle({
+  const lightText = getSubtitleThemeStyle({
     subtitleTheme: "white",
     boxMaxWidth: 520,
     textMaxWidth: 460,
   });
 
-  assert.equal(boxed.maxWidth, 520);
-  assert.match(String(boxed.padding), /em/);
-  assert.match(String(boxed.borderRadius), /em/);
-  assert.equal(plain.maxWidth, 520);
-  assert.match(String(plain.padding), /em/);
+  assert.equal(darkText.maxWidth, 460);
+  assert.equal("padding" in darkText, false);
+  assert.equal("backgroundColor" in darkText, false);
+  assert.equal(lightText.maxWidth, 460);
+  assert.equal("borderRadius" in lightText, false);
 });
 
 test("progress label fit budget follows CSS-side em padding", () => {

@@ -126,22 +126,26 @@ class RenderWebConfigTest(unittest.TestCase):
             ],
         )
 
+    @patch("web_api.services.render_web.upsert_job_files")
+    @patch("web_api.services.render_web.write_subtitle_render_v1_contract")
+    @patch("web_api.services.render_web.build_subtitle_render_v1_contract")
     @patch("web_api.services.render_web.list_final_test_chapters")
     @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
     @patch("web_api.services.render_web.ensure_job_dirs")
     @patch("web_api.services.render_web.get_settings")
     @patch("web_api.services.render_web.get_job_files")
-    @patch("web_api.services.render_web.attach_llm_labels_to_captions")
     @patch("web_api.services.render_web.attach_remapped_tokens_to_captions")
-    def test_build_web_render_config_applies_caption_labels_after_token_remap(
+    def test_build_web_render_config_generates_contract_from_tokenized_captions(
         self,
         mock_attach_remapped_tokens,
-        mock_attach_llm_labels,
         mock_get_job_files,
         mock_get_settings,
         mock_ensure_job_dirs,
         mock_build_cut_srt,
         mock_list_final_test_chapters,
+        mock_build_subtitle_render_v1_contract,
+        mock_write_subtitle_render_v1_contract,
+        mock_upsert_job_files,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             render_dir = Path(temp_dir)
@@ -170,24 +174,32 @@ class RenderWebConfigTest(unittest.TestCase):
                     ],
                 }
             ]
-            mock_attach_llm_labels.return_value = [
-                {
-                    "index": 1,
-                    "start": 0.0,
-                    "end": 3.0,
-                    "text": "先讲重点结论",
-                    "tokens": [
-                        {"text": "先", "start": 0.0, "end": 0.5},
-                        {"text": "讲", "start": 0.5, "end": 1.0},
-                        {"text": "重点", "start": 1.0, "end": 2.0},
-                        {"text": "结论", "start": 2.0, "end": 3.0},
-                    ],
-                    "label": {
-                        "badgeText": "结论",
-                        "emphasisSpans": [{"startToken": 2, "endToken": 4}],
-                    },
-                }
-            ]
+            generated_contract = {
+                "version": "subtitle-render.v1",
+                "output_name": "job-render-label-test_export.mp4",
+                "subtitleTheme": "white",
+                "captions": [
+                    {
+                        "index": 1,
+                        "start": 0.0,
+                        "end": 3.0,
+                        "text": "先讲重点结论",
+                        "tokens": [
+                            {"text": "先", "start": 0.0, "end": 0.5},
+                            {"text": "讲", "start": 0.5, "end": 1.0},
+                            {"text": "重点", "start": 1.0, "end": 2.0},
+                            {"text": "结论", "start": 2.0, "end": 3.0},
+                        ],
+                        "label": {
+                            "highlights": [{"text": "重点结论"}],
+                        },
+                    }
+                ],
+                "segments": [{"start": 0.0, "end": 3.0}],
+                "topics": [],
+            }
+            mock_build_subtitle_render_v1_contract.return_value = generated_contract
+            mock_write_subtitle_render_v1_contract.return_value = render_dir / "subtitle-render.v1.json"
             mock_list_final_test_chapters.return_value = []
 
             config = build_web_render_config(
@@ -198,16 +210,17 @@ class RenderWebConfigTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            mock_attach_llm_labels.call_args.kwargs["captions"][0]["tokens"][2]["text"],
+            mock_build_subtitle_render_v1_contract.call_args.kwargs["captions"][0]["tokens"][2]["text"],
             "重点",
         )
-        self.assertEqual(mock_attach_llm_labels.call_args.kwargs["job_id"], "job-render-label-test")
         self.assertEqual(
-            config["input_props"]["captions"][0]["label"],
-            {
-                "badgeText": "结论",
-                "emphasisSpans": [{"startToken": 2, "endToken": 4}],
-            },
+            mock_build_subtitle_render_v1_contract.call_args.kwargs["output_name"],
+            "job-render-label-test_export.mp4",
+        )
+        self.assertEqual(config["input_props"]["captions"][0]["label"]["highlights"][0]["text"], "重点结论")
+        mock_upsert_job_files.assert_called_once_with(
+            "job-render-label-test",
+            subtitle_render_v1_path=str(render_dir / "subtitle-render.v1.json"),
         )
 
     @patch("web_api.services.render_web.list_final_test_chapters")

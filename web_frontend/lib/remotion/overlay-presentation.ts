@@ -13,11 +13,11 @@ export const SUBTITLE_PROGRESS_GAP_EM = 0.34;
 const round = (value: number): number => Math.round(value);
 
 export const normalizeSubtitleTheme = (subtitleTheme: string | undefined): "black" | "white" =>
-  subtitleTheme === "white" ? "white" : "black";
+  subtitleTheme === "black" ? "black" : "white";
 
-export const isTextSubtitleTheme = (_subtitleTheme: string | undefined): boolean => false;
+export const isTextSubtitleTheme = (_subtitleTheme: string | undefined): boolean => true;
 
-export const isBoxedSubtitleTheme = (_subtitleTheme: string | undefined): boolean => true;
+export const isBoxedSubtitleTheme = (_subtitleTheme: string | undefined): boolean => false;
 
 export const getSubtitleBoxMaxWidth = ({
   width,
@@ -85,24 +85,16 @@ export const getSubtitleThemeStyle = ({
   switch (normalizeSubtitleTheme(subtitleTheme)) {
     case "white":
       return {
-        boxSizing: "border-box",
-        color: "#111111",
-        backgroundColor: "rgba(255, 255, 255, 0.92)",
-        padding: `${SUBTITLE_BOX_PADDING_Y_EM}em ${SUBTITLE_BOX_PADDING_X_EM}em`,
-        borderRadius: `${SUBTITLE_BOX_RADIUS_EM}em`,
-        maxWidth: boxMaxWidth || textMaxWidth,
-        textShadow: "none",
+        color: "#f8fafc",
+        maxWidth: textMaxWidth || boxMaxWidth,
+        textShadow: "0 2px 10px rgba(15, 23, 42, 0.72)",
       };
     case "black":
     default:
       return {
-        boxSizing: "border-box",
-        color: "#ffffff",
-        backgroundColor: "rgba(0, 0, 0, 0.82)",
-        padding: `${SUBTITLE_BOX_PADDING_Y_EM}em ${SUBTITLE_BOX_PADDING_X_EM}em`,
-        borderRadius: `${SUBTITLE_BOX_RADIUS_EM}em`,
-        maxWidth: boxMaxWidth || textMaxWidth,
-        textShadow: "none",
+        color: "#020617",
+        maxWidth: textMaxWidth || boxMaxWidth,
+        textShadow: "0 1px 8px rgba(255, 255, 255, 0.7)",
       };
   }
 };

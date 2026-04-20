@@ -25,6 +25,7 @@ ARTIFACT_FIELDS = (
     "final_test_text_path",
     "final_test_srt_path",
     "final_chapters_path",
+    "subtitle_render_v1_path",
     "final_video_path",
 )
 
@@ -166,6 +167,7 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
         final_test_text_path=None,
         final_test_srt_path=None,
         final_chapters_path=None,
+        subtitle_render_v1_path=None,
         final_video_path=None,
     )
     logging.info("[web_api] cleaned artifacts job=%s reason=%s removed_paths=%s", job_id, reason, removed)

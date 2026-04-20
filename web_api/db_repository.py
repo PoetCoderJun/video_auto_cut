@@ -37,6 +37,7 @@ JOB_FILE_FIELDS = (
     "final_test_text_path",
     "final_test_srt_path",
     "final_chapters_path",
+    "subtitle_render_v1_path",
     "final_video_path",
 )
 

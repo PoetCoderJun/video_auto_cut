@@ -93,14 +93,14 @@ const asString = (value: unknown): string => String(value ?? "").trim();
 const normalizeSubtitleTheme = (value: unknown): "black" | "white" | null => {
   const raw = asString(value);
   switch (raw) {
-    case "black":
+    case "white":
     case "box-white-on-black":
     case "text-white":
-      return "black";
-    case "white":
+      return "white";
+    case "black":
     case "box-black-on-white":
     case "text-black":
-      return "white";
+      return "black";
     default:
       return null;
   }

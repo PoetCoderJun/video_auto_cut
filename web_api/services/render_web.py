@@ -7,11 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from video_auto_cut.rendering.cut_srt import build_cut_srt_from_optimized_srt
+from video_auto_cut.rendering.subtitle_render_contract import (
+    build_subtitle_render_v1_contract,
+    build_subtitle_style_llm_config,
+    normalize_subtitle_theme as normalize_render_contract_theme,
+    write_subtitle_render_v1_contract,
+)
 
 from ..config import ensure_job_dirs, get_settings
 from ..constants import DEFAULT_ENCODING
-from ..job_file_repository import get_job_files, list_final_test_chapters
-from .render_caption_labels import attach_llm_labels_to_captions
+from ..job_file_repository import get_job_files, list_final_test_chapters, upsert_job_files
 from .render_word_timing import attach_remapped_tokens_to_captions
 from .render_typography import (
     remap_topics_to_cut_timeline,
@@ -67,7 +72,6 @@ def build_web_render_config(
         segments=list(cut_timeline.get("segments") or []),
         sidecar_path=_resolve_asr_words_sidecar_path(files),
     )
-    captions = attach_llm_labels_to_captions(captions=captions, job_id=job_id)
 
     segments = [_normalize_segment(item) for item in list(cut_timeline["segments"])]
     segments = [item for item in segments if item is not None]
@@ -79,37 +83,24 @@ def build_web_render_config(
     topics = remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))
 
-    resolved_fps = _resolve_fps(fps)
-    resolved_width, resolved_height = _resolve_dimensions(width, height)
-    segment_duration_in_frames = _duration_frames_from_segments(segments, resolved_fps)
-    if segment_duration_in_frames > 0:
-        duration_in_frames = segment_duration_in_frames
-    else:
-        resolved_duration_s = _resolve_duration(duration_sec, captions, segments)
-        duration_in_frames = max(1, int(math.ceil(resolved_duration_s * resolved_fps)))
-
-    output_name = f"{job_id}_export.mp4"
-    input_props: dict[str, Any] = {
-        "src": "",
-        "captions": captions,
-        "segments": segments,
-        "topics": topics,
-        "fps": resolved_fps,
-        "width": resolved_width,
-        "height": resolved_height,
-    }
-
-    return {
-        "output_name": output_name,
-        "composition": {
-            "id": "StitchVideoWeb",
-            "fps": resolved_fps,
-            "width": resolved_width,
-            "height": resolved_height,
-            "durationInFrames": duration_in_frames,
-        },
-        "input_props": input_props,
-    }
+    generated_contract = build_subtitle_render_v1_contract(
+        captions=captions,
+        segments=segments,
+        topics=topics,
+        output_name=f"{job_id}_export.mp4",
+        subtitle_theme=normalize_render_contract_theme(files.get("subtitle_theme") or "white"),
+        llm_config=_build_subtitle_style_llm_config(),
+    )
+    contract_path = dirs["render"] / "subtitle-render.v1.json"
+    write_subtitle_render_v1_contract(generated_contract, contract_path)
+    upsert_job_files(job_id, subtitle_render_v1_path=str(contract_path))
+    return _subtitle_render_v1_to_web_render_config(
+        generated_contract,
+        fps=fps,
+        width=width,
+        height=height,
+        duration_sec=duration_sec,
+    )
 
 
 def _build_web_render_config_from_subtitle_render_v1_source(
@@ -289,6 +280,17 @@ def _resolve_asr_words_sidecar_path(files: dict[str, Any]) -> str | None:
         if candidate.exists():
             return str(candidate)
     return None
+
+
+def _build_subtitle_style_llm_config() -> dict[str, Any]:
+    settings = get_settings()
+    return build_subtitle_style_llm_config(
+        base_url=getattr(settings, "llm_base_url", None),
+        model=getattr(settings, "llm_model", None),
+        api_key=getattr(settings, "llm_api_key", None),
+        timeout=int(getattr(settings, "llm_timeout", 60)),
+        max_tokens=getattr(settings, "llm_max_tokens", None),
+    )
 
 
 def _normalize_caption(raw: dict[str, Any]) -> dict[str, Any] | None:
@@ -496,10 +498,10 @@ def _parse_time_value(raw: Any) -> float | None:
 
 def _normalize_subtitle_theme(raw: Any) -> str | None:
     value = str(raw or "").strip()
-    if value in {"black", "box-white-on-black", "text-white"}:
-        return "black"
-    if value in {"white", "box-black-on-white", "text-black"}:
+    if value in {"white", "box-white-on-black", "text-white"}:
         return "white"
+    if value in {"black", "box-black-on-white", "text-black"}:
+        return "black"
     return None
 
 

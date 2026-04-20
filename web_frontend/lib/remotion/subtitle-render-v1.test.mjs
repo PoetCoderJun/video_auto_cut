@@ -15,14 +15,13 @@ test("coerceWebRenderConfig adapts subtitle-render.v1 contracts", () => {
         end: "00:00:01.500",
         text: "字幕合同",
         label: {
-          badgeText: "重点",
-          highlights: [{text: "字幕", color: "#22c55e", fontScale: 1.18}],
+          highlights: [{text: "字幕"}],
         },
       },
     ],
     segments: [{start: "00:00:02.000", end: "00:00:03.500"}],
     topics: [{title: "开场", start: 0, end: 1.5}],
-    subtitleTheme: "black",
+    subtitleTheme: "white",
   };
 
   const config = coerceWebRenderConfig(contract);
@@ -30,10 +29,9 @@ test("coerceWebRenderConfig adapts subtitle-render.v1 contracts", () => {
   assert.equal(config.output_name, "contract.mp4");
   assert.deepEqual(config.input_props.segments, [{start: 2, end: 3.5}]);
   assert.equal(config.input_props.captions[0].tokens[0].text, "字");
-  assert.equal(config.input_props.captions[0].label.badgeText, "重点");
   assert.equal(config.input_props.captions[0].label.highlights[0].text, "字幕");
   assert.equal(config.input_props.captions[0].label.highlights[0].startToken, 0);
-  assert.equal(config.input_props.subtitleTheme, "black");
+  assert.equal(config.input_props.subtitleTheme, "white");
   assert.equal(config.composition.durationInFrames, 36);
 });
 

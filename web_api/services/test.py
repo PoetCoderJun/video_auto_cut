@@ -612,6 +612,7 @@ def confirm_test(
             final_test_text_path=str(final_test_text),
             final_test_srt_path=str(final_test_srt),
             final_chapters_path=str(final_chapters),
+            subtitle_render_v1_path=None,
         )
         update_job(
             job_id,

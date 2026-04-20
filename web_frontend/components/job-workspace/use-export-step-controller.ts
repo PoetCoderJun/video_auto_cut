@@ -66,6 +66,9 @@ import {
   withTimeout,
 } from "./workspace-utils";
 
+const RENDER_META_TIMEOUT_MS = 60_000;
+const RENDER_CONFIG_TIMEOUT_MS = 90_000;
+
 export function useExportStepController({
   busy,
   job,
@@ -101,7 +104,7 @@ export function useExportStepController({
   const [renderSetupError, setRenderSetupError] = useState("");
   const [previewTimeSec, setPreviewTimeSec] = useState(0);
   const [subtitleTheme, setSubtitleTheme] =
-    useState<SubtitleTheme>("black");
+    useState<SubtitleTheme>("white");
   const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>({
     ...DEFAULT_OVERLAY_CONTROLS,
   });
@@ -166,8 +169,8 @@ export function useExportStepController({
       try {
         const meta = await withTimeout(
           resolveRenderMetaFromFile(sourceFile),
-          10000,
-          "读取本地视频元数据超时，请刷新页面后重试。",
+          RENDER_META_TIMEOUT_MS,
+          "读取本地视频元数据超时。当前源片较大，请稍后重试，或重新选择文件后再试。",
         );
         const previewMeta = buildPreviewRenderMeta(meta);
         setRenderPreviewProfile({
@@ -177,7 +180,7 @@ export function useExportStepController({
           isReduced: isPreviewRenderMetaReduced(meta, previewMeta),
         });
         const config = await loadRenderConfigWithMeta(sourceFile, previewMeta, {
-          timeoutMs: {config: 15000},
+          timeoutMs: {config: RENDER_CONFIG_TIMEOUT_MS},
         });
         return applyRenderPreviewConfig(config);
       } catch (err) {
@@ -240,7 +243,7 @@ export function useExportStepController({
       return null;
     });
     setRenderFileName("output.mp4");
-    setSubtitleTheme("black");
+    setSubtitleTheme("white");
     setOverlayControls({...DEFAULT_OVERLAY_CONTROLS});
     setSelectedFile(null);
   }, [jobId, setSelectedFile]);

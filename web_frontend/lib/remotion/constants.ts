@@ -13,6 +13,6 @@ export const SUBTITLE_THEME_OPTIONS: Array<{
   value: SubtitleTheme;
   label: string;
 }> = [
-  { value: "black", label: "黑底" },
-  { value: "white", label: "白底" },
+  { value: "white", label: "白字" },
+  { value: "black", label: "黑字" },
 ];
