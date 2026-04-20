@@ -16,6 +16,7 @@ SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
 DEFAULT_SUBTITLE_THEME = "white"
 MAX_HIGHLIGHTS_PER_CAPTION = 3
 DEFAULT_STYLE_MAX_TOKENS = 2400
+DEFAULT_STYLE_CHUNK_SIZE = 12
 
 
 def normalize_subtitle_theme(raw: Any) -> str:
@@ -89,29 +90,40 @@ def request_subtitle_style_contract(
     if not config.get("base_url") or not config.get("model"):
         return empty_contract
 
-    timed_text = build_timed_caption_text(normalized_captions)
-    if not timed_text:
+    requester = request_json_fn or llm_utils.request_json
+    merged_captions: list[dict[str, Any]] = []
+    for chunk in _chunk_captions(normalized_captions):
+        timed_text = build_timed_caption_text(chunk)
+        if not timed_text:
+            continue
+        try:
+            payload = requester(
+                config,
+                build_subtitle_style_messages(timed_text),
+                validate=lambda raw_payload, source_chunk=chunk: _validate_style_payload(
+                    raw_payload,
+                    source_captions=source_chunk,
+                    subtitle_theme=normalized_theme,
+                ),
+                repair_retries=1,
+                repair_instructions=(
+                    "Return one JSON object only. Keep every caption row in the same order with the same "
+                    "`start`, `end`, and `text` values as the input. Each caption may only contain a `highlights` "
+                    "array of original text fragments."
+                ),
+            )
+            merged_captions.extend(list(payload.get("captions") or []))
+        except Exception:
+            merged_captions.extend(_build_empty_style_contract(chunk, normalized_theme)["captions"])
+
+    if len(merged_captions) != len(normalized_captions):
         return empty_contract
 
-    requester = request_json_fn or llm_utils.request_json
-    try:
-        return requester(
-            config,
-            build_subtitle_style_messages(timed_text),
-            validate=lambda payload: _validate_style_payload(
-                payload,
-                source_captions=normalized_captions,
-                subtitle_theme=normalized_theme,
-            ),
-            repair_retries=1,
-            repair_instructions=(
-                "Return one JSON object only. Keep every caption row in the same order with the same "
-                "`start`, `end`, and `text` values as the input. Each caption may only contain a `highlights` "
-                "array of original text fragments."
-            ),
-        )
-    except Exception:
-        return empty_contract
+    return {
+        "version": SUBTITLE_STYLE_VERSION,
+        "subtitleTheme": normalized_theme,
+        "captions": merged_captions,
+    }
 
 
 def build_subtitle_render_v1_contract(
@@ -213,6 +225,11 @@ def _build_empty_style_contract(captions: list[dict[str, Any]], subtitle_theme: 
             for caption in captions
         ],
     }
+
+
+def _chunk_captions(captions: list[dict[str, Any]], chunk_size: int = DEFAULT_STYLE_CHUNK_SIZE) -> list[list[dict[str, Any]]]:
+    resolved_size = max(1, int(chunk_size))
+    return [captions[index : index + resolved_size] for index in range(0, len(captions), resolved_size)]
 
 
 def _normalize_source_captions(captions: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -62,6 +62,41 @@ class SubtitleRenderContractTest(unittest.TestCase):
         self.assertEqual(payload["captions"][0]["highlights"], ["重点"])
         self.assertEqual(payload["captions"][1]["highlights"], ["动作结果"])
 
+    def test_request_subtitle_style_contract_batches_large_caption_sets(self) -> None:
+        captions = [
+            {"index": index + 1, "start": index * 1.0, "end": index * 1.0 + 0.8, "text": f"第{index + 1}句重点信息"}
+            for index in range(14)
+        ]
+        seen_batches: list[int] = []
+
+        def fake_request_json(_cfg, messages, *, validate, **_kwargs):
+            user_payload = messages[-1]["content"]
+            batch_size = user_payload.count("【")
+            seen_batches.append(batch_size)
+            rows = []
+            for line in user_payload.splitlines():
+                time_part, text = line.split("】", 1)
+                start, end = time_part[1:].split("-", 1)
+                rows.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "text": text,
+                        "highlights": ["重点信息"],
+                    }
+                )
+            return validate({"version": "subtitle-style.v1", "subtitleTheme": "white", "captions": rows})
+
+        payload = request_subtitle_style_contract(
+            captions=captions,
+            llm_config={"base_url": "https://example.com/v1", "model": "qwen-plus"},
+            request_json_fn=fake_request_json,
+        )
+
+        self.assertEqual(seen_batches, [12, 2])
+        self.assertEqual(len(payload["captions"]), 14)
+        self.assertEqual(payload["captions"][13]["highlights"], ["重点信息"])
+
     def test_build_subtitle_render_v1_contract_converts_highlight_terms_to_render_labels(self) -> None:
         contract = build_subtitle_render_v1_contract(
             captions=[
