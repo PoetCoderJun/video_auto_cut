@@ -158,7 +158,12 @@ fi
 
 if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == "yes" ]]; then
   echo "[start_web_mvp] running Better Auth migrations ..."
-  (cd "$ROOT_DIR/web_frontend" && npx @better-auth/cli migrate --config ./lib/auth.ts -y)
+  (
+    cd "$ROOT_DIR/web_frontend" && \
+    BETTER_AUTH_LOCAL_ONLY=1 \
+    TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH" \
+    npx @better-auth/cli migrate --config ./lib/auth.ts -y
+  )
 fi
 
 existing_next_process="$(ps -ax -o pid=,command= | rg "next (dev|start)|\\.next/standalone/server\\.js" | rg "$ROOT_DIR/web_frontend" || true)"
