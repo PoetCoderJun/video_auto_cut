@@ -88,3 +88,43 @@ test("createBetterAuthLibsqlClient falls back to local replica when sync connect
   assert.equal(calls[1].url, `file:${path.resolve("./workdir/web_api_turso_replica.auth.db")}`);
   assert.equal(calls[1].syncUrl, undefined);
 });
+
+test("createBetterAuthLibsqlClient resets invalid local replica state and retries", async () => {
+  const tempReplicaPath = path.resolve("./workdir/test-better-auth-invalid-replica.db");
+  const tempReplicaInfoPath = `${tempReplicaPath}-info`;
+  const tempReplicaWalPath = `${tempReplicaPath}-wal`;
+  const tempReplicaShmPath = `${tempReplicaPath}-shm`;
+  for (const filePath of [tempReplicaPath, tempReplicaInfoPath, tempReplicaWalPath, tempReplicaShmPath]) {
+    try {
+      await import("node:fs/promises").then((fs) => fs.writeFile(filePath, "x"));
+    } catch {
+      // ignore setup races
+    }
+  }
+
+  const calls = [];
+  const createClientStub = (config) => {
+    calls.push(config);
+    if (calls.length === 1) {
+      throw new Error("sync error: invalid local state: db file exists but metadata file does not");
+    }
+    return {kind: "reset-success"};
+  };
+
+  const client = createBetterAuthLibsqlClient(
+    {
+      url: `file:${tempReplicaPath}`,
+      syncUrl: "libsql://example.turso.io",
+      authToken: "token",
+    },
+    createClientStub,
+  );
+
+  assert.deepEqual(client, {kind: "reset-success"});
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, `file:${tempReplicaPath}`);
+  for (const filePath of [tempReplicaPath, tempReplicaInfoPath, tempReplicaWalPath, tempReplicaShmPath]) {
+    assert.equal(path.isAbsolute(filePath), true);
+    assert.equal(await import("node:fs/promises").then((fs) => fs.access(filePath).then(() => true).catch(() => false)), false);
+  }
+});

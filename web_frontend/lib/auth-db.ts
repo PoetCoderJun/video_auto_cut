@@ -10,6 +10,12 @@ const TURSO_CONNECT_ONLY_SIGNALS = [
   "timed out",
   "timeout",
 ];
+const INVALID_LOCAL_REPLICA_SIGNALS = [
+  "invalid local state",
+  "metadata file does not exist",
+  "metadata file missing",
+  "db file exists but metadata file does not",
+];
 
 function trimEnv(value: string | undefined): string {
   return String(value || "").trim();
@@ -81,10 +87,42 @@ function buildLocalReplicaOnlyConfig(config: Config): Config {
   };
 }
 
+function replicaPathFromConfig(config: Config): string | null {
+  const rawUrl = String(config.url || "").trim();
+  if (!rawUrl.startsWith("file:")) return null;
+  return rawUrl.slice("file:".length);
+}
+
 function isRetryableTursoConnectError(error: unknown): boolean {
   const message = String(error || "").trim().toLowerCase();
   if (!message) return false;
   return TURSO_CONNECT_ONLY_SIGNALS.some((signal) => message.includes(signal));
+}
+
+function isInvalidLocalReplicaStateError(error: unknown): boolean {
+  const message = String(error || "").trim().toLowerCase();
+  if (!message) return false;
+  return INVALID_LOCAL_REPLICA_SIGNALS.some((signal) => message.includes(signal));
+}
+
+function resetLocalReplica(replicaPath: string): void {
+  const resolvedPath = path.resolve(replicaPath);
+  for (const candidate of [
+    resolvedPath,
+    `${resolvedPath}-wal`,
+    `${resolvedPath}-shm`,
+    `${resolvedPath}-info`,
+  ]) {
+    try {
+      if (fs.existsSync(candidate)) {
+        fs.unlinkSync(candidate);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
 }
 
 export function createBetterAuthLibsqlClient(
@@ -95,7 +133,18 @@ export function createBetterAuthLibsqlClient(
     return createClientImpl(config);
   } catch (error) {
     const isReplicaConfig = String(config.url || "").startsWith("file:");
-    if (!isReplicaConfig || !isRetryableTursoConnectError(error)) {
+    if (!isReplicaConfig) {
+      throw error;
+    }
+    if (isInvalidLocalReplicaStateError(error)) {
+      const replicaPath = replicaPathFromConfig(config);
+      if (!replicaPath) {
+        throw error;
+      }
+      resetLocalReplica(replicaPath);
+      return createClientImpl(config);
+    }
+    if (!isRetryableTursoConnectError(error)) {
       throw error;
     }
     return createClientImpl(buildLocalReplicaOnlyConfig(config));

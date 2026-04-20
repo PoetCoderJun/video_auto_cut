@@ -40,20 +40,27 @@
   - Status: activated with credits; prefer reusing this account instead of creating throwaway users during local tests.
 - Reliable local browser upload/export debugging path:
   - Prefer **headed Chrome real-machine mode** for browser export verification. Headless Chrome often trips the local render capability guard and can report “当前浏览器图形能力不足”.
-  - Source fixture for the large real-world regression case is `test_data/raw/AI1.MOV` (the user may say `A1.MOV`, but the repo fixture is `AI1.MOV`).
-  - Start the stack from repo root with `.env` loaded. The most reliable manual path is:
-    - API: `set -a && source .env && set +a && TURSO_LOCAL_REPLICA_PATH='/Users/huzujun/Desktop/video_auto_cut/workdir/web_api_turso_replica.db' /usr/local/anaconda3/envs/python39/qwen312/bin/python -m uvicorn web_api.app:app --host 127.0.0.1 --port 8000 --log-level info --access-log`
-    - Frontend dev: `set -a && source .env && set +a && BETTER_AUTH_SECRET='video-auto-cut-prod-secret-20260420-strong-abcdef123456789' TURSO_LOCAL_REPLICA_PATH='/Users/huzujun/Desktop/video_auto_cut/workdir/web_api_turso_replica.db' NEXT_PUBLIC_API_BASE='http://127.0.0.1:8000/api/v1' NEXT_PUBLIC_SITE_URL='http://127.0.0.1:3000' BETTER_AUTH_URL='http://127.0.0.1:3000' WEB_API_BASE='http://127.0.0.1:8000/api/v1' npm --prefix web_frontend run dev -- --hostname 127.0.0.1 --port 3000`
-  - If `web_frontend` dependencies were cleaned, run `npm --prefix web_frontend install` before starting Next.js.
-  - Use an **absolute** `TURSO_LOCAL_REPLICA_PATH` when launching frontend auth flows; relative replica paths can break Better Auth/Turso file-sync behavior depending on the current working directory.
-  - For login smoke checks, verify `POST http://127.0.0.1:3000/api/auth/sign-in/email` succeeds before starting long browser automation runs.
-  - If using CDP/Chrome automation, first kill stale Chrome instances with old `--remote-debugging-port` values and use a fresh port/profile per run; stale sessions can cause the automation to attach to the wrong page or hang waiting for outdated UI text.
-  - The legacy `scripts/e2e_browser_upload_export.mjs` flow may lag behind current UI copy/state names; if it stalls, inspect the live page over CDP and drive the current buttons/states directly instead of trusting old text waits.
-  - For subtitle/export visual debugging, useful checkpoints are:
-    - upload accepted: page shows `请保持页面开启，我们会自动继续处理。`
-    - edit running: `正在筛除冗余字幕` / `正在润色字幕` / `正在生成章节`
-    - export ready: `保存并进入导出` or `导出设置`
+  - Use `test_data/raw/AI1.MOV` for the large real-world upload/export regression case (the user may say `A1.MOV`, but the repo fixture is `AI1.MOV`).
+  - Start from repo root with `./scripts/start_web_mvp.sh debug`. The script now passes the absolute replica path through to frontend auth/runtime.
+  - If `web_frontend` deps were cleaned, run `npm --prefix web_frontend install` first.
+  - Smoke account:
+    - Email: `e2e-web-smoke@example.com`
+    - Password: `E2E-Web-Smoke-20260420!`
+  - Before long browser runs, verify login works:
+    - `POST http://127.0.0.1:3000/api/auth/sign-in/email` should return `200`.
+  - If local auth starts failing with `invalid local state: db file exists but metadata file does not`, restart through `start_web_mvp.sh debug`; frontend auth now resets the broken auth replica automatically on first open.
+  - If PI/Test generation stalls on Kimi overload (`429 rate_limit_error` / `currently overloaded`), rerun local E2E with `PI_PROVIDER=vac-llm ./scripts/start_web_mvp.sh debug`.
+  - If using CDP/Chrome automation:
+    - kill stale Chrome instances with old `--remote-debugging-port` values first
+    - use a fresh port/profile per run
+    - do not trust older wait-texts blindly; inspect the live page body over CDP if automation stalls
+  - Useful page checkpoints:
+    - upload accepted: `请保持页面开启，我们会自动继续处理。`
+    - processing: `正在筛除冗余字幕` / `正在润色字幕` / `正在生成章节`
+    - editor ready: `保存并进入导出`
+    - export ready: `导出设置`
     - export done: `下载上次导出`
+  - On a fresh browser session, the export step may ask to reselect the local source video cache; if so, reattach the original `AI1.MOV` once on the export page before clicking `导出视频`.
 - For overlay / export UI work, use `web_frontend/app/dev-export-preview/page.tsx` as the reusable mock lab:
   - The mock lab uses a plain white background instead of a real source video so overlay density and wrapping are easier to inspect.
   - Switch scenario presets to inspect long chapter titles, compact single-line titles, and landscape progress labels.

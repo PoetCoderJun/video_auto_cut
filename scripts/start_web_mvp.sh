@@ -72,6 +72,7 @@ export WEB_AUTH_BASE_URL="${WEB_AUTH_BASE_URL:-$BETTER_AUTH_URL}"
 export WEB_AUTH_ISSUER="${WEB_AUTH_ISSUER:-$BETTER_AUTH_URL}"
 export WEB_AUTH_AUDIENCE="${WEB_AUTH_AUDIENCE:-$BETTER_AUTH_URL}"
 export WEB_AUTH_JWKS_URL="${WEB_AUTH_JWKS_URL:-${BETTER_AUTH_URL%/}/api/auth/jwks}"
+export TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH"
 ASR_BACKEND_NORMALIZED="$(printf '%s' "${ASR_BACKEND:-dashscope_filetrans}" | tr '[:upper:]' '[:lower:]')"
 if [[ "$ASR_BACKEND_NORMALIZED" != "dashscope_filetrans" ]]; then
   echo "[start_web_mvp] unsupported ASR_BACKEND=$ASR_BACKEND_NORMALIZED (only dashscope_filetrans is supported)"
@@ -259,6 +260,7 @@ if [[ "$MODE" == "debug" ]]; then
     NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
     BETTER_AUTH_URL="$BETTER_AUTH_URL" \
     WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH" \
     npm --prefix "$ROOT_DIR/web_frontend" run dev -- --hostname 127.0.0.1 --port "$FRONTEND_PORT" &
   FRONTEND_PID=$!
 else
@@ -267,6 +269,7 @@ else
     NEXT_PUBLIC_SITE_URL="$NEXT_PUBLIC_SITE_URL" \
     BETTER_AUTH_URL="$BETTER_AUTH_URL" \
     WEB_API_BASE="http://$API_BROWSER_HOST:$API_PORT/api/v1" \
+    TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH" \
     HOSTNAME="127.0.0.1" \
     PORT="$FRONTEND_PORT" \
     bash -lc 'cd "$1/web_frontend" && exec node .next/standalone/server.js' _ "$ROOT_DIR" &
