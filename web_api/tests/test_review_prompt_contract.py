@@ -17,6 +17,9 @@ class ReviewPromptContractTest(unittest.TestCase):
         system_prompt = messages[0]["content"]
         user_prompt = messages[1]["content"]
 
+        self.assertIn("合并后的任务概述是：", system_prompt)
+        self.assertIn("目标是清理口播录制过程里的返工痕迹", system_prompt)
+        self.assertIn("目标是让口播字幕更顺、更自然", system_prompt)
         self.assertIn("Delete 审核基准：", system_prompt)
         self.assertIn("Polish 审核基准：", system_prompt)
         self.assertIn("只要后一句是前一句更完整、更准确、更最终的重说/补说/纠正版本，就应该删前留后", system_prompt)
