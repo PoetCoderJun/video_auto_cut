@@ -17,8 +17,10 @@ class ReviewPromptContractTest(unittest.TestCase):
         system_prompt = messages[0]["content"]
         user_prompt = messages[1]["content"]
 
-        self.assertIn("delete：识别录制过程里的返工", system_prompt)
-        self.assertIn("polish：在已经保留的最终版本上做轻量整理", system_prompt)
+        self.assertIn("Delete 审核基准：", system_prompt)
+        self.assertIn("Polish 审核基准：", system_prompt)
+        self.assertIn("只要后一句是前一句更完整、更准确、更最终的重说/补说/纠正版本，就应该删前留后", system_prompt)
+        self.assertIn("不能跨行借内容，不能补原文没有的新事实", system_prompt)
         self.assertNotIn("chapter 阶段", system_prompt)
         self.assertNotIn("highlight 阶段", system_prompt)
         self.assertIn("delete+polish 最终稿", user_prompt)
