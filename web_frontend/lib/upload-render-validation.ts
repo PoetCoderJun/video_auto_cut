@@ -12,28 +12,130 @@ type RenderValidationMetadata = {
   height: number;
 };
 
+type RenderValidationDeps = {
+  loadMetadata?: (
+    sourceFile: File,
+    timeoutMs: number,
+  ) => Promise<RenderValidationMetadata>;
+  loadRenderer?: () => Promise<{
+    canRenderMediaOnWeb: (
+      options: CanRenderMediaOnWebOptions,
+    ) => Promise<{
+      canRender: boolean;
+      issues: CanRenderIssue[];
+    }>;
+  }>;
+  metadataTimeoutMs?: number;
+  rendererImportTimeoutMs?: number;
+  capabilityAttemptTimeoutMs?: number;
+};
+
+const METADATA_LOAD_TIMEOUT_MS = 15_000;
+const RENDERER_IMPORT_TIMEOUT_MS = 10_000;
+const CAPABILITY_ATTEMPT_TIMEOUT_MS = 10_000;
+
+export class RenderCapabilityValidationTimeoutError extends Error {
+  readonly label: string;
+  readonly timeoutMs: number;
+
+  constructor(label: string, timeoutMs: number) {
+    super(`${label} timed out after ${timeoutMs}ms`);
+    this.name = "RenderCapabilityValidationTimeoutError";
+    this.label = label;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+function isTimeoutError(error: unknown): error is RenderCapabilityValidationTimeoutError {
+  return error instanceof RenderCapabilityValidationTimeoutError;
+}
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      reject(new RenderCapabilityValidationTimeoutError(label, timeoutMs));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function cleanupMetadataProbe(video: HTMLVideoElement, sourceUrl: string): void {
+  video.onloadedmetadata = null;
+  video.onerror = null;
+  try {
+    video.pause();
+  } catch {
+    // ignore
+  }
+  try {
+    video.removeAttribute("src");
+    video.load();
+  } catch {
+    // ignore
+  }
+  URL.revokeObjectURL(sourceUrl);
+}
+
 async function loadSourceMetadata(
   sourceFile: File,
+  timeoutMs = METADATA_LOAD_TIMEOUT_MS,
 ): Promise<RenderValidationMetadata> {
   const sourceUrl = URL.createObjectURL(sourceFile);
-  try {
-    return await new Promise<RenderValidationMetadata>((resolve, reject) => {
-      const video = document.createElement("video");
-      video.preload = "metadata";
-      video.onloadedmetadata = () => {
-        resolve({
-          width: Math.max(1, video.videoWidth || 1280),
-          height: Math.max(1, video.videoHeight || 720),
-        });
-      };
-      video.onerror = () => {
-        reject(new Error("浏览器无法读取当前源视频的元数据。"));
-      };
-      video.src = sourceUrl;
-    });
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
+  return await new Promise<RenderValidationMetadata>((resolve, reject) => {
+    const video = document.createElement("video");
+    let settled = false;
+    const settle = (handler: "resolve" | "reject", value: RenderValidationMetadata | Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timer);
+      cleanupMetadataProbe(video, sourceUrl);
+      if (handler === "resolve") {
+        resolve(value as RenderValidationMetadata);
+        return;
+      }
+      reject(value);
+    };
+    const timer = window.setTimeout(() => {
+      settle(
+        "reject",
+        new RenderCapabilityValidationTimeoutError("load-source-metadata", timeoutMs),
+      );
+    }, timeoutMs);
+
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => {
+      settle("resolve", {
+        width: Math.max(1, video.videoWidth || 1280),
+        height: Math.max(1, video.videoHeight || 720),
+      });
+    };
+    video.onerror = () => {
+      settle("reject", new Error("浏览器无法读取当前源视频的元数据。"));
+    };
+    video.src = sourceUrl;
+  });
+}
+
+function isNonBlockingCapabilityProbeError(error: unknown): boolean {
+  return isTimeoutError(error);
 }
 
 export function getFriendlyCanRenderIssueMessage(
@@ -92,13 +194,63 @@ export function getFriendlyCanRenderThrownErrorMessage(error: unknown): string {
 
 export async function validateBrowserRenderCapability(
   sourceFile: File,
+  deps: RenderValidationDeps = {},
 ): Promise<void> {
   if (typeof window === "undefined") {
     return;
   }
 
-  const metadata = await loadSourceMetadata(sourceFile);
-  const { canRenderMediaOnWeb } = await import("@remotion/web-renderer");
+  const metadataTimeoutMs = Math.max(
+    1000,
+    deps.metadataTimeoutMs ?? METADATA_LOAD_TIMEOUT_MS,
+  );
+  const rendererImportTimeoutMs = Math.max(
+    1000,
+    deps.rendererImportTimeoutMs ?? RENDERER_IMPORT_TIMEOUT_MS,
+  );
+  const capabilityAttemptTimeoutMs = Math.max(
+    1000,
+    deps.capabilityAttemptTimeoutMs ?? CAPABILITY_ATTEMPT_TIMEOUT_MS,
+  );
+
+  const metadataLoader = deps.loadMetadata ?? loadSourceMetadata;
+  const rendererLoader = deps.loadRenderer ?? (async () => await import("@remotion/web-renderer"));
+
+  let metadata: RenderValidationMetadata;
+  try {
+    metadata = await metadataLoader(sourceFile, metadataTimeoutMs);
+  } catch (error) {
+    if (isNonBlockingCapabilityProbeError(error)) {
+      console.warn("[upload-render-validation] metadata probe timed out, continuing upload", {
+        error,
+      });
+      return;
+    }
+    throw error;
+  }
+
+  let canRenderMediaOnWeb: (
+    options: CanRenderMediaOnWebOptions,
+  ) => Promise<{
+    canRender: boolean;
+    issues: CanRenderIssue[];
+  }>;
+  try {
+    ({ canRenderMediaOnWeb } = await withTimeout(
+      rendererLoader(),
+      rendererImportTimeoutMs,
+      "load-renderer",
+    ));
+  } catch (error) {
+    if (isNonBlockingCapabilityProbeError(error)) {
+      console.warn("[upload-render-validation] renderer import timed out, continuing upload", {
+        error,
+      });
+      return;
+    }
+    throw error;
+  }
+
   const validationAttempts: Array<{
     label: string;
     options: CanRenderMediaOnWebOptions;
@@ -129,7 +281,11 @@ export async function validateBrowserRenderCapability(
   let lastThrownError: unknown = null;
   for (const attempt of validationAttempts) {
     try {
-      const result = await canRenderMediaOnWeb(attempt.options);
+      const result = await withTimeout(
+        canRenderMediaOnWeb(attempt.options),
+        capabilityAttemptTimeoutMs,
+        `capability-check-${attempt.label}`,
+      );
       if (result.canRender) {
         return;
       }
@@ -142,6 +298,13 @@ export async function validateBrowserRenderCapability(
     } catch (error) {
       lastIssues = [];
       lastThrownError = error;
+      if (isNonBlockingCapabilityProbeError(error)) {
+        console.warn("[upload-render-validation] capability check timed out, continuing upload", {
+          attempt: attempt.label,
+          error,
+        });
+        return;
+      }
       console.warn("[upload-render-validation] capability check threw", {
         attempt: attempt.label,
         error,
