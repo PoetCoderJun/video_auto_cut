@@ -4,12 +4,15 @@ import argparse
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
 import srt
 
 from video_auto_cut.asr.transcribe_stage import run_asr_transcription_stage
+from video_auto_cut.editing import llm_client as llm_utils
+from video_auto_cut.editing.direct_prompts import build_review_messages
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
 from video_auto_cut.pi_agent_runner import (
     DEFAULT_MAX_LINES,
@@ -121,6 +124,72 @@ def _write_highlight_contract(path: Path, *, captions: list[dict[str, Any]], arg
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
 
+
+REVIEW_MODEL = "qwen3.6-max-preview"
+
+
+def _build_review_llm_config(args: argparse.Namespace) -> dict[str, Any]:
+    return llm_utils.build_llm_config(
+        base_url=(args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip() or None,
+        model=REVIEW_MODEL,
+        api_key=(args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or "").strip() or None,
+        timeout=int(args.llm_timeout),
+        temperature=0.0,
+        max_tokens=args.llm_max_tokens,
+        enable_thinking=False,
+    )
+
+
+def _build_review_input(
+    *,
+    raw_lines: list[dict[str, Any]],
+    final_lines: list[dict[str, Any]],
+    chapters: list[dict[str, Any]],
+    highlight_payload: dict[str, Any],
+) -> str:
+    raw_text = _render_test_text_from_lines(raw_lines)
+    final_text = _render_test_text_from_lines(final_lines)
+    chapter_text = _render_chapters_text(chapters)
+    sparse_highlights = []
+    for index, caption in enumerate(list(highlight_payload.get("captions") or []), start=1):
+        terms = list(caption.get("highlights") or [])
+        if not terms:
+            continue
+        sparse_highlights.append(f"{index}\t" + "|".join(str(term) for term in terms))
+    return (
+        "[原始转写]\n" + raw_text.strip() + "\n\n"
+        "[最终字幕]\n" + final_text.strip() + "\n\n"
+        "[章节]\n" + chapter_text.strip() + "\n\n"
+        "[高亮]\n" + ("\n".join(sparse_highlights).strip() or "<none>")
+    )
+
+
+def _write_review_report(
+    path: Path,
+    *,
+    raw_lines: list[dict[str, Any]],
+    final_lines: list[dict[str, Any]],
+    chapters: list[dict[str, Any]],
+    highlight_payload: dict[str, Any],
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    review_input = _build_review_input(
+        raw_lines=raw_lines,
+        final_lines=final_lines,
+        chapters=chapters,
+        highlight_payload=highlight_payload,
+    )
+    cfg = _build_review_llm_config(args)
+    started = time.perf_counter()
+    review_text = llm_utils.chat_completion(cfg, build_review_messages(review_input))
+    elapsed = time.perf_counter() - started
+    path.write_text(str(review_text or "").strip() + "\n", encoding="utf-8")
+    return {
+        "model": REVIEW_MODEL,
+        "elapsed_seconds": round(elapsed, 3),
+        "path": str(path),
+    }
+
 def _build_cli_pipeline_options(args: argparse.Namespace):
     return build_pipeline_options_from_env(
         force=True,
@@ -198,6 +267,7 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     final_test_srt_path = output_path.with_suffix(".test.srt")
     chapters_text_path = output_path.with_suffix(".chapters.txt")
     highlight_contract_path = output_path.with_suffix(".highlights.json")
+    review_report_path = output_path.with_suffix(".review.txt")
 
     raw_test_text_path.write_text(_render_test_text_from_lines(raw_lines) + "\n", encoding="utf-8")
     final_test_text_path.write_text(_render_test_text_from_lines(polish_artifacts.lines) + "\n", encoding="utf-8")
@@ -206,6 +276,14 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     highlight_payload = _write_highlight_contract(
         highlight_contract_path,
         captions=_build_kept_captions_from_lines(polish_artifacts.lines),
+        args=args,
+    )
+    review_meta = _write_review_report(
+        review_report_path,
+        raw_lines=raw_lines,
+        final_lines=polish_artifacts.lines,
+        chapters=chapter_artifacts.chapters,
+        highlight_payload=highlight_payload,
         args=args,
     )
 
@@ -217,6 +295,7 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         "final_test_srt_path": str(final_test_srt_path),
         "chapters_text_path": str(chapters_text_path),
         "highlight_contract_path": str(highlight_contract_path),
+        "review_report_path": str(review_report_path),
         "line_count": len(polish_artifacts.lines),
         "chapter_count": len(chapter_artifacts.chapters),
         "highlight_caption_count": len(list(highlight_payload.get("captions") or [])),
@@ -225,6 +304,7 @@ def _run_cli_test(args: argparse.Namespace) -> int:
             "polish": polish_artifacts.debug,
             "chapter": chapter_artifacts.debug,
             "highlight": {"captions": len(list(highlight_payload.get("captions") or []))},
+            "review": review_meta,
         },
     }
     _write_json(output_path, payload)
@@ -243,7 +323,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--llm-api-key", default=None)
     parser.add_argument("--llm-timeout", type=int, default=300)
     parser.add_argument("--llm-max-tokens", type=int, default=None)
-    parser.add_argument("--title-max-chars", type=int, default=6)
+    parser.add_argument("--title-max-chars", type=int, default=5)
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--lang", default=None)
     parser.add_argument("--prompt", default="")

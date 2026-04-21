@@ -69,7 +69,7 @@ class TestPiRequest:
     llm_config: dict[str, Any]
     segments: list[dict[str, Any]] = field(default_factory=list)
     lines: list[dict[str, Any]] = field(default_factory=list)
-    title_max_chars: int = 6
+    title_max_chars: int = 5
     max_lines: int = DEFAULT_MAX_LINES
     max_chapters: int | None = None
     chapter_policy_hint: str = ""
@@ -455,7 +455,8 @@ def _parse_polish_output(text: str, request: TestPiRequest) -> list[dict[str, An
             lines.append(source)
             continue
         body = str(changes[line_id] or "").strip()
-        if body.lower() in {"<empty>", "<remove>"} or not body:
+        lowered = body.lower()
+        if not body or "<empty>" in lowered or "<remove>" in lowered:
             source["ai_suggest_remove"] = True
             source["user_final_remove"] = True
             lines.append(source)

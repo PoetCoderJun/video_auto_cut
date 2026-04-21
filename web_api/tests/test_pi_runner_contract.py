@@ -11,6 +11,9 @@ class TestPiRunnerContractTests(unittest.TestCase):
     def test_delete_prompt_uses_sparse_index_input(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
             self.assertIn("只输出需要删除的行号", messages[0]["content"])
+            self.assertIn("不要只看字面相同，要看“是不是在说同一件事”", messages[0]["content"])
+            self.assertIn("如果一个返工簇里出现了两次以上相似起手句/铺垫句", messages[0]["content"])
+            self.assertIn("优先保留最晚出现、最完整、最顺、关键词最准确的那一版", messages[0]["content"])
             self.assertIn("1\t第一句", messages[1]["content"])
             self.assertIn("2\t第二句", messages[1]["content"])
             return "1\n"
@@ -73,6 +76,8 @@ class TestPiRunnerContractTests(unittest.TestCase):
     def test_polish_prompt_uses_sparse_changed_rows(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
             self.assertIn("只输出那些“需要改写”的行", messages[0]["content"])
+            self.assertIn("如果一行只剩连接词、语气承接词、起手残片", messages[0]["content"])
+            self.assertIn("不要输出像 `然后<empty>` 这种混合文本", messages[0]["content"])
             self.assertIn("1\t原句", messages[1]["content"])
             return "1\t润色后\n"
 
@@ -113,6 +118,21 @@ class TestPiRunnerContractTests(unittest.TestCase):
                         "ai_suggest_remove": False,
                         "user_final_remove": False,
                     }
+                ],
+            )
+        )
+        self.assertTrue(artifacts.lines[0]["user_final_remove"])
+        self.assertTrue(artifacts.lines[0]["ai_suggest_remove"])
+
+    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    def test_polish_contract_treats_embedded_empty_marker_as_remove(self, mock_chat) -> None:
+        mock_chat.return_value = "1\t然后<empty>\n"
+        artifacts = run_test_pi(
+            TestPiRequest(
+                task="polish",
+                llm_config={"base_url": "http://x", "model": "m", "api_key": "k"},
+                lines=[
+                    {"line_id": 1, "start": 0.0, "end": 1.0, "original_text": "然后", "optimized_text": "然后", "ai_suggest_remove": False, "user_final_remove": False},
                 ],
             )
         )
@@ -167,6 +187,7 @@ class TestPiRunnerContractTests(unittest.TestCase):
         def fake_chat(cfg, messages):
             self.assertIn("最多只能分成 2 章", messages[0]["content"])
             self.assertIn("横屏视频章节约束", messages[0]["content"])
+            self.assertIn("标题绝不能超过 5 个字", messages[0]["content"])
             self.assertIn("【1】第一段", messages[1]["content"])
             return "```\n【1-2】开场\n```"
 
@@ -180,6 +201,7 @@ class TestPiRunnerContractTests(unittest.TestCase):
                     {"line_id": 2, "start": 1.0, "end": 2.0, "original_text": "第二段", "optimized_text": "第二段", "ai_suggest_remove": False, "user_final_remove": False},
                 ],
                 max_chapters=2,
+                title_max_chars=5,
                 chapter_policy_hint="横屏视频章节约束",
             )
         )

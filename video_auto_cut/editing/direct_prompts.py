@@ -46,9 +46,11 @@ _POLISH_SYSTEM_PROMPT = """你是口播字幕清理流程里的 polish 阶段执
 2. 每个输出行格式固定为：`行号<TAB>改后正文`。
 3. 如果某行应被清空/删除（例如整行只是“嗯/啊/呃”这类无信息语气词），输出：`行号<TAB><empty>`。
 4. 只能做词语级纠错、顺句、ASR 错词修正和轻微措辞整理；尤其要主动修复明显的 ASR 错词、同音误识别、英文/专有名词误识别。对明显可疑的英文词、中英夹杂怪词、音近错词不要保守照抄，能结合上下文修正就修正；如果英文原词拿不准，也优先改成自然、准确的中文说法。不要扩写事实，不要改结论，不要跨行借内容。
-5. 每行最多对应一个输出行，不能重复输出同一行号。
-6. 不要输出 markdown，不要输出解释，不要输出未修改的行。
-7. 除问句外，去掉行尾冗余标点。"""
+5. 如果一行只剩连接词、语气承接词、起手残片（例如“然后”“就是”“那个”“所以”）或删除标记，请直接输出 `<empty>`，不要输出像 `然后<empty>` 这种混合文本。
+6. 如果模型判断该行应清空，整行只输出 `<empty>`，不要在前后再附加任何其他文字。
+7. 每行最多对应一个输出行，不能重复输出同一行号。
+8. 不要输出 markdown，不要输出解释，不要输出未修改的行。
+9. 除问句外，去掉行尾冗余标点。"""
 
 
 def _chapter_system_prompt(*, title_max_chars: int, max_chapters: int | None, chapter_policy_hint: str) -> str:
@@ -62,7 +64,7 @@ def _chapter_system_prompt(*, title_max_chars: int, max_chapters: int | None, ch
             requirements.append(f"4. 当前按{chapter_policy_hint}处理，本次最多只能分成 {int(max_chapters)} 章。")
         else:
             requirements.append(f"4. 本次最多只能分成 {int(max_chapters)} 章。")
-    requirements.append(f"{len(requirements) + 1}. 标题尽量不超过 {int(title_max_chars)} 个字。")
+    requirements.append(f"{len(requirements) + 1}. 标题绝不能超过 {min(5, int(title_max_chars))} 个字。")
     requirements.append(
         f"{len(requirements) + 1}. 只有出现明确话题/阶段切换时才新开章节；寒暄、过渡句、重复补充、没有实质新内容的短段落必须并入相邻章节。没有必要时宁少勿多，优先合并而不是拆碎。"
     )
@@ -145,6 +147,42 @@ def build_highlight_messages(sparse_text: str, *, subtitle_theme: str) -> list[d
         {
             "role": "user",
             "content": sparse_text.strip(),
+        },
+    ]
+
+
+_REVIEW_SYSTEM_PROMPT = """你是最终质量复核阶段的独立审稿人。
+
+你要复核的不是普通文案，而是一条“口播返工清理链路”的最终产物。整个任务的本质是：
+1. 从原始口播转写中识别返工、重说、纠正链条。
+2. delete 阶段必须遵循“删前留后”：如果是同一命题的返工簇，应优先保留最晚出现、最完整、最顺、关键词最准确的版本，删除前面的铺垫版、半句版、残片版。
+3. polish 阶段要主动修复 ASR 错词、同音误识别、英文/专有名词误识别，不能把明显怪词直接带进最终字幕。
+4. chapter 阶段要把内容压成尽量少但足够清晰的章节，标题不能过长。
+5. highlight 阶段只应该点出少量关键的词，不应该泛滥地高亮整句或长短语。
+
+你的任务是根据这些原则审查最终结果质量，而不是复述结果。
+
+请重点抓下面几类问题：
+- delete 是否仍然保留了更早的返工版，却删除了更晚、更完整的版本。
+- 是否仍残留明显的半句、起手残片、返工铺垫句。
+- polish 是否仍保留了明显的 ASR 怪词、错词、同音误识别、中英夹杂脏词。
+- 章节是否过碎、是否有标题过长或不准。
+- 高亮是否过多、过长、过整句，或没抓到真正关键的词。
+
+输出要求：
+- 只输出纯文本，不要 markdown 代码块。
+- 先给一句总评：`总评：通过` 或 `总评：不通过`。
+- 然后给 `关键问题：`，列出 1~5 条最重要的问题；没有问题就写“无明显关键问题”。
+- 然后给 `证据：`，尽量引用具体句子片段或章节标题。
+- 最后给 `建议：`，给出下一轮最值得优先修的 1~3 个方向。"""
+
+
+def build_review_messages(review_input: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": _REVIEW_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": "请基于下面的原始结果与最终产物做质量复核：\n\n" + review_input.strip(),
         },
     ]
 

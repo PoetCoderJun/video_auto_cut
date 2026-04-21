@@ -5,6 +5,7 @@ import fcntl
 import logging
 import math
 import subprocess
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,7 @@ from ..job_file_repository import (
     update_job,
     upsert_job_files,
 )
+from .render_web import ensure_subtitle_render_v1_contract, warm_editor_subtitle_style_cache
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,7 @@ def generate_test_chapters(
             task="chapter",
             llm_config=llm_config,
             lines=kept_lines,
-            title_max_chars=int(options.topic_title_max_chars),
+            title_max_chars=_resolve_topic_title_max_chars(options),
             max_chapters=max_chapters,
             chapter_policy_hint=chapter_policy_hint,
         )
@@ -100,6 +102,19 @@ def generate_test_chapters(
     ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
     write_chapters_text(chapters, output_path)
     return chapters
+
+
+def _resolve_topic_title_max_chars(options: Any) -> int:
+    raw = getattr(options, "topic_title_max_chars", 5)
+    if isinstance(raw, bool):
+        return 5
+    if not isinstance(raw, (int, float, str)):
+        return 5
+    try:
+        raw_value = int(raw)
+    except Exception:
+        raw_value = 5
+    return max(1, min(5, raw_value))
 
 
 def _probe_video_orientation(video_path: Path | None) -> str | None:
@@ -371,6 +386,7 @@ def run_test(job_id: str) -> None:
         optimized_srt_upload=optimized_srt_upload,
     )
     state.mark_ready()
+    schedule_editor_highlight_warmup(job_id, lines=lines, chapters=chapters)
 
 
 def _build_test_run_context(job_id: str) -> TestRunContext:
@@ -612,7 +628,13 @@ def confirm_test(
             final_test_text_path=str(final_test_text),
             final_test_srt_path=str(final_test_srt),
             final_chapters_path=str(final_chapters),
-            subtitle_render_v1_path=None,
+        )
+        confirmed_revision = build_document_revision(lines, normalized_chapters)
+        ensure_subtitle_render_v1_contract(
+            job_id,
+            lines=lines,
+            chapters=normalized_chapters,
+            document_revision=confirmed_revision,
         )
         update_job(
             job_id,
@@ -624,8 +646,51 @@ def confirm_test(
         return {
             "lines": lines,
             "chapters": normalized_chapters,
-            "document_revision": build_document_revision(lines, normalized_chapters),
+            "document_revision": confirmed_revision,
         }
+
+
+def schedule_editor_highlight_warmup(
+    job_id: str,
+    *,
+    lines: list[dict[str, Any]] | None = None,
+    chapters: list[dict[str, Any]] | None = None,
+) -> None:
+    source_lines = lines or list_test_lines(job_id)
+    source_chapters = chapters or list_test_chapters(job_id)
+    if not source_lines or not source_chapters:
+        logging.info("[web_api] editor highlight warmup skipped job=%s reason=missing-draft-data", job_id)
+        return
+
+    draft_lines = [dict(item) for item in source_lines]
+    draft_chapters = [dict(item) for item in source_chapters]
+    draft_revision = build_document_revision(draft_lines, draft_chapters)
+
+    def _run() -> None:
+        try:
+            warm_editor_subtitle_style_cache(
+                job_id,
+                lines=draft_lines,
+                document_revision=draft_revision,
+            )
+            logging.info(
+                "[web_api] editor highlight style warmup ready job=%s revision=%s",
+                job_id,
+                draft_revision[:12],
+            )
+        except Exception as exc:
+            logging.warning(
+                "[web_api] editor highlight style warmup skipped job=%s revision=%s error=%s",
+                job_id,
+                draft_revision[:12],
+                exc,
+            )
+
+    threading.Thread(
+        target=_run,
+        name=f"subtitle-render-warmup-{job_id}",
+        daemon=True,
+    ).start()
 
 
 @contextmanager

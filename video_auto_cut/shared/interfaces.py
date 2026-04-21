@@ -60,4 +60,4 @@ class PipelineOptions:
     topic_output: str | None = None
     topic_strict: bool = False
     topic_max_topics: int = 5
-    topic_title_max_chars: int = 6
+    topic_title_max_chars: int = 5

@@ -133,6 +133,7 @@ class TestChaptersTests(unittest.TestCase):
 
         request = mock_runner.call_args.args[0]
         self.assertEqual(request.max_chapters, 6)
+        self.assertEqual(request.title_max_chars, 5)
         self.assertEqual(request.chapter_policy_hint, "横屏视频章节约束")
         self.assertEqual(len(chapters), 6)
         self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-3", "4-6", "7-9", "10-12", "13-16", "17-18"])
@@ -192,6 +193,7 @@ class TestChaptersTests(unittest.TestCase):
 
         request = mock_runner.call_args.args[0]
         self.assertEqual(request.max_chapters, 4)
+        self.assertEqual(request.title_max_chars, 5)
         self.assertEqual(request.chapter_policy_hint, "竖屏视频章节约束")
         self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-4", "5-8", "9-14", "15-18"])
 
@@ -383,6 +385,7 @@ class TestChaptersTests(unittest.TestCase):
                 patch("web_api.services.test.replace_test_lines"),
                 patch("web_api.services.test.replace_test_chapters"),
                 patch("web_api.services.test.upsert_job_files"),
+                patch("web_api.services.test.ensure_subtitle_render_v1_contract") as mock_ensure_render_contract,
                 patch("web_api.services.test.update_job"),
             ):
                 result = confirm_test(
@@ -408,6 +411,7 @@ class TestChaptersTests(unittest.TestCase):
             ],
         )
         self.assertTrue(result["document_revision"])
+        mock_ensure_render_contract.assert_called_once_with("job-1")
 
     def test_document_revision_is_stable_for_semantically_equivalent_chapter_input(self) -> None:
         lines = [

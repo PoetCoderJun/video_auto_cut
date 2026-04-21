@@ -16,5 +16,6 @@
 - `polish.md`
 - `chapter.md`
 - `highlight.md`
+- `review.md`
 
 这些文件仅用于阅读、审阅和讨论，不参与运行。
