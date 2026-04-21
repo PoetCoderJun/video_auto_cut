@@ -39,14 +39,8 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
     def test_stage_and_preview_callbacks_follow_delete_then_polish(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
             if "delete 阶段执行器" in messages[0]["content"]:
-                return (
-                    "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
-                    "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式。\n"
-                )
-            return (
-                "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
-                "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式\n"
-            )
+                return "1\n"
+            return "2\t这是后一句的表达内容，这是更加准确的表达方式\n"
 
         mock_chat.side_effect = fake_chat
 
@@ -65,18 +59,15 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
         self.assertEqual(result["optimized_subs"][1].content, "这是后一句的表达内容，这是更加准确的表达方式")
 
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
-    def test_polish_output_must_cover_all_kept_lines(self, mock_chat) -> None:
+    def test_polish_output_rejects_unknown_sparse_line_id(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
             if "delete 阶段执行器" in messages[0]["content"]:
-                return (
-                    "【00:00:00.000-00:00:01.000】这是前一句的表达内容，我先说错了一些信息。\n"
-                    "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式。\n"
-                )
-            return "【00:00:00.000-00:00:01.000】第一句润色\n"
+                return ""
+            return "3\t第一句润色\n"
 
         mock_chat.side_effect = fake_chat
 
-        with self.assertRaisesRegex(RuntimeError, "Polish output must cover all input subtitle lines exactly once"):
+        with self.assertRaisesRegex(RuntimeError, "unknown or removed line ids"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(_sample_segments(), total_length=10.0)
 
 

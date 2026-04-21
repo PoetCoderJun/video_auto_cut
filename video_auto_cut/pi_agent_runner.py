@@ -239,25 +239,17 @@ def _render_test_line(*, start: float, end: float, text: str, remove: bool) -> s
 
 def _build_delete_input_text(segments: list[dict[str, Any]]) -> str:
     return "\n".join(
-        _render_test_line(
-            start=float(segment.get("start") or 0.0),
-            end=float(segment.get("end") or 0.0),
-            text=str(segment.get("text") or "").strip(),
-            remove=False,
-        )
-        for segment in segments
+        f"{int(segment.get('id') or index)}\t{str(segment.get('text') or '').strip()}"
+        for index, segment in enumerate(segments, start=1)
+        if str(segment.get("text") or "").strip()
     )
 
 
 def _build_polish_input_text(lines: list[dict[str, Any]]) -> str:
     return "\n".join(
-        _render_test_line(
-            start=float(line.get("start") or 0.0),
-            end=float(line.get("end") or 0.0),
-            text=str(line.get("optimized_text") or line.get("original_text") or "").strip(),
-            remove=bool(line.get("user_final_remove", False)),
-        )
-        for line in lines
+        f"{int(line.get('line_id') or index)}\t{str(line.get('optimized_text') or line.get('original_text') or '').strip()}"
+        for index, line in enumerate(lines, start=1)
+        if not bool(line.get("user_final_remove", False)) and str(line.get("optimized_text") or line.get("original_text") or "").strip()
     )
 
 
@@ -372,30 +364,69 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _parse_sparse_index_output(text: str) -> list[int]:
+    parsed: list[int] = []
+    seen: set[int] = set()
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        for part in re.split(r"[\s,，]+", line):
+            token = str(part or "").strip()
+            if not token:
+                continue
+            try:
+                value = int(token)
+            except ValueError as exc:
+                raise RuntimeError(f"Invalid sparse index output token: {token}") from exc
+            if value in seen:
+                continue
+            parsed.append(value)
+            seen.add(value)
+    return parsed
+
+
+def _parse_sparse_polish_output(text: str) -> dict[int, str]:
+    parsed: dict[int, str] = {}
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "\t" in line:
+            index_text, payload = line.split("\t", 1)
+        else:
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                raise RuntimeError(f"Invalid sparse polish output line: {line}")
+            index_text, payload = parts
+        try:
+            index_value = int(str(index_text).strip())
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid sparse polish output index: {index_text}") from exc
+        if index_value in parsed:
+            raise RuntimeError(f"Duplicate sparse polish output index: {index_value}")
+        parsed[index_value] = str(payload or "").strip()
+    return parsed
+
+
 def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, Any]]:
-    expected: dict[tuple[int, int], dict[str, Any]] = {
-        _time_range_key(float(segment.get("start") or 0.0), float(segment.get("end") or 0.0)): segment
-        for segment in request.segments
-    }
-    parsed = parse_timed_lines(text)
-    seen: set[tuple[int, int]] = set()
+    deleted_indexes = set(_parse_sparse_index_output(text))
+    valid_indexes = {int(segment["id"]) for segment in request.segments}
+    unknown_indexes = sorted(index for index in deleted_indexes if index not in valid_indexes)
+    if unknown_indexes:
+        raise RuntimeError(f"Delete output referenced unknown line ids: {unknown_indexes}")
+
     lines: list[dict[str, Any]] = []
-    for start, end, remove, body in parsed:
-        key = _time_range_key(start, end)
-        if key not in expected:
-            raise RuntimeError(f"Delete output time range not found in input: {_time_range_tag(start, end)}")
-        if key in seen:
-            raise RuntimeError(f"Delete output duplicated time range: {_time_range_tag(start, end)}")
-        seen.add(key)
-        segment = expected[key]
+    for segment in request.segments:
+        line_id = int(segment["id"])
+        start = float(segment.get("start") or 0.0)
+        end = float(segment.get("end") or 0.0)
         original_text = str(segment.get("text") or "").strip()
-        if not _delete_output_text_matches(original_text, body):
-            raise RuntimeError(f"Delete output changed text for {_time_range_tag(start, end)}")
         forced_remove = _canonical_special_placeholder(original_text) in {"< low speech >", "< no speech >"}
-        final_remove = bool(remove or forced_remove)
+        final_remove = bool(forced_remove or line_id in deleted_indexes)
         lines.append(
             _build_runtime_line(
-                line_id=int(segment["id"]),
+                line_id=line_id,
                 start=start,
                 end=end,
                 original_text=original_text,
@@ -403,49 +434,34 @@ def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, An
                 user_final_remove=final_remove,
             )
         )
-    expected_ids = {int(segment["id"]) for segment in request.segments}
-    if {line["line_id"] for line in lines} != expected_ids:
-        raise RuntimeError("Delete output must cover all input subtitle lines exactly once")
     return _sort_runtime_lines(lines)
 
 
 def _parse_polish_output(text: str, request: TestPiRequest) -> list[dict[str, Any]]:
-    expected: dict[tuple[int, int], dict[str, Any]] = {
-        _time_range_key(float(line.get("start") or 0.0), float(line.get("end") or 0.0)): line
-        for line in request.lines
-    }
-    parsed = parse_timed_lines(text)
-    seen: set[tuple[int, int]] = set()
+    changes = _parse_sparse_polish_output(text)
+    valid_indexes = {int(line["line_id"]) for line in request.lines if not bool(line.get("user_final_remove", False))}
+    unknown_indexes = sorted(index for index in changes if index not in valid_indexes)
+    if unknown_indexes:
+        raise RuntimeError(f"Polish output referenced unknown or removed line ids: {unknown_indexes}")
+
     lines: list[dict[str, Any]] = []
-    for start, end, remove, body in parsed:
-        key = _time_range_key(start, end)
-        if key not in expected:
-            raise RuntimeError(f"Polish output time range not found in input: {_time_range_tag(start, end)}")
-        if key in seen:
-            raise RuntimeError(f"Polish output duplicated time range: {_time_range_tag(start, end)}")
-        seen.add(key)
-        source = dict(expected[key])
-        was_removed = bool(source.get("user_final_remove", False))
-        if was_removed:
+    for raw_line in request.lines:
+        source = dict(raw_line)
+        line_id = int(source["line_id"])
+        if bool(source.get("user_final_remove", False)):
             lines.append(source)
             continue
-        if remove:
+        if line_id not in changes:
+            lines.append(source)
+            continue
+        body = str(changes[line_id] or "").strip()
+        if body.lower() in {"<empty>", "<remove>"} or not body:
             source["ai_suggest_remove"] = True
             source["user_final_remove"] = True
             lines.append(source)
             continue
-        if not body:
-            if _is_empty_polish_elision_allowed(source.get("optimized_text") or source.get("original_text") or ""):
-                source["ai_suggest_remove"] = True
-                source["user_final_remove"] = True
-                lines.append(source)
-                continue
-            raise RuntimeError(f"Polish output missing text for {_time_range_tag(start, end)}")
         source["optimized_text"] = _normalize_line_text(body)
         lines.append(source)
-    expected_ids = {int(line["line_id"]) for line in request.lines}
-    if {int(line["line_id"]) for line in lines} != expected_ids:
-        raise RuntimeError("Polish output must cover all input subtitle lines exactly once")
     return _sort_runtime_lines(lines)
 
 

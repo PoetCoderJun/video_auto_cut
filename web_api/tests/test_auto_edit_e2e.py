@@ -51,16 +51,8 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
 
         def fake_chat(cfg, messages):
             if "delete 阶段执行器" in messages[0]["content"]:
-                return (
-                    "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
-                    "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
-                    "【00:00:02.400-00:00:03.400】再补一句自然一点\n"
-                )
-            return (
-                "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
-                "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
-                "【00:00:02.400-00:00:03.400】再补一句自然一点\n"
-            )
+                return "1\n"
+            return ""
 
         mock_chat.side_effect = fake_chat
 
@@ -86,10 +78,9 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         segments = make_segments(["< Low Speech >", "后面这一句保留"])
 
         def fake_chat(cfg, messages):
-            return (
-                "【00:00:00.000-00:00:01.000】<remove>< Low Speech >\n"
-                "【00:00:01.200-00:00:02.200】后面这一句保留\n"
-            )
+            if "delete 阶段执行器" in messages[0]["content"]:
+                return ""
+            return ""
 
         mock_chat.side_effect = fake_chat
 
@@ -104,10 +95,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_all_removed_raises_runtime_error(self, mock_chat) -> None:
         segments = make_segments(["第一句", "第二句"])
-        mock_chat.return_value = (
-            "【00:00:00.000-00:00:01.000】<remove>第一句\n"
-            "【00:00:01.200-00:00:02.200】<remove>第二句\n"
-        )
+        mock_chat.return_value = "1\n2\n"
 
         with self.assertRaisesRegex(RuntimeError, "All segments removed"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
@@ -117,7 +105,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         segments = make_segments(["第一句", "第二句"])
         mock_chat.return_value = "not valid output\n"
 
-        with self.assertRaisesRegex(RuntimeError, "Invalid timed line format"):
+        with self.assertRaisesRegex(RuntimeError, "Invalid sparse index output token"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
 
