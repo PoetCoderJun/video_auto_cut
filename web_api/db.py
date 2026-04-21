@@ -41,7 +41,14 @@ _TURSO_CONNECT_ONLY_SIGNALS = (
 )
 
 
+def _is_local_only_mode() -> bool:
+    raw = (os.getenv("WEB_DB_LOCAL_ONLY") or "").strip().lower()
+    return raw in {"1", "true", "yes"}
+
+
 def _is_turso_enabled() -> bool:
+    if _is_local_only_mode():
+        return False
     settings = get_settings()
     return bool(settings.turso_database_url and settings.turso_auth_token)
 
@@ -297,6 +304,8 @@ def _connect_turso(settings: Any) -> Any:
 
 def _create_conn() -> Any:
     settings = get_settings()
+    if _is_local_only_mode():
+        return _create_local_conn()
     if not settings.turso_database_url or not settings.turso_auth_token:
         return _create_local_conn()
     reset_reason = "unknown local replica issue"

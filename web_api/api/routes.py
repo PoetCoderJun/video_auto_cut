@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
+import tempfile
 import uuid
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from ..constants import (
     JOB_STATUS_CREATED,
@@ -60,13 +65,24 @@ from ..services.jobs import (
     mark_audio_oss_ready,
     queue_test_run,
     require_status,
+    save_local_uploaded_audio,
 )
 from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.test_runner import run_test_job_background
 from ..services.test import confirm_test, get_test_document
+from ..services.source_transcode import transcode_source_video_to_browser_compatible_mp4
 from ..utils.common import new_request_id
 
 router = APIRouter()
+
+
+def _browser_compatible_output_name(file_name: str) -> str:
+    name = str(file_name or "").strip() or "source"
+    if "." in name:
+        stem = name.rsplit(".", 1)[0]
+    else:
+        stem = name
+    return f"{stem}_browser_compatible.mp4"
 
 def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"request_id": new_request_id(), "data": data}
@@ -241,6 +257,41 @@ def claim_public_invite_endpoint(request: Request) -> dict[str, Any]:
     return _ok({"invite": result})
 
 
+@router.post("/source/browser-compatible")
+def source_browser_compatible(
+    background_tasks: BackgroundTasks,
+    source_file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(require_current_user),
+):
+    try:
+        ensure_active_user(current_user.user_id, current_user.email)
+    except AccountServiceError as exc:
+        raise _translate_account_error(exc) from exc
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="video_auto_cut_source_transcode_"))
+    input_path = temp_dir / (source_file.filename or "source.bin")
+    output_path = temp_dir / _browser_compatible_output_name(source_file.filename or "source")
+    try:
+        with input_path.open("wb") as fh:
+            shutil.copyfileobj(source_file.file, fh)
+        transcode_source_video_to_browser_compatible_mp4(
+            input_path=input_path,
+            output_path=output_path,
+        )
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise invalid_step_state(str(exc)) from exc
+    finally:
+        source_file.file.close()
+
+    background_tasks.add_task(shutil.rmtree, temp_dir, True)
+    return FileResponse(
+        path=output_path,
+        media_type="video/mp4",
+        filename=output_path.name,
+    )
+
+
 @router.get("/jobs/{job_id}")
 def get_job_endpoint(
     job_id: str, current_user: CurrentUser = Depends(require_current_user)
@@ -300,6 +351,35 @@ def audio_oss_ready(
         request.object_key,
     )
     return _ok({"job": job, "upload": result})
+
+
+@router.post("/jobs/{job_id}/audio-upload-local")
+def audio_upload_local(
+    job_id: str,
+    audio_file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    try:
+        ensure_active_user(current_user.user_id, current_user.email)
+    except AccountServiceError as exc:
+        raise _translate_account_error(exc) from exc
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+
+    try:
+        result = save_local_uploaded_audio(job_id, audio_file)
+    finally:
+        audio_file.file.close()
+
+    job = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=audio_upload_local user=%s job=%s audio_path=%s",
+        current_user.user_id,
+        job_id,
+        result.get("audio_path"),
+    )
+    return _ok({"job": job, "upload": result})
+
 
 @router.post("/jobs/{job_id}/test/run")
 def test_run(

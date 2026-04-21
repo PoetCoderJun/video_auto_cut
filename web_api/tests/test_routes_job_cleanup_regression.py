@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from web_api.app import create_app
 from web_api.config import get_settings
 from web_api.db import get_conn, init_db
-from web_api.job_file_repository import create_job, get_job, update_job, upsert_job_files
+from web_api.job_file_repository import create_job, get_job, get_job_files, update_job, upsert_job_files
 from web_api.utils.persistence_helpers import now_iso
 
 
@@ -25,12 +25,14 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
             "WORK_DIR": os.environ.get("WORK_DIR"),
             "WEB_AUTH_ENABLED": os.environ.get("WEB_AUTH_ENABLED"),
+            "WEB_LOCAL_AUDIO_UPLOAD_MAX_MB": os.environ.get("WEB_LOCAL_AUDIO_UPLOAD_MAX_MB"),
         }
         os.environ.pop("TURSO_DATABASE_URL", None)
         os.environ.pop("TURSO_AUTH_TOKEN", None)
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "test.db")
         os.environ["WORK_DIR"] = self.tmpdir.name
         os.environ["WEB_AUTH_ENABLED"] = "0"
+        os.environ.pop("WEB_LOCAL_AUDIO_UPLOAD_MAX_MB", None)
         get_settings.cache_clear()
         init_db()
 
@@ -113,6 +115,73 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
         self.assertEqual(job["status"], "UPLOAD_READY")
         self.assertEqual(job["progress"], 10)
         self.assertEqual(job["stage"]["code"], "TEST_RETRY_REQUIRED")
+
+    def test_audio_upload_local_rejects_unsupported_suffix(self) -> None:
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            create_response = client.post("/api/v1/jobs")
+            self.assertEqual(create_response.status_code, 200)
+            job_id = create_response.json()["data"]["job"]["job_id"]
+
+            response = client.post(
+                f"/api/v1/jobs/{job_id}/audio-upload-local",
+                files={"audio_file": ("notes.txt", b"not audio", "text/plain")},
+            )
+
+        self.assertEqual(response.status_code, 422)
+        payload = response.json()["error"]
+        self.assertEqual(payload["code"], "UNSUPPORTED_AUDIO_FORMAT")
+        self.assertIsNone(get_job_files(job_id).get("audio_path"))
+        self.assertEqual(get_job(job_id, owner_user_id="dev_local_user")["status"], "CREATED")
+
+    def test_audio_upload_local_rejects_oversized_payload(self) -> None:
+        os.environ["WEB_LOCAL_AUDIO_UPLOAD_MAX_MB"] = "1"
+        get_settings.cache_clear()
+
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            create_response = client.post("/api/v1/jobs")
+            self.assertEqual(create_response.status_code, 200)
+            job_id = create_response.json()["data"]["job"]["job_id"]
+
+            response = client.post(
+                f"/api/v1/jobs/{job_id}/audio-upload-local",
+                files={"audio_file": ("audio.mp3", b"a" * (1024 * 1024 + 1), "audio/mpeg")},
+            )
+
+        self.assertEqual(response.status_code, 413)
+        payload = response.json()["error"]
+        self.assertEqual(payload["code"], "UPLOAD_TOO_LARGE")
+        self.assertIsNone(get_job_files(job_id).get("audio_path"))
+        self.assertEqual(get_job(job_id, owner_user_id="dev_local_user")["status"], "CREATED")
+
+    def test_audio_upload_local_marks_job_ready_after_valid_upload(self) -> None:
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            create_response = client.post("/api/v1/jobs")
+            self.assertEqual(create_response.status_code, 200)
+            job_id = create_response.json()["data"]["job"]["job_id"]
+
+            response = client.post(
+                f"/api/v1/jobs/{job_id}/audio-upload-local",
+                files={"audio_file": ("audio.mp3", b"valid audio bytes", "audio/mpeg")},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        upload = response.json()["data"]["upload"]
+        self.assertTrue(str(upload["audio_path"]).endswith("/input/audio.mp3"))
+        self.assertEqual(upload["stored_as"], "audio.mp3")
+        self.assertEqual(upload["size_bytes"], len(b"valid audio bytes"))
+        job = get_job(job_id, owner_user_id="dev_local_user")
+        self.assertEqual(job["status"], "UPLOAD_READY")
+        self.assertEqual(get_job_files(job_id)["audio_path"], upload["audio_path"])
+
 
 
 if __name__ == "__main__":

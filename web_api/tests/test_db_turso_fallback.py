@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ from web_api.db import (
     _create_conn,
     _is_invalid_local_replica_state_error,
     init_db,
+    is_turso_enabled,
     is_retryable_turso_connect_error,
     is_retryable_turso_error,
 )
@@ -25,10 +27,12 @@ class DbTursoFallbackTest(unittest.TestCase):
             "TURSO_DATABASE_URL": os.environ.get("TURSO_DATABASE_URL"),
             "TURSO_AUTH_TOKEN": os.environ.get("TURSO_AUTH_TOKEN"),
             "TURSO_LOCAL_REPLICA_PATH": os.environ.get("TURSO_LOCAL_REPLICA_PATH"),
+            "WEB_DB_LOCAL_ONLY": os.environ.get("WEB_DB_LOCAL_ONLY"),
         }
         os.environ["TURSO_DATABASE_URL"] = "libsql://example.turso.io"
         os.environ["TURSO_AUTH_TOKEN"] = "token"
         os.environ["TURSO_LOCAL_REPLICA_PATH"] = str(Path(self.tmpdir.name) / "replica.db")
+        os.environ.pop("WEB_DB_LOCAL_ONLY", None)
         get_settings.cache_clear()
 
     def tearDown(self) -> None:
@@ -61,6 +65,18 @@ class DbTursoFallbackTest(unittest.TestCase):
 
         self.assertIs(conn, fake_conn)
         fake_conn.close.assert_not_called()
+
+    def test_local_only_mode_disables_turso_even_when_credentials_exist(self) -> None:
+        os.environ["WEB_DB_LOCAL_ONLY"] = "1"
+        get_settings.cache_clear()
+
+        with patch("web_api.db._connect_turso") as connect_mock:
+            conn = _create_conn()
+
+        self.assertIsInstance(conn, sqlite3.Connection)
+        self.assertFalse(is_turso_enabled())
+        connect_mock.assert_not_called()
+        conn.close()
 
     def test_invalid_local_replica_state_is_detected(self) -> None:
         self.assertTrue(
