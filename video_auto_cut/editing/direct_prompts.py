@@ -68,18 +68,17 @@ def _chapter_system_prompt(*, title_max_chars: int, max_chapters: int | None, ch
 
 _HIGHLIGHT_SYSTEM_PROMPT = """你是口播字幕清理流程里的 highlight 阶段执行器。
 
-输入是一整份轻量字幕文本，每行格式固定为：`【开始-结束】字幕正文`。
-你的任务只有一个：为每一行字幕挑出最值得高亮的原文词语或短语，并返回一个 JSON 对象。
+输入文本每行格式固定为：`行号<TAB>正文`。
+你的任务只有一个：只输出那些“需要高亮”的行，并给出该行最值得高亮的原文词语或短语。
 
 输出约束：
-1. 只能输出一个 JSON 对象，不要输出 markdown，不要输出解释。
-2. 必须覆盖输入中的全部字幕行，顺序不变。
-3. `start` / `end` / `text` 必须保留原值。
-4. `highlights` 只允许是字符串数组。
-5. 每个高亮项必须是当前句子的原文片段，不能改写。
-6. 每句优先返回 0-3 个高亮短语。
-7. 优先高亮：结论、转折、对比、动作、结果、数字、产品名、关键词。
-8. 没有明显重点时返回空数组。"""
+1. 只输出纯文本，不要输出 JSON，不要输出 markdown，不要输出解释。
+2. 只输出有高亮的行；没有高亮的行不要输出。
+3. 每个输出行格式固定为：`行号<TAB>高亮词1` 或 `行号<TAB>高亮词1|高亮词2|高亮词3`。
+4. 每个高亮词必须是该行正文里的原文片段，不能改写。
+5. 每行最多 3 个高亮词。
+6. 优先高亮：结论、转折、对比、动作、结果、数字、产品名、关键词。
+7. 如果整批都没有明显重点，可以输出空文本。"""
 
 
 def build_delete_messages(timed_text: str) -> list[dict[str, str]]:
@@ -125,16 +124,16 @@ def build_chapter_messages(
     ]
 
 
-def build_highlight_messages(timed_text: str, *, subtitle_theme: str) -> list[dict[str, str]]:
+def build_highlight_messages(sparse_text: str, *, subtitle_theme: str) -> list[dict[str, str]]:
     return [
         {
             "role": "system",
             "content": _HIGHLIGHT_SYSTEM_PROMPT
-            + f"\n\n额外要求：`subtitleTheme` 固定输出为 `{subtitle_theme}`。",
+            + f"\n\n额外说明：渲染主题固定为 `{subtitle_theme}`，你无需输出主题信息。",
         },
         {
             "role": "user",
-            "content": timed_text.strip(),
+            "content": sparse_text.strip(),
         },
     ]
 

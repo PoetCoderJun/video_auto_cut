@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +13,6 @@ SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
 DEFAULT_SUBTITLE_THEME = "white"
 MAX_HIGHLIGHTS_PER_CAPTION = 3
 DEFAULT_STYLE_MAX_TOKENS = 2400
-DEFAULT_STYLE_CHUNK_SIZE = 12
 
 
 def normalize_subtitle_theme(raw: Any) -> str:
@@ -46,17 +44,17 @@ def build_subtitle_style_llm_config(
     )
 
 
-def build_timed_caption_text(captions: list[dict[str, Any]]) -> str:
+def build_sparse_highlight_text(captions: list[dict[str, Any]]) -> str:
     return "\n".join(
-        f"【{format_time(float(caption['start']))}-{format_time(float(caption['end']))}】{str(caption.get('text') or '').strip()}"
-        for caption in captions
+        f"{int(caption.get('index') or index)}\t{str(caption.get('text') or '').strip()}"
+        for index, caption in enumerate(captions, start=1)
         if str(caption.get("text") or "").strip()
     )
 
 
-def build_subtitle_style_messages(timed_text: str, *, subtitle_theme: str = DEFAULT_SUBTITLE_THEME) -> list[dict[str, str]]:
+def build_subtitle_style_messages(sparse_text: str, *, subtitle_theme: str = DEFAULT_SUBTITLE_THEME) -> list[dict[str, str]]:
     return build_highlight_messages(
-        timed_text,
+        sparse_text,
         subtitle_theme=normalize_subtitle_theme(subtitle_theme),
     )
 
@@ -66,7 +64,7 @@ def request_subtitle_style_contract(
     captions: list[dict[str, Any]],
     subtitle_theme: str = DEFAULT_SUBTITLE_THEME,
     llm_config: dict[str, Any] | None = None,
-    request_json_fn: Any | None = None,
+    request_text_fn: Any | None = None,
 ) -> dict[str, Any]:
     normalized_theme = normalize_subtitle_theme(subtitle_theme)
     normalized_captions = _normalize_source_captions(captions)
@@ -78,40 +76,24 @@ def request_subtitle_style_contract(
     if not config.get("base_url") or not config.get("model"):
         return empty_contract
 
-    requester = request_json_fn or llm_utils.request_json
-    merged_captions: list[dict[str, Any]] = []
-    for chunk in _chunk_captions(normalized_captions):
-        timed_text = build_timed_caption_text(chunk)
-        if not timed_text:
-            continue
-        try:
-            payload = requester(
-                config,
-                build_subtitle_style_messages(timed_text, subtitle_theme=normalized_theme),
-                validate=lambda raw_payload, source_chunk=chunk: _validate_style_payload(
-                    raw_payload,
-                    source_captions=source_chunk,
-                    subtitle_theme=normalized_theme,
-                ),
-                repair_retries=1,
-                repair_instructions=(
-                    "Return one JSON object only. Keep every caption row in the same order with the same "
-                    "`start`, `end`, and `text` values as the input. Each caption may only contain a `highlights` "
-                    "array of original text fragments."
-                ),
-            )
-            merged_captions.extend(list(payload.get("captions") or []))
-        except Exception:
-            merged_captions.extend(_build_empty_style_contract(chunk, normalized_theme)["captions"])
-
-    if len(merged_captions) != len(normalized_captions):
+    sparse_text = build_sparse_highlight_text(normalized_captions)
+    if not sparse_text:
         return empty_contract
 
-    return {
-        "version": SUBTITLE_STYLE_VERSION,
-        "subtitleTheme": normalized_theme,
-        "captions": merged_captions,
-    }
+    requester = request_text_fn or llm_utils.chat_completion
+    try:
+        raw_response = requester(
+            config,
+            build_subtitle_style_messages(sparse_text, subtitle_theme=normalized_theme),
+        )
+    except Exception:
+        return empty_contract
+
+    return _build_style_contract_from_sparse_response(
+        raw_response,
+        source_captions=normalized_captions,
+        subtitle_theme=normalized_theme,
+    )
 
 
 def build_subtitle_render_v1_contract(
@@ -123,7 +105,7 @@ def build_subtitle_render_v1_contract(
     subtitle_theme: str = DEFAULT_SUBTITLE_THEME,
     style_contract: dict[str, Any] | None = None,
     llm_config: dict[str, Any] | None = None,
-    request_json_fn: Any | None = None,
+    request_text_fn: Any | None = None,
 ) -> dict[str, Any]:
     normalized_theme = normalize_subtitle_theme(subtitle_theme)
     normalized_captions = _normalize_source_captions(captions)
@@ -133,7 +115,7 @@ def build_subtitle_render_v1_contract(
         captions=normalized_captions,
         subtitle_theme=normalized_theme,
         llm_config=llm_config,
-        request_json_fn=request_json_fn,
+        request_text_fn=request_text_fn,
     )
     style_captions = list(style_payload.get("captions") or [])
 
@@ -215,11 +197,6 @@ def _build_empty_style_contract(captions: list[dict[str, Any]], subtitle_theme: 
     }
 
 
-def _chunk_captions(captions: list[dict[str, Any]], chunk_size: int = DEFAULT_STYLE_CHUNK_SIZE) -> list[list[dict[str, Any]]]:
-    resolved_size = max(1, int(chunk_size))
-    return [captions[index : index + resolved_size] for index in range(0, len(captions), resolved_size)]
-
-
 def _normalize_source_captions(captions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for index, caption in enumerate(captions, start=1):
@@ -278,45 +255,91 @@ def _normalize_timeline_items(
     return normalized
 
 
-def _validate_style_payload(
-    payload: dict[str, Any],
+def _build_style_contract_from_sparse_response(
+    raw_response: Any,
     *,
     source_captions: list[dict[str, Any]],
     subtitle_theme: str,
 ) -> dict[str, Any]:
-    raw_captions = payload.get("captions")
-    if not isinstance(raw_captions, list):
-        raise RuntimeError("Subtitle style payload must contain a `captions` array.")
-    if len(raw_captions) != len(source_captions):
-        raise RuntimeError("Subtitle style payload must cover every input caption row.")
-
+    parsed_labels = _parse_sparse_highlight_lines(raw_response, source_captions=source_captions)
     normalized: list[dict[str, Any]] = []
-    for source, raw_caption in zip(source_captions, raw_captions):
-        if not isinstance(raw_caption, dict):
-            raise RuntimeError("Every style caption entry must be an object.")
-        start = _coerce_payload_time(raw_caption.get("start"))
-        end = _coerce_payload_time(raw_caption.get("end"))
-        if start is None or end is None:
-            raise RuntimeError("Style payload caption is missing `start`/`end`.")
-        if abs(start - float(source["start"])) > 0.001 or abs(end - float(source["end"])) > 0.001:
-            raise RuntimeError("Style payload caption timing does not match the input row.")
-        text = str(raw_caption.get("text") or "").strip()
-        if text != str(source["text"]):
-            raise RuntimeError("Style payload caption text must match the input row.")
+    for source in source_captions:
+        caption_index = int(source["index"])
         normalized.append(
             {
                 "start": format_time(float(source["start"])),
                 "end": format_time(float(source["end"])),
                 "text": str(source["text"]),
-                "highlights": _normalize_highlight_terms(raw_caption.get("highlights"), str(source["text"])),
+                "highlights": _normalize_highlight_terms(parsed_labels.get(caption_index), str(source["text"])),
             }
         )
-
     return {
         "version": SUBTITLE_STYLE_VERSION,
-        "subtitleTheme": normalize_subtitle_theme(payload.get("subtitleTheme") or subtitle_theme),
+        "subtitleTheme": normalize_subtitle_theme(subtitle_theme),
         "captions": normalized,
     }
+
+
+def _parse_sparse_highlight_lines(
+    raw_response: Any,
+    *,
+    source_captions: list[dict[str, Any]],
+) -> dict[int, list[str]]:
+    response_text = _strip_code_fence_text(raw_response)
+    source_by_index = {int(item["index"]): str(item["text"]) for item in source_captions}
+    parsed: dict[int, list[str]] = {}
+    for raw_line in response_text.splitlines():
+        line = str(raw_line or "").strip()
+        if not line:
+            continue
+        index_value, payload = _split_sparse_line(line)
+        if index_value is None or index_value not in source_by_index:
+            continue
+        terms = _parse_sparse_highlight_terms(payload, source_text=source_by_index[index_value])
+        if not terms:
+            continue
+        existing = parsed.get(index_value, [])
+        parsed[index_value] = _normalize_highlight_terms(existing + terms, source_by_index[index_value])
+    return parsed
+
+
+def _strip_code_fence_text(raw_response: Any) -> str:
+    text = str(raw_response or "").strip()
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    while lines and lines[-1].startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _split_sparse_line(line: str) -> tuple[int | None, str]:
+    if "	" in line:
+        index_text, payload = line.split("	", 1)
+    else:
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            return None, ""
+        index_text, payload = parts
+    try:
+        return int(str(index_text).strip()), str(payload or "").strip()
+    except ValueError:
+        return None, ""
+
+
+def _parse_sparse_highlight_terms(payload: str, *, source_text: str) -> list[str]:
+    text = str(payload or "").strip()
+    if not text:
+        return []
+    if text in source_text:
+        return [text]
+    if "|" in text:
+        candidates = [item.strip() for item in text.split("|")]
+    else:
+        candidates = [item.strip() for item in text.split()]
+    return [candidate for candidate in candidates if candidate]
 
 
 def _normalize_highlight_terms(raw: Any, source_text: str) -> list[str]:
@@ -339,21 +362,3 @@ def _normalize_highlight_terms(raw: Any, source_text: str) -> list[str]:
     return normalized
 
 
-def _coerce_payload_time(raw: Any) -> float | None:
-    try:
-        value = float(raw)
-        if math.isfinite(value):
-            return value
-    except (TypeError, ValueError):
-        pass
-    text = str(raw or "").strip()
-    if len(text) == 12 and text[2] == ":" and text[5] == ":" and text[8] == ".":
-        try:
-            hours = int(text[0:2])
-            minutes = int(text[3:5])
-            seconds = int(text[6:8])
-            milliseconds = int(text[9:12])
-        except ValueError:
-            return None
-        return hours * 3600 + minutes * 60 + seconds + milliseconds / 1000.0
-    return None
