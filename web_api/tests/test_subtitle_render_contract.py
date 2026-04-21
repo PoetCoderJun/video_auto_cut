@@ -81,6 +81,22 @@ class SubtitleRenderContractTest(unittest.TestCase):
         self.assertEqual(len(payload["captions"]), 14)
         self.assertEqual(payload["captions"][13]["highlights"], ["重点信息"])
 
+    def test_request_subtitle_style_contract_discards_sentence_level_highlights(self) -> None:
+        captions = [
+            {"index": 1, "start": 0.0, "end": 1.2, "text": "那么二五年香港续签签证有四大变化"},
+        ]
+
+        def fake_request_text(_cfg, _messages):
+            return "1\t那么二五年香港续签签证有四大变化\n"
+
+        payload = request_subtitle_style_contract(
+            captions=captions,
+            llm_config={"base_url": "https://example.com/v1", "model": "qwen-plus"},
+            request_text_fn=fake_request_text,
+        )
+
+        self.assertEqual(payload["captions"][0]["highlights"], [])
+
     def test_build_subtitle_render_v1_contract_converts_highlight_terms_to_render_labels(self) -> None:
         contract = build_subtitle_render_v1_contract(
             captions=[

@@ -11,7 +11,7 @@ from video_auto_cut.shared.test_text_protocol import format_time, parse_timed_li
 SUBTITLE_STYLE_VERSION = "subtitle-style.v1"
 SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
 DEFAULT_SUBTITLE_THEME = "white"
-MAX_HIGHLIGHTS_PER_CAPTION = 3
+MAX_HIGHLIGHTS_PER_CAPTION = 2
 DEFAULT_STYLE_MAX_TOKENS = 2400
 
 
@@ -347,18 +347,38 @@ def _normalize_highlight_terms(raw: Any, source_text: str) -> list[str]:
         return []
     normalized: list[str] = []
     seen: set[str] = set()
+    source = str(source_text or "").strip()
     for item in raw:
         candidate = ""
         if isinstance(item, str):
             candidate = item.strip()
         elif isinstance(item, dict):
             candidate = str(item.get("text") or "").strip()
-        if not candidate or candidate in seen or candidate not in source_text:
+        if (
+            not candidate
+            or candidate in seen
+            or candidate not in source
+            or not _is_reasonable_highlight_term(candidate, source)
+        ):
             continue
         normalized.append(candidate)
         seen.add(candidate)
         if len(normalized) >= MAX_HIGHLIGHTS_PER_CAPTION:
             break
     return normalized
+
+
+def _is_reasonable_highlight_term(candidate: str, source_text: str) -> bool:
+    source = str(source_text or "").strip()
+    term = str(candidate or "").strip()
+    if not term or not source:
+        return False
+    if term == source:
+        return False
+    if any(ch in term for ch in "，。、；：！？,.!?") and len(term) > 6:
+        return False
+    if len(term) > max(8, len(source) // 2):
+        return False
+    return True
 
 
