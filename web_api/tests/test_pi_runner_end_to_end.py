@@ -48,6 +48,7 @@ class PiRunnerEndToEndTests(unittest.TestCase):
                 )
             elif "polish skill" in prompt:
                 self.assertIn("不要探索仓库", prompt)
+                self.assertIn("单字语气词", prompt)
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
                     "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
@@ -110,6 +111,7 @@ class PiRunnerEndToEndTests(unittest.TestCase):
             prompt = command[-1]
             output_path = extract_labeled_path(prompt, "输出文件")
             if "polish skill" in prompt:
+                self.assertIn("单字语气词", prompt)
                 output = (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
                     "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
