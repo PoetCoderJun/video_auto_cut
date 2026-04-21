@@ -12,7 +12,9 @@ usage() {
 说明：
   - 自动进入仓库根目录
   - 自动加载仓库 .env（如果存在）
-  - 直接走 prompt 五步链路：asr -> delete -> polish -> chapter -> highlight
+  - 主链路按 auto_edit 执行：asr -> delete -> polish
+  - review 在 delete -> polish 后做质量复核
+  - chapter / highlight 继续作为后续 sidecar 产物输出
 
 示例：
   ./scripts/run_pi_test.sh test_data/media/1.wav
@@ -61,7 +63,7 @@ OUTPUT_PATH="${OUTPUT_DIR}/test.summary.json"
 
 mkdir -p "$OUTPUT_DIR"
 
-echo ">>> Direct prompt 五步剪辑启动"
+echo ">>> Direct prompt 主链路启动（delete -> polish）"
 echo ">>> 输入: $INPUT_PATH"
 echo ">>> 输出目录: $OUTPUT_DIR"
 echo ">>> LLM: ${LLM_BASE_URL} / ${LLM_MODEL}"

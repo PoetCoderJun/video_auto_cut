@@ -144,23 +144,12 @@ def _build_review_input(
     *,
     raw_lines: list[dict[str, Any]],
     final_lines: list[dict[str, Any]],
-    chapters: list[dict[str, Any]],
-    highlight_payload: dict[str, Any],
 ) -> str:
     raw_text = _render_test_text_from_lines(raw_lines)
     final_text = _render_test_text_from_lines(final_lines)
-    chapter_text = _render_chapters_text(chapters)
-    sparse_highlights = []
-    for index, caption in enumerate(list(highlight_payload.get("captions") or []), start=1):
-        terms = list(caption.get("highlights") or [])
-        if not terms:
-            continue
-        sparse_highlights.append(f"{index}\t" + "|".join(str(term) for term in terms))
     return (
         "[原始转写]\n" + raw_text.strip() + "\n\n"
-        "[最终字幕]\n" + final_text.strip() + "\n\n"
-        "[章节]\n" + chapter_text.strip() + "\n\n"
-        "[高亮]\n" + ("\n".join(sparse_highlights).strip() or "<none>")
+        "[delete+polish 最终稿]\n" + final_text.strip()
     )
 
 
@@ -169,15 +158,11 @@ def _write_review_report(
     *,
     raw_lines: list[dict[str, Any]],
     final_lines: list[dict[str, Any]],
-    chapters: list[dict[str, Any]],
-    highlight_payload: dict[str, Any],
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     review_input = _build_review_input(
         raw_lines=raw_lines,
         final_lines=final_lines,
-        chapters=chapters,
-        highlight_payload=highlight_payload,
     )
     cfg = _build_review_llm_config(args)
     started = time.perf_counter()
@@ -252,6 +237,15 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     polish_artifacts = run_test_pi(
         TestPiRequest(task="polish", llm_config=llm_config, lines=delete_artifacts.lines, max_lines=args.max_lines)
     )
+    review_report_path = output_path.with_suffix(".review.txt")
+
+    review_meta = _write_review_report(
+        review_report_path,
+        raw_lines=raw_lines,
+        final_lines=polish_artifacts.lines,
+        args=args,
+    )
+
     chapter_artifacts = run_test_pi(
         TestPiRequest(
             task="chapter",
@@ -267,7 +261,6 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     final_test_srt_path = output_path.with_suffix(".test.srt")
     chapters_text_path = output_path.with_suffix(".chapters.txt")
     highlight_contract_path = output_path.with_suffix(".highlights.json")
-    review_report_path = output_path.with_suffix(".review.txt")
 
     raw_test_text_path.write_text(_render_test_text_from_lines(raw_lines) + "\n", encoding="utf-8")
     final_test_text_path.write_text(_render_test_text_from_lines(polish_artifacts.lines) + "\n", encoding="utf-8")
@@ -278,15 +271,6 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         captions=_build_kept_captions_from_lines(polish_artifacts.lines),
         args=args,
     )
-    review_meta = _write_review_report(
-        review_report_path,
-        raw_lines=raw_lines,
-        final_lines=polish_artifacts.lines,
-        chapters=chapter_artifacts.chapters,
-        highlight_payload=highlight_payload,
-        args=args,
-    )
-
     payload = {
         "input_path": str(input_path),
         "raw_srt_path": str(raw_srt_path),
@@ -312,7 +296,7 @@ def _run_cli_test(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the direct prompt subtitle pipeline tasks (delete / polish / chapter / highlight / test).")
+    parser = argparse.ArgumentParser(description="Run the direct prompt subtitle pipeline tasks. The canonical main chain is delete -> polish; chapter/highlight are downstream sidecars.")
     parser.add_argument("--pi-bin", default="pi")
     parser.add_argument("--input", default=None)
     parser.add_argument("--task", choices=["delete", "polish", "chapter", "highlight", "test"], default=None)
