@@ -38,11 +38,18 @@ class DirectPromptSourceOfTruthTests(unittest.TestCase):
 
     def test_chapter_system_prompt_resolves_runtime_placeholders_from_skills_direct_prompts(self) -> None:
         template = _extract_runtime_prompt(DIRECT_PROMPTS_DIR / "chapter.md")
-        expected = (
-            template.replace("{{MAX_CHAPTERS_RULE}}", "- 当前按横屏视频章节约束处理，本次最多只能分成 2 章。")
-            .replace("{{TITLE_MAX_CHARS}}", "5")
-            .strip()
-        )
+        if "{{MAX_CHAPTERS_RULE}}" in template or "{{TITLE_MAX_CHARS}}" in template:
+            expected = (
+                template.replace("{{MAX_CHAPTERS_RULE}}", "- 当前按横屏视频章节约束处理，本次最多只能分成 2 章。")
+                .replace("{{TITLE_MAX_CHARS}}", "5")
+                .strip()
+            )
+        else:
+            expected = (
+                template
+                + "\n\n- 当前按横屏视频章节约束处理，本次最多只能分成 2 章。"
+                + "\n- 标题绝不能超过 5 个字。"
+            ).strip()
         expected = re.sub(r"\n{3,}", "\n\n", expected)
 
         prompt = build_chapter_messages(
@@ -55,10 +62,16 @@ class DirectPromptSourceOfTruthTests(unittest.TestCase):
 
     def test_highlight_system_prompt_resolves_theme_note_from_skills_direct_prompts(self) -> None:
         template = _extract_runtime_prompt(DIRECT_PROMPTS_DIR / "highlight.md")
-        expected = template.replace(
-            "{{SUBTITLE_THEME_NOTE}}",
-            "额外说明：渲染主题固定为 `white`，你无需输出主题信息。",
-        ).strip()
+        if "{{SUBTITLE_THEME_NOTE}}" in template:
+            expected = template.replace(
+                "{{SUBTITLE_THEME_NOTE}}",
+                "额外说明：渲染主题固定为 `white`，你无需输出主题信息。",
+            ).strip()
+        else:
+            expected = (
+                template.rstrip()
+                + "\n\n额外说明：渲染主题固定为 `white`，你无需输出主题信息。"
+            ).strip()
         expected = re.sub(r"\n{3,}", "\n\n", expected)
 
         prompt = build_highlight_messages("1\t香港", subtitle_theme="white")[0]["content"]

@@ -45,23 +45,41 @@ def _render_prompt_template(name: str, **replacements: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", prompt).strip()
 
 
+def _append_runtime_note(prompt: str, note: str) -> str:
+    note = str(note or "").strip()
+    if not note:
+        return re.sub(r"\n{3,}", "\n\n", prompt).strip()
+    return re.sub(r"\n{3,}", "\n\n", f"{prompt.rstrip()}\n\n{note}").strip()
+
+
 def _render_chapter_system_prompt(
     *,
     title_max_chars: int,
     max_chapters: int | None,
     chapter_policy_hint: str,
 ) -> str:
-    max_chapters_rule = ""
+    prompt = _load_prompt_template("chapter")
+    extra_rules: list[str] = []
     if max_chapters is not None and int(max_chapters) > 0:
         if chapter_policy_hint:
             max_chapters_rule = f"- 当前按{chapter_policy_hint}处理，本次最多只能分成 {int(max_chapters)} 章。"
         else:
             max_chapters_rule = f"- 本次最多只能分成 {int(max_chapters)} 章。"
-    return _render_prompt_template(
-        "chapter",
-        MAX_CHAPTERS_RULE=max_chapters_rule,
-        TITLE_MAX_CHARS=str(min(5, int(title_max_chars))),
-    )
+        if "{{MAX_CHAPTERS_RULE}}" in prompt:
+            prompt = prompt.replace("{{MAX_CHAPTERS_RULE}}", max_chapters_rule)
+        else:
+            extra_rules.append(max_chapters_rule)
+    elif "{{MAX_CHAPTERS_RULE}}" in prompt:
+        prompt = prompt.replace("{{MAX_CHAPTERS_RULE}}", "")
+
+    title_limit = str(min(5, int(title_max_chars)))
+    if "{{TITLE_MAX_CHARS}}" in prompt:
+        prompt = prompt.replace("{{TITLE_MAX_CHARS}}", title_limit)
+    else:
+        extra_rules.append(f"- 标题绝不能超过 {title_limit} 个字。")
+
+    prompt = re.sub(r"\n{3,}", "\n\n", prompt).strip()
+    return _append_runtime_note(prompt, "\n".join(extra_rules))
 
 
 def build_delete_messages(timed_text: str) -> list[dict[str, str]]:
@@ -114,13 +132,19 @@ def build_chapter_messages(
 
 
 def build_highlight_messages(sparse_text: str, *, subtitle_theme: str) -> list[dict[str, str]]:
+    theme_note = f"额外说明：渲染主题固定为 `{subtitle_theme}`，你无需输出主题信息。"
+    prompt = _load_prompt_template("highlight")
+    if "{{SUBTITLE_THEME_NOTE}}" in prompt:
+        prompt = _render_prompt_template(
+            "highlight",
+            SUBTITLE_THEME_NOTE=theme_note,
+        )
+    else:
+        prompt = _append_runtime_note(prompt, theme_note)
     return [
         {
             "role": "system",
-            "content": _render_prompt_template(
-                "highlight",
-                SUBTITLE_THEME_NOTE=f"额外说明：渲染主题固定为 `{subtitle_theme}`，你无需输出主题信息。",
-            ),
+            "content": prompt,
         },
         {
             "role": "user",

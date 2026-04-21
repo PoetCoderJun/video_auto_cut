@@ -13,15 +13,15 @@
 ==================================================
 
 - `skills/direct-prompts/delete.md`
-  - delete 阶段 system prompt 真源。
+  - delete 阶段 system prompt 真源；以该目录下原始手写文件为准，不应再由别处反向覆盖。
 - `skills/direct-prompts/polish.md`
-  - polish 阶段 system prompt 真源。
+  - polish 阶段 system prompt 真源；以该目录下原始手写文件为准，不应再由别处反向覆盖。
 - `skills/direct-prompts/chapter.md`
-  - chapter 阶段 system prompt 真源（含运行时占位符）。
+  - chapter 阶段 system prompt 真源；代码只允许补动态章节约束，不应反向改写文件正文。
 - `skills/direct-prompts/highlight.md`
-  - highlight 阶段 system prompt 真源（含运行时占位符）。
+  - highlight 阶段 system prompt 真源；代码只允许补主题说明，不应反向改写文件正文。
 - `video_auto_cut/editing/direct_prompts.py`
-  - 只负责读取 `skills/direct-prompts/*.md`、注入少量动态参数并组装 messages，不再内嵌正文。
+  - 只负责读取 `skills/direct-prompts/*.md`、补少量运行时参数并组装 messages，不再内嵌正文，也不应回填覆盖这些文件。
 
 ==================================================
 3) repo-local skills / workflow 文档
