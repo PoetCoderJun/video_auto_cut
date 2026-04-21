@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from video_auto_cut.pi_agent_runner import PROJECT_ROOT, build_pi_command, load_project_pi_system_prompt
+from video_auto_cut.pi_agent_runner import PROJECT_ROOT, build_pi_command
 
 
 class PiAgentRunnerTests(unittest.TestCase):
@@ -18,13 +18,6 @@ class PiAgentRunnerTests(unittest.TestCase):
         self.assertNotIn("--skill", command)
         self.assertNotIn("--append-system-prompt", command)
         self.assertEqual(command[-4:], ["--model", "gpt-5", "-p", "hello"])
-
-    def test_project_pi_system_prompt_lives_in_pi_append_system_file(self) -> None:
-        prompt = load_project_pi_system_prompt()
-        file_text = (PROJECT_ROOT / ".pi" / "APPEND_SYSTEM.md").read_text(encoding="utf-8").strip()
-        self.assertEqual(prompt, file_text)
-        self.assertIn("test-agent-editing", prompt)
-        self.assertNotIn("工作流：", prompt)
 
     def test_project_pi_extension_registers_env_backed_provider(self) -> None:
         extension_text = (PROJECT_ROOT / ".pi" / "extensions" / "project-llm-provider.ts").read_text(encoding="utf-8")

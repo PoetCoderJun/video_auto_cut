@@ -32,8 +32,6 @@ from .shared.test_text_io import load_test_lines
 from .shared.test_text_io import build_test_lines_from_text
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_PI_DIR = PROJECT_ROOT / ".pi"
-PROJECT_PI_APPEND_SYSTEM = PROJECT_PI_DIR / "APPEND_SYSTEM.md"
 REMOVE_TOKEN = "<remove>"
 DEFAULT_MAX_LINES = 400
 PROJECT_PI_PROVIDER = "vac-llm"
@@ -54,13 +52,6 @@ RETRYABLE_PI_ERROR_MARKERS = (
     "timeout",
 )
 TestTask = Literal["delete", "polish", "chapter"]
-
-
-def load_project_pi_system_prompt() -> str:
-    text = PROJECT_PI_APPEND_SYSTEM.read_text(encoding="utf-8").strip()
-    if not text:
-        raise RuntimeError(f"Project PI system prompt is empty: {PROJECT_PI_APPEND_SYSTEM}")
-    return text
 
 
 @dataclass(frozen=True)
@@ -333,7 +324,7 @@ def _direct_llm_config(llm_config: dict[str, Any]) -> dict[str, Any]:
         max_tokens=llm_config.get("max_tokens"),
         enable_thinking=False,
     )
-    for key in ("request_retries", "retry_backoff_seconds", "repair_retries"):
+    for key in ("request_retries", "retry_backoff_seconds"):
         if llm_config.get(key) is not None:
             cfg[key] = llm_config.get(key)
     return cfg
