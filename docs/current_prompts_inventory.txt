@@ -1,5 +1,5 @@
 当前仓库 prompt / skill / system prompt 入口索引
-刷新日期：2026-04-16
+刷新日期：2026-04-21
 维护原则：这个文件只做“入口索引”，真正的 source of truth 永远是对应源码或 `SKILL.md` 本身。
 
 ==================================================
@@ -11,7 +11,22 @@
   - 约束 repo-local skills 的优先级、项目背景和全局质量要求。
 
 ==================================================
-2) repo-local skills（当前主路径）
+2) 当前 direct prompt 主链路（运行时真源）
+==================================================
+
+- `skills/direct-prompts/delete.md`
+  - delete 阶段 system prompt 真源。
+- `skills/direct-prompts/polish.md`
+  - polish 阶段 system prompt 真源。
+- `skills/direct-prompts/chapter.md`
+  - chapter 阶段 system prompt 真源（含运行时占位符）。
+- `skills/direct-prompts/highlight.md`
+  - highlight 阶段 system prompt 真源（含运行时占位符）。
+- `video_auto_cut/editing/direct_prompts.py`
+  - 只负责读取 `skills/direct-prompts/*.md`、注入少量动态参数并组装 messages，不再内嵌正文。
+
+==================================================
+3) repo-local skills / workflow 文档
 ==================================================
 
 - `skills/test-agent-editing/SKILL.md`
@@ -19,14 +34,14 @@
 - `skills/asr-transcribe/SKILL.md`
   - 媒体 -> `.srt` / `.test.txt` 的 ASR 起步入口。
 - `skills/delete/SKILL.md`
-  - delete 规则与输出合同。
+  - delete 技能说明；当前 direct prompt 运行时真源已转为 `skills/direct-prompts/delete.md`。
 - `skills/polish/SKILL.md`
-  - polish 规则与输出合同。
+  - polish 技能说明；当前 direct prompt 运行时真源已转为 `skills/direct-prompts/polish.md`。
 - `skills/chapter/SKILL.md`
-  - chapter 规则与输出合同。
+  - chapter 技能说明；当前 direct prompt 运行时真源已转为 `skills/direct-prompts/chapter.md`。
 
 ==================================================
-3) 代码内仍维护的 prompt 定义
+4) 代码内仍维护的其他 prompt 定义
 ==================================================
 
 这些 prompt 仍在源码内维护，但并不都属于今天的首选主路径：
@@ -45,9 +60,10 @@
   - 渲染章节标题精修 prompt。
 
 ==================================================
-4) 使用说明
+5) 使用说明
 ==================================================
 
-- 要确认当前编辑主路径，优先看：`skills/*.md`、`.pi/APPEND_SYSTEM.md`、`video_auto_cut/pi_agent_runner.py`。
+- 要确认当前 edit/highlight 主链路 prompt，优先看：`skills/direct-prompts/*.md`。
+- 要确认当前工作流/技能说明，优先看：`skills/*.md`、`.pi/APPEND_SYSTEM.md`。
 - 要确认 API / 导出相关 prompt，优先看：`web_api/services/render_web.py`。
 - 要继续清理旧 prompt residue，请直接在 `docs/requirements_todo.md` 里记录，而不要只改这份索引。
