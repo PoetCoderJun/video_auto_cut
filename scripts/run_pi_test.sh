@@ -13,7 +13,6 @@ usage() {
   - 自动进入仓库根目录
   - 自动加载仓库 .env（如果存在）
   - 主链路按 auto_edit 执行：asr -> delete -> polish
-  - review 在 delete -> polish 后做质量复核
   - chapter / highlight 继续作为后续 sidecar 产物输出
 
 示例：
