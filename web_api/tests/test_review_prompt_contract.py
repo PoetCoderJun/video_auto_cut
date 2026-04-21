@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 from video_auto_cut.pi_agent_runner import TestPiArtifacts
 from video_auto_cut.editing.direct_prompts import build_review_messages
-from video_auto_cut.orchestration.test_cli import _build_review_input, _run_cli_test
+from video_auto_cut.orchestration.test_cli import _apply_review_output, _build_review_input, _run_cli_test
 
 
 class ReviewPromptContractTest(unittest.TestCase):
     def test_review_system_prompt_focuses_on_delete_and_polish_main_chain(self) -> None:
-        messages = build_review_messages("[原始转写]\nA\n\n[delete+polish 最终稿]\nB")
+        messages = build_review_messages("1\tA\n2\tB")
         system_prompt = messages[0]["content"]
         user_prompt = messages[1]["content"]
 
@@ -26,19 +26,9 @@ class ReviewPromptContractTest(unittest.TestCase):
         self.assertIn("不能跨行借内容，不能补原文没有的新事实", system_prompt)
         self.assertNotIn("chapter 阶段", system_prompt)
         self.assertNotIn("highlight 阶段", system_prompt)
-        self.assertIn("delete+polish 最终稿", user_prompt)
+        self.assertIn("只输出 `行号<TAB>正文`", user_prompt)
 
-    def test_review_input_only_contains_raw_and_final_sections(self) -> None:
-        raw_lines = [
-            {
-                "line_id": 1,
-                "start": 0.0,
-                "end": 1.0,
-                "original_text": "前一句起手残片",
-                "optimized_text": "前一句起手残片",
-                "user_final_remove": False,
-            }
-        ]
+    def test_review_input_is_sparse_line_text_only(self) -> None:
         final_lines = [
             {
                 "line_id": 1,
@@ -50,20 +40,40 @@ class ReviewPromptContractTest(unittest.TestCase):
             }
         ]
 
-        payload = _build_review_input(raw_lines=raw_lines, final_lines=final_lines)
+        payload = _build_review_input(final_lines=final_lines)
 
-        self.assertIn("[原始转写]", payload)
-        self.assertIn("[delete+polish 最终稿]", payload)
-        self.assertNotIn("[章节]", payload)
-        self.assertNotIn("[高亮]", payload)
+        self.assertEqual(payload, "1\t后一句完整表达")
+
+    def test_apply_review_output_requires_all_kept_lines_once(self) -> None:
+        final_lines = [
+            {
+                "line_id": 1,
+                "start": 1.0,
+                "end": 2.0,
+                "original_text": "后一句完整表达",
+                "optimized_text": "后一句完整表达",
+                "user_final_remove": False,
+            },
+            {
+                "line_id": 2,
+                "start": 2.0,
+                "end": 3.0,
+                "original_text": "第二句",
+                "optimized_text": "第二句",
+                "user_final_remove": False,
+            },
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "missing line ids"):
+            _apply_review_output(final_lines=final_lines, output_text="1\t后一句最终表达")
 
     @patch("video_auto_cut.orchestration.test_cli._write_highlight_contract")
-    @patch("video_auto_cut.orchestration.test_cli._write_review_report")
+    @patch("video_auto_cut.orchestration.test_cli._write_review_output")
     @patch("video_auto_cut.orchestration.test_cli.run_test_pi")
     def test_cli_test_runs_review_after_polish_before_chapter_and_highlight(
         self,
         mock_run_test_pi,
-        mock_write_review_report,
+        mock_write_review_output,
         mock_write_highlight_contract,
     ) -> None:
         order: list[str] = []
@@ -114,19 +124,32 @@ class ReviewPromptContractTest(unittest.TestCase):
                 )
             raise AssertionError(f"unexpected task: {request.task}")
 
-        def fake_review_report(path, *, raw_lines, final_lines, args):
+        reviewed_lines = [
+            {
+                "line_id": 2,
+                "start": 1.0,
+                "end": 2.0,
+                "original_text": "后一句完整表达",
+                "optimized_text": "后一句review后表达",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            }
+        ]
+
+        def fake_review_output(path, *, final_lines, args):
             order.append("review")
             self.assertEqual(final_lines, polish_lines)
-            Path(path).write_text("总评：通过\n", encoding="utf-8")
-            return {"path": str(path)}
+            Path(path).write_text("2\t后一句review后表达\n", encoding="utf-8")
+            return reviewed_lines, {"path": str(path), "changed_line_ids": [2]}
 
         def fake_highlight_contract(path, *, captions, args):
             order.append("highlight")
+            self.assertEqual(captions[0]["text"], "后一句review后表达")
             Path(path).write_text('{"captions":[]}\n', encoding="utf-8")
             return {"captions": []}
 
         mock_run_test_pi.side_effect = fake_run_test_pi
-        mock_write_review_report.side_effect = fake_review_report
+        mock_write_review_output.side_effect = fake_review_output
         mock_write_highlight_contract.side_effect = fake_highlight_contract
 
         with tempfile.TemporaryDirectory() as tmpdir:

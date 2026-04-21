@@ -18,6 +18,7 @@ from video_auto_cut.pi_agent_runner import (
     DEFAULT_MAX_LINES,
     PROJECT_ROOT,
     TestPiRequest,
+    _parse_sparse_polish_output,
     _render_chapters_text,
     _render_test_text_from_lines,
     _sort_runtime_lines,
@@ -142,26 +143,53 @@ def _build_review_llm_config(args: argparse.Namespace) -> dict[str, Any]:
 
 def _build_review_input(
     *,
-    raw_lines: list[dict[str, Any]],
     final_lines: list[dict[str, Any]],
 ) -> str:
-    raw_text = _render_test_text_from_lines(raw_lines)
-    final_text = _render_test_text_from_lines(final_lines)
-    return (
-        "[原始转写]\n" + raw_text.strip() + "\n\n"
-        "[delete+polish 最终稿]\n" + final_text.strip()
+    return "\n".join(
+        f"{int(line.get('line_id') or index)}\t{str(line.get('optimized_text') or line.get('original_text') or '').strip()}"
+        for index, line in enumerate(final_lines, start=1)
+        if not bool(line.get("user_final_remove", False)) and str(line.get("optimized_text") or line.get("original_text") or "").strip()
     )
 
 
-def _write_review_report(
+def _apply_review_output(
+    *,
+    final_lines: list[dict[str, Any]],
+    output_text: str,
+) -> list[dict[str, Any]]:
+    changes = _parse_sparse_polish_output(output_text)
+    expected_indexes = [int(line["line_id"]) for line in final_lines if not bool(line.get("user_final_remove", False))]
+    expected_set = set(expected_indexes)
+    actual_set = set(changes)
+    unknown_indexes = sorted(index for index in actual_set if index not in expected_set)
+    if unknown_indexes:
+        raise RuntimeError(f"Review output referenced unknown or removed line ids: {unknown_indexes}")
+    missing_indexes = [index for index in expected_indexes if index not in actual_set]
+    if missing_indexes:
+        raise RuntimeError(f"Review output missing line ids: {missing_indexes}")
+
+    reviewed_lines: list[dict[str, Any]] = []
+    for source_line in final_lines:
+        current = dict(source_line)
+        if bool(current.get("user_final_remove", False)):
+            reviewed_lines.append(current)
+            continue
+        line_id = int(current["line_id"])
+        body = str(changes[line_id] or "").strip()
+        if not body:
+            raise RuntimeError(f"Review output missing text for line id: {line_id}")
+        current["optimized_text"] = body
+        reviewed_lines.append(current)
+    return _sort_runtime_lines(reviewed_lines)
+
+
+def _write_review_output(
     path: Path,
     *,
-    raw_lines: list[dict[str, Any]],
     final_lines: list[dict[str, Any]],
     args: argparse.Namespace,
-) -> dict[str, Any]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     review_input = _build_review_input(
-        raw_lines=raw_lines,
         final_lines=final_lines,
     )
     cfg = _build_review_llm_config(args)
@@ -169,10 +197,22 @@ def _write_review_report(
     review_text = llm_utils.chat_completion(cfg, build_review_messages(review_input))
     elapsed = time.perf_counter() - started
     path.write_text(str(review_text or "").strip() + "\n", encoding="utf-8")
-    return {
+    reviewed_lines = _apply_review_output(final_lines=final_lines, output_text=str(review_text or ""))
+    changed_line_ids = [
+        int(line["line_id"])
+        for line in reviewed_lines
+        if str(line.get("optimized_text") or "").strip()
+        != str(
+            next(item for item in final_lines if int(item["line_id"]) == int(line["line_id"])).get("optimized_text")
+            or next(item for item in final_lines if int(item["line_id"]) == int(line["line_id"])).get("original_text")
+            or ""
+        ).strip()
+    ]
+    return reviewed_lines, {
         "model": REVIEW_MODEL,
         "elapsed_seconds": round(elapsed, 3),
         "path": str(path),
+        "changed_line_ids": changed_line_ids,
     }
 
 def _build_cli_pipeline_options(args: argparse.Namespace):
@@ -239,9 +279,8 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     )
     review_report_path = output_path.with_suffix(".review.txt")
 
-    review_meta = _write_review_report(
+    reviewed_lines, review_meta = _write_review_output(
         review_report_path,
-        raw_lines=raw_lines,
         final_lines=polish_artifacts.lines,
         args=args,
     )
@@ -250,7 +289,7 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         TestPiRequest(
             task="chapter",
             llm_config=llm_config,
-            lines=polish_artifacts.lines,
+            lines=reviewed_lines,
             title_max_chars=args.title_max_chars,
             max_lines=args.max_lines,
         )
@@ -263,12 +302,12 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     highlight_contract_path = output_path.with_suffix(".highlights.json")
 
     raw_test_text_path.write_text(_render_test_text_from_lines(raw_lines) + "\n", encoding="utf-8")
-    final_test_text_path.write_text(_render_test_text_from_lines(polish_artifacts.lines) + "\n", encoding="utf-8")
-    _write_srt(final_test_srt_path, build_subtitles_from_lines(polish_artifacts.lines), args.encoding)
+    final_test_text_path.write_text(_render_test_text_from_lines(reviewed_lines) + "\n", encoding="utf-8")
+    _write_srt(final_test_srt_path, build_subtitles_from_lines(reviewed_lines), args.encoding)
     chapters_text_path.write_text(_render_chapters_text(chapter_artifacts.chapters) + "\n", encoding="utf-8")
     highlight_payload = _write_highlight_contract(
         highlight_contract_path,
-        captions=_build_kept_captions_from_lines(polish_artifacts.lines),
+        captions=_build_kept_captions_from_lines(reviewed_lines),
         args=args,
     )
     payload = {
@@ -280,12 +319,13 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         "chapters_text_path": str(chapters_text_path),
         "highlight_contract_path": str(highlight_contract_path),
         "review_report_path": str(review_report_path),
-        "line_count": len(polish_artifacts.lines),
+        "line_count": len(reviewed_lines),
         "chapter_count": len(chapter_artifacts.chapters),
         "highlight_caption_count": len(list(highlight_payload.get("captions") or [])),
         "steps_debug": {
             "delete": delete_artifacts.debug,
             "polish": polish_artifacts.debug,
+            "review_applied_lines": review_meta.get("changed_line_ids") or [],
             "chapter": chapter_artifacts.debug,
             "highlight": {"captions": len(list(highlight_payload.get("captions") or []))},
             "review": review_meta,
