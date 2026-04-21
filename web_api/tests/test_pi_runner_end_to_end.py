@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +11,6 @@ from video_auto_cut.shared.test_text_io import (
     build_test_lines_from_text,
     write_final_test_srt,
 )
-from web_api.tests.utils import extract_labeled_path
 
 
 SRT_SAMPLE = """1
@@ -31,39 +28,30 @@ SRT_SAMPLE = """1
 
 
 class PiRunnerEndToEndTests(unittest.TestCase):
-    @patch("video_auto_cut.pi_agent_runner.subprocess.run")
-    def test_raw_srt_to_final_srt_and_chapters_via_three_task_contracts(self, mock_run) -> None:
-        def fake_run(command, **kwargs):
-            self.assertIn("--tools", command)
-            self.assertIn("read,write,ls", command)
-            prompt = command[-1]
-            output_path = extract_labeled_path(prompt, "输出文件")
-
-            if "delete skill" in prompt:
-                self.assertIn("不要探索仓库", prompt)
-                output = (
+    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    def test_raw_srt_to_final_srt_and_chapters_via_three_task_contracts(self, mock_chat) -> None:
+        def fake_chat(cfg, messages):
+            system_prompt = messages[0]["content"]
+            if "delete 阶段执行器" in system_prompt:
+                self.assertIn("只输出最终结果文本", messages[1]["content"])
+                return (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
                     "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
                     "【00:00:02.400-00:00:03.400】再补一句自然一点\n"
                 )
-            elif "polish skill" in prompt:
-                self.assertIn("不要探索仓库", prompt)
-                self.assertIn("单字语气词", prompt)
-                output = (
+            if "polish 阶段执行器" in system_prompt:
+                self.assertIn("轻微措辞整理", system_prompt)
+                return (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
                     "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
                     "【00:00:02.400-00:00:03.400】再补一句自然一点\n"
                 )
-            elif "chapter skill" in prompt:
-                self.assertIn("所有 block_range 必须连续覆盖全部 block", prompt)
-                output = "【1-2】开场\n"
-            else:
-                raise AssertionError(f"unexpected prompt: {prompt}")
+            if "chapter 阶段执行器" in system_prompt:
+                self.assertIn("连续覆盖全部 block", system_prompt)
+                return "【1-2】开场\n"
+            raise AssertionError(f"unexpected prompt: {system_prompt}")
 
-            output_path.write_text(output, encoding="utf-8")
-            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
-
-        mock_run.side_effect = fake_run
+        mock_chat.side_effect = fake_chat
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -105,25 +93,21 @@ class PiRunnerEndToEndTests(unittest.TestCase):
             ],
         )
 
-    @patch("video_auto_cut.pi_agent_runner.subprocess.run")
-    def test_polish_and_chapter_accept_text_line_sidecar(self, mock_run) -> None:
-        def fake_run(command, **kwargs):
-            prompt = command[-1]
-            output_path = extract_labeled_path(prompt, "输出文件")
-            if "polish skill" in prompt:
-                self.assertIn("单字语气词", prompt)
-                output = (
+    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    def test_polish_and_chapter_accept_text_line_sidecar(self, mock_chat) -> None:
+        def fake_chat(cfg, messages):
+            system_prompt = messages[0]["content"]
+            if "polish 阶段执行器" in system_prompt:
+                self.assertIn("`<remove>` 行必须逐字原样保留", system_prompt)
+                return (
                     "【00:00:00.000-00:00:01.000】<remove>前面这句说错了\n"
                     "【00:00:01.200-00:00:02.200】后面这句是正确表达\n"
                 )
-            elif "chapter skill" in prompt:
-                output = "【1】开场\n"
-            else:
-                raise AssertionError(f"unexpected prompt: {prompt}")
-            output_path.write_text(output, encoding="utf-8")
-            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+            if "chapter 阶段执行器" in system_prompt:
+                return "【1】开场\n"
+            raise AssertionError(f"unexpected prompt: {system_prompt}")
 
-        mock_run.side_effect = fake_run
+        mock_chat.side_effect = fake_chat
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

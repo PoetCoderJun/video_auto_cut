@@ -23,6 +23,10 @@ from video_auto_cut.pi_agent_runner import (
     build_subtitles_from_lines,
     run_test_pi,
 )
+from video_auto_cut.rendering.subtitle_render_contract import (
+    build_subtitle_style_llm_config,
+    request_subtitle_style_contract,
+)
 from video_auto_cut.shared.test_text_io import build_test_lines_from_text
 
 
@@ -77,6 +81,45 @@ def _build_cli_llm_config(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model.")
     return cfg
 
+
+
+
+def _build_kept_captions_from_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    captions: list[dict[str, Any]] = []
+    for line in lines:
+        if bool(line.get("user_final_remove", False)):
+            continue
+        text = str(line.get("optimized_text") or line.get("original_text") or "").strip()
+        if not text:
+            continue
+        captions.append(
+            {
+                "index": len(captions) + 1,
+                "start": float(line.get("start") or 0.0),
+                "end": float(line.get("end") or 0.0),
+                "text": text,
+            }
+        )
+    return captions
+
+
+def _build_cli_highlight_llm_config(args: argparse.Namespace) -> dict[str, Any]:
+    return build_subtitle_style_llm_config(
+        base_url=(args.llm_base_url or os.environ.get("LLM_BASE_URL") or "").strip() or None,
+        model=(args.llm_model or os.environ.get("LLM_MODEL") or "").strip() or None,
+        api_key=(args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or "").strip() or None,
+        timeout=int(args.llm_timeout),
+        max_tokens=args.llm_max_tokens,
+    )
+
+
+def _write_highlight_contract(path: Path, *, captions: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+    payload = request_subtitle_style_contract(
+        captions=captions,
+        llm_config=_build_cli_highlight_llm_config(args),
+    )
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
 
 def _build_cli_pipeline_options(args: argparse.Namespace):
     return build_pipeline_options_from_env(
@@ -154,11 +197,17 @@ def _run_cli_test(args: argparse.Namespace) -> int:
     final_test_text_path = output_path.with_suffix(".test.txt")
     final_test_srt_path = output_path.with_suffix(".test.srt")
     chapters_text_path = output_path.with_suffix(".chapters.txt")
+    highlight_contract_path = output_path.with_suffix(".highlights.json")
 
     raw_test_text_path.write_text(_render_test_text_from_lines(raw_lines) + "\n", encoding="utf-8")
     final_test_text_path.write_text(_render_test_text_from_lines(polish_artifacts.lines) + "\n", encoding="utf-8")
     _write_srt(final_test_srt_path, build_subtitles_from_lines(polish_artifacts.lines), args.encoding)
     chapters_text_path.write_text(_render_chapters_text(chapter_artifacts.chapters) + "\n", encoding="utf-8")
+    highlight_payload = _write_highlight_contract(
+        highlight_contract_path,
+        captions=_build_kept_captions_from_lines(polish_artifacts.lines),
+        args=args,
+    )
 
     payload = {
         "input_path": str(input_path),
@@ -167,18 +216,26 @@ def _run_cli_test(args: argparse.Namespace) -> int:
         "final_test_text_path": str(final_test_text_path),
         "final_test_srt_path": str(final_test_srt_path),
         "chapters_text_path": str(chapters_text_path),
+        "highlight_contract_path": str(highlight_contract_path),
         "line_count": len(polish_artifacts.lines),
         "chapter_count": len(chapter_artifacts.chapters),
+        "highlight_caption_count": len(list(highlight_payload.get("captions") or [])),
+        "steps_debug": {
+            "delete": delete_artifacts.debug,
+            "polish": polish_artifacts.debug,
+            "chapter": chapter_artifacts.debug,
+            "highlight": {"captions": len(list(highlight_payload.get("captions") or []))},
+        },
     }
     _write_json(output_path, payload)
     return 0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run PI agent with project auto-loaded skills/system prompt or execute canonical PI tasks directly.")
+    parser = argparse.ArgumentParser(description="Run the direct prompt subtitle pipeline tasks (delete / polish / chapter / highlight / test).")
     parser.add_argument("--pi-bin", default="pi")
     parser.add_argument("--input", default=None)
-    parser.add_argument("--task", choices=["delete", "polish", "chapter", "test"], default=None)
+    parser.add_argument("--task", choices=["delete", "polish", "chapter", "highlight", "test"], default=None)
     parser.add_argument("--output", default=None)
     parser.add_argument("--encoding", default="utf-8")
     parser.add_argument("--llm-base-url", default=None)
@@ -216,6 +273,33 @@ def _run_cli_task(args: argparse.Namespace) -> int:
             lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
         artifacts = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines))
         output_path.write_text(_render_test_text_from_lines(artifacts.lines) + "\n", encoding="utf-8")
+        return 0
+
+    if args.task == "highlight":
+        if input_path.suffix.lower().endswith(".txt"):
+            lines = _load_lines_from_test_text(input_path)
+            captions = _build_kept_captions_from_lines(lines)
+        elif input_path.suffix.lower() == ".srt":
+            captions = [
+                {
+                    "index": int(sub.index),
+                    "start": float(sub.start.total_seconds()),
+                    "end": float(sub.end.total_seconds()),
+                    "text": str(sub.content or "").strip(),
+                }
+                for sub in srt.parse(input_path.read_text(encoding=args.encoding))
+                if str(sub.content or "").strip()
+            ]
+        else:
+            segments = _load_segments_from_path(input_path, args.encoding)
+            lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
+            lines = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines)).lines
+            captions = _build_kept_captions_from_lines(lines)
+        payload = request_subtitle_style_contract(
+            captions=captions,
+            llm_config=_build_cli_highlight_llm_config(args),
+        )
+        output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return 0
 
     if input_path.suffix.lower().endswith(".txt"):

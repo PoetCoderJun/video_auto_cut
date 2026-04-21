@@ -6,7 +6,6 @@ import logging
 import os
 import re
 import subprocess
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +13,14 @@ from typing import Any, Literal
 
 import srt
 
+from .editing import llm_client as llm_utils
 from .editing.chapter_domain import canonicalize_test_chapters, kept_test_lines
+from .editing.direct_prompts import (
+    build_chapter_messages,
+    build_delete_messages,
+    build_polish_messages,
+    summarize_prompt_variant,
+)
 from .shared.test_text_protocol import (
     parse_chapter_line,
     parse_timed_lines,
@@ -85,20 +91,6 @@ class PiTextBridge:
     def task(self) -> TestTask:
         return self.request.task
 
-    def input_filename(self) -> str:
-        return {
-            "delete": "input_segments.txt",
-            "polish": "input_lines.txt",
-            "chapter": "input_lines.txt",
-        }[self.task]
-
-    def output_filename(self) -> str:
-        return {
-            "delete": "delete_output.txt",
-            "polish": "polish_output.txt",
-            "chapter": "chapter_output.txt",
-        }[self.task]
-
     def render_input(self) -> str:
         if self.task == "delete":
             return _build_delete_input_text(self.request.segments)
@@ -106,14 +98,14 @@ class PiTextBridge:
             return _build_polish_input_text(self.request.lines)
         return _build_chapter_input_text(self.request.lines)
 
-    def build_prompt(self, *, input_path: Path, output_path: Path) -> str:
+    def build_messages(self) -> list[dict[str, str]]:
+        rendered = self.render_input()
         if self.task == "delete":
-            return _build_delete_prompt(input_path=input_path, output_path=output_path)
+            return build_delete_messages(rendered)
         if self.task == "polish":
-            return _build_polish_prompt(input_path=input_path, output_path=output_path)
-        return _build_chapter_prompt(
-            input_path=input_path,
-            output_path=output_path,
+            return build_polish_messages(rendered)
+        return build_chapter_messages(
+            rendered,
             title_max_chars=self.request.title_max_chars,
             max_chapters=self.request.max_chapters,
             chapter_policy_hint=self.request.chapter_policy_hint,
@@ -149,10 +141,16 @@ def _resolve_pi_provider(llm_config: dict[str, Any], env: dict[str, str] | None 
     provider_override = str(runtime_env.get("PI_PROVIDER") or "").strip().lower()
     if provider_override:
         return provider_override
-    if str(runtime_env.get("KIMI_API_KEY") or runtime_env.get("MOONSHOT_API_KEY") or "").strip():
-        return KIMI_CODING_PROVIDER
     base_url = str(llm_config.get("base_url") or runtime_env.get("LLM_BASE_URL") or "").strip()
+    model = (
+        str(llm_config.get("model") or "").strip()
+        or str(runtime_env.get("LLM_MODEL") or "").strip()
+    )
     if _is_kimi_coding_base_url(base_url):
+        return KIMI_CODING_PROVIDER
+    if base_url and model:
+        return PROJECT_PI_PROVIDER
+    if str(runtime_env.get("KIMI_API_KEY") or runtime_env.get("MOONSHOT_API_KEY") or "").strip():
         return KIMI_CODING_PROVIDER
     return PROJECT_PI_PROVIDER
 
@@ -207,6 +205,17 @@ def _canonical_special_placeholder(text: str) -> str:
     return value
 
 
+def _is_empty_polish_elision_allowed(text: str) -> bool:
+    value = str(text or "").strip()
+    if not value:
+        return False
+    normalized = re.sub(r"[，。、；：!！？?\s]+", "", value)
+    if not normalized:
+        return False
+    filler_chars = {"嗯", "啊", "呃", "额", "哦", "噢", "唔", "哎", "诶", "欸"}
+    return all(char in filler_chars for char in normalized)
+
+
 def _time_range_tag(start: float, end: float) -> str:
     return render_time_range_tag(start, end)
 
@@ -216,6 +225,12 @@ def _time_range_key(start: float, end: float) -> tuple[int, int]:
         int(round(float(start) * 1000.0)),
         int(round(float(end) * 1000.0)),
     )
+
+
+def _delete_output_text_matches(original_text: str, candidate_text: str) -> bool:
+    if _canonical_special_placeholder(candidate_text) == _canonical_special_placeholder(original_text):
+        return True
+    return _normalize_line_text(candidate_text) == _normalize_line_text(original_text)
 
 
 def _render_test_line(*, start: float, end: float, text: str, remove: bool) -> str:
@@ -316,183 +331,45 @@ def _require_line_budget(count: int, *, max_lines: int) -> None:
         )
 
 
-def _pi_env(llm_config: dict[str, Any]) -> dict[str, str]:
-    env = dict(os.environ)
-    base_url = str(llm_config.get("base_url") or env.get("LLM_BASE_URL") or "").strip()
-    model = str(llm_config.get("model") or env.get("LLM_MODEL") or "").strip()
-    api_key = str(llm_config.get("api_key") or env.get("LLM_API_KEY") or env.get("DASHSCOPE_API_KEY") or "").strip()
-    if base_url:
-        env["LLM_BASE_URL"] = base_url
-    if model:
-        env["LLM_MODEL"] = model
-    if api_key:
-        env["LLM_API_KEY"] = api_key
-        env.setdefault("DASHSCOPE_API_KEY", api_key)
-    if _resolve_pi_model(llm_config, env).startswith(f"{KIMI_CODING_PROVIDER}/"):
-        kimi_api_key = (
-            str(env.get("KIMI_API_KEY") or "").strip()
-            or str(env.get("MOONSHOT_API_KEY") or "").strip()
-            or str(llm_config.get("api_key") or "").strip()
-        )
-        if kimi_api_key:
-            env["KIMI_API_KEY"] = kimi_api_key
-    return env
-
-
-def _pi_retry_attempts(llm_config: dict[str, Any]) -> int:
-    return max(1, int(llm_config.get("request_retries", DEFAULT_PI_REQUEST_RETRIES) or 1))
-
-
-def _pi_retry_backoff_seconds(llm_config: dict[str, Any]) -> float:
-    return max(
-        0.0,
-        float(llm_config.get("retry_backoff_seconds", DEFAULT_PI_RETRY_BACKOFF_SECONDS) or 0.0),
+def _direct_llm_config(llm_config: dict[str, Any]) -> dict[str, Any]:
+    cfg = llm_utils.build_llm_config(
+        base_url=str(llm_config.get("base_url") or "").strip() or None,
+        model=str(llm_config.get("model") or "").strip() or None,
+        api_key=str(llm_config.get("api_key") or "").strip() or None,
+        timeout=int(llm_config.get("timeout") or 300),
+        temperature=0.0,
+        max_tokens=llm_config.get("max_tokens"),
+        enable_thinking=False,
     )
+    for key in ("request_retries", "retry_backoff_seconds", "repair_retries"):
+        if llm_config.get(key) is not None:
+            cfg[key] = llm_config.get(key)
+    return cfg
 
 
-def _is_retryable_pi_failure(completed: subprocess.CompletedProcess[str]) -> bool:
-    combined_output = "\n".join(
-        part for part in ((completed.stdout or "").strip(), (completed.stderr or "").strip()) if part
-    ).lower()
-    if not combined_output:
-        return False
-    if any(marker in combined_output for marker in RETRYABLE_PI_ERROR_MARKERS):
-        return True
-    return any(re.search(rf"(?<!\d){status}(?!\d)", combined_output) for status in RETRYABLE_PI_STATUS_CODES)
+
+def _strip_response_code_fence(text: str) -> str:
+    value = str(text or "").strip()
+    if not value.startswith("```"):
+        return value
+    lines = value.splitlines()
+    if lines and lines[0].startswith("```"):
+        lines = lines[1:]
+    while lines and lines[-1].startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
 
 
-def _format_pi_failure(completed: subprocess.CompletedProcess[str]) -> str:
-    return (
-        f"PI task failed (exit={completed.returncode}).\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}"
-    )
 
+def _run_direct_prompt(*, llm_config: dict[str, Any], messages: list[dict[str, str]]) -> str:
+    cfg = _direct_llm_config(llm_config)
+    response_text = llm_utils.chat_completion(cfg, messages)
+    return _strip_response_code_fence(response_text)
 
-def _run_pi_prompt(*, llm_config: dict[str, Any], prompt: str) -> subprocess.CompletedProcess[str]:
-    command_env = _pi_env(llm_config)
-    model = _resolve_pi_model(llm_config, command_env)
-    command = build_pi_command(
-        pi_args=[
-            "--model",
-            model,
-            "--thinking",
-            "off",
-            "--tools",
-            "read,write,ls",
-            "--no-session",
-            "-p",
-            prompt,
-        ]
-    )
-    attempts = _pi_retry_attempts(llm_config)
-    backoff_seconds = _pi_retry_backoff_seconds(llm_config)
-    completed: subprocess.CompletedProcess[str] | None = None
-    for attempt in range(1, attempts + 1):
-        completed = subprocess.run(
-            command,
-            cwd=str(PROJECT_ROOT),
-            env=command_env,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if completed.returncode == 0:
-            return completed
-        if attempt >= attempts or not _is_retryable_pi_failure(completed):
-            raise RuntimeError(_format_pi_failure(completed))
-        delay = backoff_seconds * (2 ** (attempt - 1))
-        logging.warning(
-            "PI task transient failure model=%s attempt=%s/%s retry_in=%.1fs stderr=%s",
-            model,
-            attempt,
-            attempts,
-            delay,
-            (completed.stderr or completed.stdout or "").strip(),
-        )
-        if delay > 0:
-            time.sleep(delay)
-    if completed is not None:
-        raise RuntimeError(_format_pi_failure(completed))
-    raise RuntimeError("PI task failed before subprocess execution started.")
 
 
 def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _write_text(path: Path, text: str) -> None:
-    path.write_text(text, encoding="utf-8")
-
-
-def _build_delete_prompt(*, input_path: Path, output_path: Path) -> str:
-    return (
-        "读取输入字幕文本，并使用项目自动加载的 delete skill 完成删除判断。\n"
-        f"输入文件: {input_path}\n"
-        f"输出文件: {output_path}\n"
-        "要求：\n"
-        "1. 只做 delete，不做 polish，不做 chapter。\n"
-        "2. 只读取上面的输入文件，只写入上面的输出文件；不要探索仓库，不要读取无关文件，不要修改任何源码或其他文件。\n"
-        "3. 输入中的每一行都长这样：`【time】句子`。\n"
-        "4. 输出文件也必须逐行保持这个轻量格式：`【time】句子` 或 `【time】<remove>句子`。\n"
-        "5. 必须覆盖全部输入行且只能输出一次；时间标签必须原样保留。\n"
-        "6. delete 阶段只允许决定是否加 `<remove>`，不允许改写句子内容。\n"
-        "7. 唯一删除原则：只要后一句和前一句属于重复语义，必须删除前面的重复部分，保留后面的句子；后面的句子一律视为纠正后的最终版本，绝不能删后面的保留前面的。\n"
-        "8. 不要输出 markdown，不要输出解释；只把结果行写入输出文件，写完后立即结束。"
-    )
-
-
-def _build_polish_prompt(*, input_path: Path, output_path: Path) -> str:
-    return (
-        "读取输入 Test 轻量字幕文本，并使用项目自动加载的 polish skill 完成逐行润色。\n"
-        f"输入文件: {input_path}\n"
-        f"输出文件: {output_path}\n"
-        "要求：\n"
-        "1. 只做 polish，不做 delete，不做 chapter。\n"
-        "2. 只读取上面的输入文件，只写入上面的输出文件；不要探索仓库，不要读取无关文件，不要修改任何源码或其他文件。\n"
-        "3. 输入中的每一行都长这样：`【time】句子` 或 `【time】<remove>句子`。\n"
-        "4. 输出文件也必须逐行保持这个轻量格式：`【time】句子` 或 `【time】<remove>句子`。\n"
-        "5. `<remove>` 行必须逐字原样保留，连 `<remove>` 标记和正文都不能改动；非 `<remove>` 行才允许润色句子。\n"
-        "6. 必须覆盖全部输入行且只能输出一次；时间标签必须原样保留。\n"
-        "7. 像“呃”“啊”“嗯”这类不承载实际信息的单字语气词，请直接润色掉，不要保留到输出里。\n"
-        "8. 不要输出 markdown，不要输出解释；只把结果行写入输出文件，写完后立即结束。"
-    )
-
-
-def _build_chapter_prompt(
-    *,
-    input_path: Path,
-    output_path: Path,
-    title_max_chars: int,
-    max_chapters: int | None = None,
-    chapter_policy_hint: str = "",
-) -> str:
-    requirements = [
-        "1. 只做 chapter，不改字幕正文。",
-        "2. 只读取上面的输入文件，只写入上面的输出文件；不要探索仓库，不要读取无关文件，不要修改任何源码或其他文件。",
-        "3. 输入文件中每一行都长这样：`【block_index】句子`，只包含保留字幕。",
-    ]
-    if max_chapters is not None and max_chapters > 0:
-        policy_hint = str(chapter_policy_hint or "").strip()
-        if policy_hint:
-            requirements.append(f"4. 当前按{policy_hint}处理，本次最多只能分成 {int(max_chapters)} 章。")
-        else:
-            requirements.append(f"4. 本次最多只能分成 {int(max_chapters)} 章。")
-    next_index = len(requirements) + 1
-    requirements.extend(
-        [
-            f"{next_index}. title 尽量不超过 {title_max_chars} 个字。",
-            f"{next_index + 1}. 只有出现明确话题/阶段切换时才新开章节；寒暄、过渡句、重复补充、没有实质新内容的短段落必须并入相邻章节，不要单独成章。",
-            f"{next_index + 2}. 输出文件必须逐行使用轻量格式：`【start-end】标题`，例如 `【1-3】开场`。",
-            f"{next_index + 3}. 所有 block_range 必须连续覆盖全部 block，不能空洞、重叠、跳号、越界。",
-            f"{next_index + 4}. 不要输出 markdown，不要输出解释；只把章节行写入输出文件，写完后立即结束。",
-        ]
-    )
-    return (
-        "读取输入 Test 轻量字幕文本，并使用项目自动加载的 chapter skill 生成最终章节。\n"
-        f"输入文件: {input_path}\n"
-        f"输出文件: {output_path}\n"
-        "要求：\n"
-        + "\n".join(requirements)
-    )
 
 
 def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, Any]]:
@@ -512,7 +389,7 @@ def _parse_delete_output(text: str, request: TestPiRequest) -> list[dict[str, An
         seen.add(key)
         segment = expected[key]
         original_text = str(segment.get("text") or "").strip()
-        if _canonical_special_placeholder(body) != _canonical_special_placeholder(original_text):
+        if not _delete_output_text_matches(original_text, body):
             raise RuntimeError(f"Delete output changed text for {_time_range_tag(start, end)}")
         forced_remove = _canonical_special_placeholder(original_text) in {"< low speech >", "< no speech >"}
         final_remove = bool(remove or forced_remove)
@@ -552,7 +429,17 @@ def _parse_polish_output(text: str, request: TestPiRequest) -> list[dict[str, An
         if was_removed:
             lines.append(source)
             continue
+        if remove:
+            source["ai_suggest_remove"] = True
+            source["user_final_remove"] = True
+            lines.append(source)
+            continue
         if not body:
+            if _is_empty_polish_elision_allowed(source.get("optimized_text") or source.get("original_text") or ""):
+                source["ai_suggest_remove"] = True
+                source["user_final_remove"] = True
+                lines.append(source)
+                continue
             raise RuntimeError(f"Polish output missing text for {_time_range_tag(start, end)}")
         source["optimized_text"] = _normalize_line_text(body)
         lines.append(source)
@@ -582,29 +469,32 @@ def _parse_chapter_output(text: str, request: TestPiRequest) -> list[dict[str, A
     return canonicalize_test_chapters(chapters, kept)
 
 
-def _run_via_pi(request: TestPiRequest) -> TestPiArtifacts:
+def _run_via_prompt(request: TestPiRequest) -> TestPiArtifacts:
     bridge = PiTextBridge(request)
-    with tempfile.TemporaryDirectory(prefix=f"pi-{request.task}-") as tmpdir:
-        root = Path(tmpdir)
-        input_path = root / bridge.input_filename()
-        output_path = root / bridge.output_filename()
-        _write_text(input_path, bridge.render_input())
-        completed = _run_pi_prompt(
-            llm_config=request.llm_config,
-            prompt=bridge.build_prompt(input_path=input_path, output_path=output_path),
-        )
-        artifacts = bridge.parse_output(output_path.read_text(encoding="utf-8"))
-        return TestPiArtifacts(
-            task=artifacts.task,
-            lines=artifacts.lines,
-            chapters=artifacts.chapters,
-            debug={
-                "task": request.task,
-                "bridge": "PiTextBridge",
-                "pi_stdout": completed.stdout,
-                "pi_stderr": completed.stderr,
-            },
-        )
+    input_text = bridge.render_input()
+    input_lines_count = len([line for line in input_text.splitlines() if line.strip()])
+    start_time = time.time()
+    response_text = _run_direct_prompt(
+        llm_config=request.llm_config,
+        messages=bridge.build_messages(),
+    )
+    elapsed = time.time() - start_time
+    artifacts = bridge.parse_output(response_text)
+    output_lines_count = len([line for line in response_text.splitlines() if line.strip()])
+    return TestPiArtifacts(
+        task=artifacts.task,
+        lines=artifacts.lines,
+        chapters=artifacts.chapters,
+        debug={
+            "task": request.task,
+            "bridge": "PiTextBridge",
+            "runner": summarize_prompt_variant(request.task),
+            "elapsed_seconds": round(elapsed, 2),
+            "input_lines": input_lines_count,
+            "output_lines": output_lines_count,
+            "response_text": response_text,
+        },
+    )
 
 
 def run_test_pi(request: TestPiRequest) -> TestPiArtifacts:
@@ -612,9 +502,9 @@ def run_test_pi(request: TestPiRequest) -> TestPiArtifacts:
         raise RuntimeError(f"Unsupported Test PI task: {request.task}")
     if request.task == "delete":
         _require_line_budget(len(request.segments), max_lines=request.max_lines)
-        return _run_via_pi(request)
+        return _run_via_prompt(request)
     _require_line_budget(len(request.lines), max_lines=request.max_lines)
-    return _run_via_pi(request)
+    return _run_via_prompt(request)
 
 
 def build_subtitles_from_lines(lines: list[dict[str, Any]]) -> list[srt.Subtitle]:

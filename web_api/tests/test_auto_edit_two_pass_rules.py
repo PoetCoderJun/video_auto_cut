@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-import subprocess
 import unittest
 from unittest.mock import patch
 
 from video_auto_cut.editing.auto_edit import AutoEdit
-from web_api.tests.utils import extract_labeled_path
 
 
 class DummyArgs:
@@ -38,26 +35,20 @@ def _sample_segments() -> list[dict[str, object]]:
 
 
 class AutoEditCanonicalRunnerTest(unittest.TestCase):
-    @patch("video_auto_cut.pi_agent_runner.subprocess.run")
-    def test_stage_and_preview_callbacks_follow_delete_then_polish(self, mock_run) -> None:
-        def fake_run(command, **kwargs):
-            prompt = command[-1]
-            input_path = extract_labeled_path(prompt, "输入文件")
-            output_path = extract_labeled_path(prompt, "输出文件")
-            if "delete skill" in prompt:
-                output = (
+    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    def test_stage_and_preview_callbacks_follow_delete_then_polish(self, mock_chat) -> None:
+        def fake_chat(cfg, messages):
+            if "delete 阶段执行器" in messages[0]["content"]:
+                return (
                     "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
                     "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式。\n"
                 )
-            else:
-                output = (
-                    "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
-                    "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式\n"
-                )
-            output_path.write_text(output, encoding="utf-8")
-            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+            return (
+                "【00:00:00.000-00:00:01.000】<remove>这是前一句的表达内容，我先说错了一些信息。\n"
+                "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式\n"
+            )
 
-        mock_run.side_effect = fake_run
+        mock_chat.side_effect = fake_chat
 
         stage_events: list[tuple[str, str]] = []
         preview_batches: list[list[dict[str, object]]] = []
@@ -73,23 +64,17 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
         self.assertEqual(preview_batches[1][1]["optimized_text"], "这是后一句的表达内容，这是更加准确的表达方式")
         self.assertEqual(result["optimized_subs"][1].content, "这是后一句的表达内容，这是更加准确的表达方式")
 
-    @patch("video_auto_cut.pi_agent_runner.subprocess.run")
-    def test_polish_output_must_cover_all_kept_lines(self, mock_run) -> None:
-        def fake_run(command, **kwargs):
-            prompt = command[-1]
-            input_path = extract_labeled_path(prompt, "输入文件")
-            output_path = extract_labeled_path(prompt, "输出文件")
-            if "delete skill" in prompt:
-                output = (
+    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    def test_polish_output_must_cover_all_kept_lines(self, mock_chat) -> None:
+        def fake_chat(cfg, messages):
+            if "delete 阶段执行器" in messages[0]["content"]:
+                return (
                     "【00:00:00.000-00:00:01.000】这是前一句的表达内容，我先说错了一些信息。\n"
                     "【00:00:01.200-00:00:02.200】这是后一句的表达内容，这是更加准确的表达方式。\n"
                 )
-            else:
-                output = "【00:00:00.000-00:00:01.000】第一句润色\n"
-            output_path.write_text(output, encoding="utf-8")
-            return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+            return "【00:00:00.000-00:00:01.000】第一句润色\n"
 
-        mock_run.side_effect = fake_run
+        mock_chat.side_effect = fake_chat
 
         with self.assertRaisesRegex(RuntimeError, "Polish output must cover all input subtitle lines exactly once"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(_sample_segments(), total_length=10.0)

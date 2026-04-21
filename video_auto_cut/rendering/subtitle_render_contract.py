@@ -6,10 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from video_auto_cut.editing import llm_client as llm_utils
+from video_auto_cut.editing.direct_prompts import build_highlight_messages
 from video_auto_cut.shared.test_text_protocol import format_time, parse_timed_lines
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SUBTITLE_STYLE_SKILL_PATH = PROJECT_ROOT / "skills" / "subtitle-style-contract" / "SKILL.md"
 
 SUBTITLE_STYLE_VERSION = "subtitle-style.v1"
 SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
@@ -56,21 +54,11 @@ def build_timed_caption_text(captions: list[dict[str, Any]]) -> str:
     )
 
 
-def read_subtitle_style_skill_prompt() -> str:
-    return SUBTITLE_STYLE_SKILL_PATH.read_text(encoding="utf-8").strip()
-
-
-def build_subtitle_style_messages(timed_text: str) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": read_subtitle_style_skill_prompt(),
-        },
-        {
-            "role": "user",
-            "content": timed_text.strip(),
-        },
-    ]
+def build_subtitle_style_messages(timed_text: str, *, subtitle_theme: str = DEFAULT_SUBTITLE_THEME) -> list[dict[str, str]]:
+    return build_highlight_messages(
+        timed_text,
+        subtitle_theme=normalize_subtitle_theme(subtitle_theme),
+    )
 
 
 def request_subtitle_style_contract(
@@ -99,7 +87,7 @@ def request_subtitle_style_contract(
         try:
             payload = requester(
                 config,
-                build_subtitle_style_messages(timed_text),
+                build_subtitle_style_messages(timed_text, subtitle_theme=normalized_theme),
                 validate=lambda raw_payload, source_chunk=chunk: _validate_style_payload(
                     raw_payload,
                     source_captions=source_chunk,

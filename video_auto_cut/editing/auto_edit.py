@@ -230,9 +230,11 @@ class AutoEdit:
             "edl": edl,
             "test_lines": polish_artifacts.lines,
             "debug": {
-                "pi_agent": True,
+                "pi_agent": False,
+                "direct_prompt_pipeline": True,
                 "canonical_runner": True,
-                "task_contracts": ["delete", "polish", "chapter"],
+                "task_contracts": ["delete", "polish"],
+                "downstream_contracts": ["chapter", "highlight"],
                 "default_chunk_first": False,
                 "delete": delete_artifacts.debug,
                 "polish": polish_artifacts.debug,
