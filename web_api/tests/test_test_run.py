@@ -71,7 +71,9 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 self.assertEqual(source_srt, srt_path)
                 self.assertIsNotNone(stage_callback)
                 self.assertIsNotNone(preview_callback)
+                stage_callback("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
                 preview_callback(delete_lines)
+                stage_callback("POLISHING_EXPRESSION", "正在润色表达...")
                 preview_callback(polish_lines)
                 return SimpleNamespace(
                     optimized_srt_path=optimized_srt_path,
@@ -93,6 +95,7 @@ class TestRunDraftSyncTests(unittest.TestCase):
                     "web_api.services.test._load_required_paths",
                     return_value={"audio_path": str(input_dir / "audio.wav"), "video_path": str(input_dir / "video.mp4")},
                 ),
+                patch("web_api.services.test.get_settings", return_value=SimpleNamespace()),
                 patch(
                     "web_api.services.test.build_pipeline_options_from_settings",
                     return_value=SimpleNamespace(asr_backend="test", encoding="utf-8"),
@@ -105,10 +108,11 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 ),
                 patch("web_api.services.test.run_auto_edit", side_effect=fake_run_auto_edit),
                 patch("web_api.services.test._upload_optimized_srt_to_oss", return_value=None),
+                patch("web_api.services.test.schedule_editor_highlight_warmup"),
                 patch("web_api.services.test.generate_test_chapters", return_value=chapters),
                 patch("web_api.services.test.replace_test_chapters"),
                 patch("web_api.services.test.upsert_job_files"),
-                patch("web_api.services.test.update_job"),
+                patch("web_api.services.test.update_job") as mock_update_job,
                 patch("web_api.services.test.replace_test_lines") as mock_replace_test_lines,
             ):
                 run_test("job-1")
@@ -121,6 +125,18 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 call("job-1", delete_lines),
                 call("job-1", polish_lines),
                 call("job-1", polish_lines),
+            ],
+        )
+
+        self.assertEqual(
+            [call.kwargs.get("stage_code") for call in mock_update_job.call_args_list],
+            [
+                "TRANSCRIBING_AUDIO",
+                "REMOVING_REDUNDANT_LINES",
+                "REMOVING_REDUNDANT_LINES",
+                "POLISHING_EXPRESSION",
+                "GENERATING_CHAPTERS",
+                "TEST_READY",
             ],
         )
 

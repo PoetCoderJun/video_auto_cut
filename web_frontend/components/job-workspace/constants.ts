@@ -15,6 +15,15 @@ export const CHAPTER_BADGE_COLORS = [
   "text-teal-700",
 ];
 
+export const CHAPTER_BORDER_COLORS = [
+  "border-sky-500",
+  "border-emerald-500",
+  "border-amber-500",
+  "border-rose-500",
+  "border-violet-500",
+  "border-teal-500",
+];
+
 export const SUPPORTED_UPLOAD_EXTENSIONS = [
   ".mp4",
   ".mov",
@@ -36,6 +45,7 @@ export const TEST_VISUAL_PROGRESS_BY_STAGE: Record<string, number> = {
   UPLOAD_COMPLETE: 8,
   TEST_QUEUED: 12,
   TRANSCRIBING_AUDIO: 34,
+  TRANSCRIBING_MEDIA: 34,
   OPTIMIZING_TEXT: 56,
   REMOVING_REDUNDANT_LINES: 56,
   POLISHING_EXPRESSION: 84,

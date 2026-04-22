@@ -527,8 +527,13 @@ export function clearRenderCompletionPending(jobId: string): void {
   });
 }
 
-export async function createJob(): Promise<Job> {
-  const data = await requestAuthed<{job: Job}>("/jobs", {method: "POST"});
+export async function createJob(script?: string): Promise<Job> {
+  const body = JSON.stringify({script: script?.trim() || ""});
+  const data = await requestAuthed<{job: Job}>("/jobs", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body,
+  });
   return data.job;
 }
 
@@ -644,9 +649,37 @@ async function uploadAudioDirectToLocalApi(jobId: string, file: File): Promise<J
   return data.job;
 }
 
+function shouldFallbackAudioUploadTargetError(error: unknown): boolean {
+  return error instanceof ApiClientError && error.code === "SERVICE_UNAVAILABLE";
+}
+
+function shouldFallbackDirectAudioUploadError(error: unknown): boolean {
+  return (
+    error instanceof ApiClientError &&
+    (error.code === "DIRECT_UPLOAD_FAILED" || error.code === "NETWORK_ERROR")
+  );
+}
+
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
-  const target = await getAudioDirectUploadTarget(jobId);
-  await putAudioToOss(target.put_url, file);
+  let target: AudioDirectUploadTarget;
+  try {
+    target = await getAudioDirectUploadTarget(jobId);
+  } catch (error) {
+    if (shouldFallbackAudioUploadTargetError(error)) {
+      return await uploadAudioDirectToLocalApi(jobId, file);
+    }
+    throw error;
+  }
+
+  try {
+    await putAudioToOss(target.put_url, file);
+  } catch (error) {
+    if (shouldFallbackDirectAudioUploadError(error)) {
+      return await uploadAudioDirectToLocalApi(jobId, file);
+    }
+    throw error;
+  }
+
   return await markAudioOssReady(jobId, target.object_key);
 }
 

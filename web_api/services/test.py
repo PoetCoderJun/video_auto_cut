@@ -45,6 +45,7 @@ from ..constants import (
 from ..db_repository import get_credit_balance
 from ..job_file_repository import (
     get_job_owner_user_id,
+    get_job_script,
     list_test_chapters,
     list_test_lines,
     replace_test_chapters,
@@ -301,7 +302,7 @@ class TestJobStateManager:
     def mark_transcribing(self) -> None:
         self._update_running(
             progress=31,
-            stage_code="TRANSCRIBING_MEDIA",
+            stage_code="TRANSCRIBING_AUDIO",
             stage_message="正在识别语音并生成字幕...",
         )
 
@@ -407,12 +408,14 @@ def _build_test_run_context(job_id: str) -> TestRunContext:
     video_path = Path(files["video_path"]) if files.get("video_path") else None
     media_path = _resolve_test_media_path(job_id, dirs, files, asr_oss_key)
     logging.info("[web_api] test flow transcribe using: %s", media_path)
-    options = build_pipeline_options_from_settings(get_settings())
+    script = get_job_script(job_id)
+    options = build_pipeline_options_from_settings(get_settings(), script=script)
     logging.info(
-        "[web_api] test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s)",
+        "[web_api] test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s script_present=%s)",
         options.asr_backend,
         getattr(options, "asr_dashscope_enable_words", None),
         getattr(options, "asr_dashscope_sentence_rule_with_punc", None),
+        bool(script.strip()),
     )
     _ensure_test_credit(job_id)
     return TestRunContext(

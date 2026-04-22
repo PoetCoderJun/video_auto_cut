@@ -204,6 +204,156 @@ test("uploadAudio uses frontend direct OSS upload flow", async () => {
   }
 });
 
+test("uploadAudio falls back to local upload when OSS direct upload is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+
+    if (calls.length === 1) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-1",
+          error: {
+            code: "SERVICE_UNAVAILABLE",
+            message: "上传服务暂未配置，请稍后再试。",
+          },
+        }),
+        {
+          status: 503,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    if (calls.length === 2) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-2",
+          data: {
+            job: {
+              job_id: "job-1",
+              status: "UPLOAD_READY",
+              progress: 10,
+              stage: null,
+              error: null,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    throw new Error(`unexpected fetch call ${calls.length}`);
+  };
+
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "audio.mp3", {
+      type: "audio/mpeg",
+    });
+
+    const job = await uploadAudio("job-1", file);
+
+    assert.equal(job.job_id, "job-1");
+    assert.equal(job.status, "UPLOAD_READY");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].url, /\/jobs\/job-1\/oss-upload-url$/);
+    assert.match(calls[1].url, /\/jobs\/job-1\/audio-upload-local$/);
+    assert.equal(calls[1].init?.method, "POST");
+
+    const fallbackBody = calls[1].init?.body;
+    assert.ok(fallbackBody instanceof FormData);
+    const uploaded = fallbackBody.get("audio_file");
+    assert.ok(uploaded instanceof File);
+    assert.equal(uploaded.name, "audio.mp3");
+    assert.equal(uploaded.size, file.size);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
+test("uploadAudio falls back to local upload when direct OSS PUT fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+
+    if (calls.length === 1) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-1",
+          data: {
+            put_url: "https://oss.example.invalid/upload/audio.mp3",
+            object_key: "video-auto-cut/asr/job-1/audio.mp3",
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    if (calls.length === 2) {
+      return new Response("upload failed", {status: 500});
+    }
+
+    if (calls.length === 3) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-3",
+          data: {
+            job: {
+              job_id: "job-1",
+              status: "UPLOAD_READY",
+              progress: 10,
+              stage: null,
+              error: null,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    throw new Error(`unexpected fetch call ${calls.length}`);
+  };
+
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "audio.mp3", {
+      type: "audio/mpeg",
+    });
+
+    const job = await uploadAudio("job-1", file);
+
+    assert.equal(job.job_id, "job-1");
+    assert.equal(job.status, "UPLOAD_READY");
+    assert.equal(calls.length, 3);
+    assert.equal(calls[1].url, "https://oss.example.invalid/upload/audio.mp3");
+    assert.match(calls[2].url, /\/jobs\/job-1\/audio-upload-local$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
 test("createJob waits briefly for auth token initialization before failing", async () => {
   const originalFetch = globalThis.fetch;
   let attempts = 0;
@@ -254,13 +404,15 @@ test("createJob waits briefly for auth token initialization before failing", asy
   }
 });
 
-test("uploadAudio surfaces direct upload failures", async () => {
+test("uploadAudio surfaces local upload failure after direct-upload fallback", async () => {
   const originalFetch = globalThis.fetch;
+  const calls = [];
 
   setApiAuthTokenProvider(async () => "test-token");
   invalidateTokenCache();
 
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
     if (String(url).includes("/oss-upload-url")) {
       return new Response(
         JSON.stringify({
@@ -287,12 +439,14 @@ test("uploadAudio surfaces direct upload failures", async () => {
 
     await assert.rejects(() => uploadAudio("job-1", file), (error) => {
       assert.ok(error instanceof ApiClientError);
-      assert.equal(error.message, "音频上传失败，请稍后重试。");
-      assert.equal(error.code, "DIRECT_UPLOAD_FAILED");
+      assert.equal(error.message, "upload failed");
+      assert.equal(error.code, "HTTP_ERROR");
       assert.equal(error.status, 500);
-      assert.equal(error.details, "PUT 500: upload failed");
+      assert.equal(error.details, null);
       return true;
     });
+    assert.equal(calls.length, 3);
+    assert.match(calls[2].url, /\/jobs\/job-1\/audio-upload-local$/);
   } finally {
     globalThis.fetch = originalFetch;
     setApiAuthTokenProvider(null);
@@ -333,6 +487,161 @@ test("uploadAudio preserves backend service-unavailable message", async () => {
       assert.equal(error.message, "上传服务暂未配置，请稍后再试。");
       return true;
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
+test("uploadAudio does not fall back on auth failures from OSS target lookup", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+    return new Response(
+      JSON.stringify({
+        request_id: "req-auth",
+        error: {
+          code: "UNAUTHORIZED",
+          message: "请先登录。",
+        },
+      }),
+      {
+        status: 401,
+        headers: {"Content-Type": "application/json"},
+      }
+    );
+  };
+
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "audio.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await assert.rejects(() => uploadAudio("job-1", file), (error) => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.code, "UNAUTHORIZED");
+      assert.equal(error.status, 401);
+      return true;
+    });
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
+test("uploadAudio does not fall back on OSS target validation failures", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+    return new Response(
+      JSON.stringify({
+        request_id: "req-validation",
+        error: {
+          code: "INVALID_STEP_STATE",
+          message: "current status=TEST_RUNNING expected in [CREATED, UPLOAD_READY]",
+        },
+      }),
+      {
+        status: 409,
+        headers: {"Content-Type": "application/json"},
+      }
+    );
+  };
+
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "audio.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await assert.rejects(() => uploadAudio("job-1", file), (error) => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.code, "INVALID_STEP_STATE");
+      assert.equal(error.status, 409);
+      return true;
+    });
+    assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
+test("uploadAudio does not fall back when audio-oss-ready rejects the object key", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+
+    if (calls.length === 1) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-1",
+          data: {
+            put_url: "https://oss.example.invalid/upload/audio.mp3",
+            object_key: "video-auto-cut/asr/job-1/audio.mp3",
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    if (calls.length === 2) {
+      return new Response(null, {status: 200});
+    }
+
+    if (calls.length === 3) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-3",
+          error: {
+            code: "INVALID_STEP_STATE",
+            message: "上传对象校验失败，请重新上传后重试",
+          },
+        }),
+        {
+          status: 409,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    throw new Error(`unexpected fetch call ${calls.length}`);
+  };
+
+  try {
+    const file = new File([new Uint8Array([1, 2, 3])], "audio.mp3", {
+      type: "audio/mpeg",
+    });
+
+    await assert.rejects(() => uploadAudio("job-1", file), (error) => {
+      assert.ok(error instanceof ApiClientError);
+      assert.equal(error.code, "INVALID_STEP_STATE");
+      assert.equal(error.status, 409);
+      assert.equal(error.message, "上传对象校验失败，请重新上传后重试");
+      return true;
+    });
+    assert.equal(calls.length, 3);
   } finally {
     globalThis.fetch = originalFetch;
     setApiAuthTokenProvider(null);

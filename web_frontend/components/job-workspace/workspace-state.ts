@@ -23,7 +23,7 @@ export function getActiveStep(status: Job["status"]): number {
 
 export function getJobWorkspaceView(
   status: Job["status"],
-  testReadyHandoffActive: boolean,
+  testReadyEditorVisible: boolean,
 ): JobWorkspaceView {
   if (status === STATUS.CREATED) {
     return "upload";
@@ -32,7 +32,7 @@ export function getJobWorkspaceView(
   if (
     status === STATUS.UPLOAD_READY ||
     status === STATUS.TEST_RUNNING ||
-    (status === STATUS.TEST_READY && testReadyHandoffActive)
+    (status === STATUS.TEST_READY && !testReadyEditorVisible)
   ) {
     return "processing";
   }
@@ -73,6 +73,7 @@ export function getTestProcessingNote(
     case "TEST_QUEUED":
       return "任务已入队，马上开始识别语音并整理字幕。";
     case "TRANSCRIBING_AUDIO":
+    case "TRANSCRIBING_MEDIA":
       return "先生成初版字幕，完成后会继续自动处理。";
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
@@ -99,6 +100,7 @@ export function getTestProcessingTitle(
     case "TEST_QUEUED":
       return "正在启动字幕任务";
     case "TRANSCRIBING_AUDIO":
+    case "TRANSCRIBING_MEDIA":
       return "正在识别语音";
     case "OPTIMIZING_TEXT":
     case "REMOVING_REDUNDANT_LINES":
