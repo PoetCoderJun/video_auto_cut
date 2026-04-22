@@ -108,7 +108,7 @@ export function useExportStepController({
   const [renderFileName, setRenderFileName] = useState("output.mp4");
   const [subtitleExportBusy, setSubtitleExportBusy] = useState(false);
   const [subtitleDownloadUrl, setSubtitleDownloadUrl] = useState<string | null>(null);
-  const [subtitleFileName, setSubtitleFileName] = useState("output.srt");
+  const [subtitleFileName, setSubtitleFileName] = useState("output.txt");
   const [renderConfig, setRenderConfig] = useState<WebRenderConfig | null>(null);
   const [renderConfigBusy, setRenderConfigBusy] = useState(false);
   const [renderSourceFile, setRenderSourceFile] = useState<File | null>(null);
@@ -366,7 +366,7 @@ export function useExportStepController({
       }
       return null;
     });
-    setSubtitleFileName("output.srt");
+    setSubtitleFileName("output.txt");
     setSubtitleTheme("white");
     setOverlayControls({...DEFAULT_OVERLAY_CONTROLS});
     setSelectedFile(null);
@@ -746,7 +746,7 @@ export function useExportStepController({
         applyRenderPreviewConfig(resolvedConfig);
       }
       const {content, fileName} = buildSrtDownloadFromRenderConfig(resolvedConfig);
-      const blob = new Blob([content], {type: "application/x-subrip;charset=utf-8"});
+      const blob = new Blob([content], {type: "text/plain;charset=utf-8"});
       const objectUrl = URL.createObjectURL(blob);
       setSubtitleFileName(fileName);
       setSubtitleDownloadUrl((previous) => {

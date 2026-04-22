@@ -50,7 +50,7 @@ export function getSubtitleExportFileName(outputName: string): string {
   const baseName = String(outputName || "output")
     .trim()
     .replace(/\.(mp4|webm)$/i, "");
-  return `${baseName || "output"}.srt`;
+  return `${baseName || "output"}.txt`;
 }
 
 export function buildSrtDownloadFromRenderConfig(config: WebRenderConfig): {

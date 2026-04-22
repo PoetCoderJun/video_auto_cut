@@ -507,7 +507,7 @@ export function ExportStep({
                     </>
                   ) : (
                     <>
-                      <FileText className="mr-2 h-4 w-4" /> 导出字幕（.srt）
+                      <FileText className="mr-2 h-4 w-4" /> 导出字幕（.txt，SRT 格式）
                     </>
                   )}
                 </Button>

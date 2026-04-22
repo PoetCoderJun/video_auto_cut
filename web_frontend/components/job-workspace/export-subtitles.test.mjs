@@ -37,7 +37,7 @@ test("buildSrtFromRenderCaptions serializes multiline captions and skips invalid
   );
 });
 
-test("buildSrtDownloadFromRenderConfig derives a .srt file name from output_name", () => {
+test("buildSrtDownloadFromRenderConfig derives a .txt file name from output_name", () => {
   const result = buildSrtDownloadFromRenderConfig({
     output_name: "job_123_export.mp4",
     composition: {
@@ -58,6 +58,6 @@ test("buildSrtDownloadFromRenderConfig derives a .srt file name from output_name
     },
   });
 
-  assert.equal(result.fileName, "job_123_export.srt");
+  assert.equal(result.fileName, "job_123_export.txt");
   assert.match(result.content, /00:00:00,000 --> 00:00:01,000/);
 });
