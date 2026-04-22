@@ -6,6 +6,7 @@ MAX_TEST_CONFIRM_LINES = 5000
 MAX_TEST_CONFIRM_CHAPTERS = 1000
 MAX_STEP_TEXT_LENGTH = 1000
 MAX_CHAPTER_TITLE_LENGTH = 120
+MAX_CHAPTER_KEY_LENGTH = 128
 MAX_BLOCK_RANGE_LENGTH = 64
 MAX_CODE_LENGTH = 64
 MAX_OBJECT_KEY_LENGTH = 1024
@@ -19,9 +20,9 @@ class TestConfirmLine(BaseModel):
 
 
 class TestConfirmChapter(BaseModel):
-    chapter_id: int = Field(..., ge=1)
+    chapter_key: str = Field(..., min_length=1, max_length=MAX_CHAPTER_KEY_LENGTH)
     title: str = Field(default="", max_length=MAX_CHAPTER_TITLE_LENGTH)
-    block_range: str = Field(default="", min_length=1, max_length=MAX_BLOCK_RANGE_LENGTH)
+    start_line_id: int = Field(..., ge=1)
 
 
 class TestConfirmRequest(BaseModel):

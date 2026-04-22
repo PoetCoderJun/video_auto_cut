@@ -14,7 +14,7 @@ class TestPiRunnerContractTests(unittest.TestCase):
             self.assertEqual(messages[0]["role"], "user")
             self.assertIn("# delete direct prompt", messages[0]["content"])
             self.assertIn("只输出需要删除的行号", messages[0]["content"])
-            self.assertIn("不要只看字面相同，要看“是不是在说同一件事”", messages[0]["content"])
+            self.assertIn("不需要只看字面完全相同", messages[0]["content"])
             self.assertIn("< No Speech >", messages[0]["content"])
             self.assertIn("只要属于重复语义，必须删除前面的返工版本", messages[0]["content"])
             self.assertIn("1\t第一句", messages[0]["content"])

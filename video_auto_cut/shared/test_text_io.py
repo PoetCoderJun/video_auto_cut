@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import datetime
+import json
 from pathlib import Path
 from typing import Any
 
 import srt
 
+from video_auto_cut.editing.chapter_domain import (
+    canonical_chapter_payload,
+    canonicalize_test_chapters,
+)
 from video_auto_cut.shared.test_text_protocol import (
     TIMED_LINE_RE,
     parse_chapter_line,
@@ -16,6 +21,8 @@ from video_auto_cut.shared.test_text_protocol import (
 
 REMOVE_TOKEN = "<remove>"
 LEGACY_REMOVE_TOKEN = "<<REMOVE>>"
+CHAPTERS_V2_VERSION = 2
+CHAPTERS_V2_COORDINATE_SPACE = "original_line_start"
 
 
 def _is_remove_text(text: str) -> bool:
@@ -98,9 +105,7 @@ def write_test_text(lines: list[dict[str, Any]], output_path: Path) -> None:
     output_path.write_text((rendered + "\n") if rendered else "", encoding="utf-8")
 
 
-def build_test_chapters_from_text(source_text: Path, *, kept_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from video_auto_cut.editing.chapter_domain import canonicalize_test_chapters
-
+def parse_test_chapters_text(source_text: Path) -> list[dict[str, Any]]:
     chapters: list[dict[str, Any]] = []
     for raw_line in source_text.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -114,13 +119,28 @@ def build_test_chapters_from_text(source_text: Path, *, kept_lines: list[dict[st
                 "block_range": f"{start}-{end}" if start != end else str(start),
             }
         )
-    return canonicalize_test_chapters(chapters, kept_lines)
+    return chapters
+
+
+def build_test_chapters_from_text(
+    source_text: Path,
+    *,
+    kept_lines: list[dict[str, Any]] | None = None,
+    all_lines: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    source_lines = all_lines if all_lines is not None else kept_lines
+    if source_lines is None:
+        raise RuntimeError("chapter source lines missing")
+    return canonicalize_test_chapters(parse_test_chapters_text(source_text), source_lines)
 
 
 def load_test_chapters(
-    source_path: Path, *, kept_lines: list[dict[str, Any]]
+    source_path: Path,
+    *,
+    kept_lines: list[dict[str, Any]] | None = None,
+    all_lines: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    return build_test_chapters_from_text(source_path, kept_lines=kept_lines)
+    return build_test_chapters_from_text(source_path, kept_lines=kept_lines, all_lines=all_lines)
 
 
 def write_final_test_srt(lines: list[dict[str, Any]], output_path: Path, encoding: str) -> None:
@@ -154,5 +174,26 @@ def write_chapters_text(chapters: list[dict[str, Any]], output_path: Path) -> No
             title=str(chapter.get("title") or "").strip(),
         )
         for chapter in sorted(chapters, key=lambda item: int(item.get("chapter_id", 0)))
+        if str(chapter.get("block_range") or "").strip()
     )
     output_path.write_text((rendered + "\n") if rendered else "", encoding="utf-8")
+
+
+def write_chapters_v2_json(chapters: list[dict[str, Any]], output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": CHAPTERS_V2_VERSION,
+        "coordinate_space": CHAPTERS_V2_COORDINATE_SPACE,
+        "chapters": canonical_chapter_payload(chapters),
+    }
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def load_chapters_v2_json(source_path: Path, *, all_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    payload = json.loads(source_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("invalid chapter v2 payload")
+    chapters = payload.get("chapters")
+    if not isinstance(chapters, list):
+        raise RuntimeError("invalid chapter v2 payload")
+    return canonicalize_test_chapters(chapters, all_lines)

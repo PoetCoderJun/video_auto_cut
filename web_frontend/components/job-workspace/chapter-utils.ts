@@ -55,287 +55,257 @@ export function getKeptTestLines(lines: TestLine[]): TestLine[] {
     .sort((a, b) => a.line_id - b.line_id);
 }
 
-export function parseBlockRange(
-  value: string,
-): {start: number; end: number} | null {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return null;
-  }
-  if (!raw.includes("-")) {
-    const normalized = Number.parseInt(raw, 10);
-    if (!Number.isFinite(normalized) || normalized < 1) {
-      return null;
-    }
-    return {start: normalized, end: normalized};
-  }
-
-  const [startRaw, endRaw] = raw.split("-", 2);
-  const start = Number.parseInt(startRaw.trim(), 10);
-  const end = Number.parseInt(endRaw.trim(), 10);
-  if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
-    start < 1 ||
-    end < start
-  ) {
-    return null;
-  }
-  return {start, end};
-}
-
-export function formatBlockRange(start: number, end: number): string {
-  return start === end ? String(start) : `${start}-${end}`;
-}
-
-export function getChapterLinesFromRange(
-  chapter: Chapter,
-  keptLines: TestLine[],
-): TestLine[] {
-  const parsed = parseBlockRange(chapter.block_range);
-  if (!parsed) {
-    return [];
-  }
-  return keptLines.slice(parsed.start - 1, parsed.end);
-}
-
-export function getTimelineChapterMarkers(
-  lines: TestLine[],
-  displayChapters: Chapter[],
-  keptLinePositionById: Map<number, number>,
-  chapterByStartPosition: Map<number, Chapter>,
-): Map<number, Chapter> {
-  const markers = new Map<number, Chapter>();
-  if (lines.length === 0 || displayChapters.length === 0) {
-    return markers;
-  }
-
-  const firstChapter = displayChapters[0];
-  markers.set(lines[0].line_id, firstChapter);
-
-  lines.forEach((line) => {
-    const position = keptLinePositionById.get(line.line_id);
-    if (!position) {
-      return;
-    }
-    const chapter = chapterByStartPosition.get(position);
-    if (!chapter || chapter.chapter_id === firstChapter.chapter_id) {
-      return;
-    }
-    markers.set(line.line_id, chapter);
-  });
-
-  return markers;
-}
-
-function findChapterIndexByPosition(
-  chapters: Chapter[],
-  position: number,
-): number {
-  return chapters.findIndex((chapter) => {
-    const parsed = parseBlockRange(chapter.block_range);
-    return Boolean(parsed && parsed.start <= position && position <= parsed.end);
-  });
-}
-
-export function moveAdjacentChapterRange(
-  chapters: Chapter[],
-  draggedPosition: number,
-  targetChapterId: number,
-): {chapters: Chapter[]; error: string | null} {
-  const sourceIndex = findChapterIndexByPosition(chapters, draggedPosition);
-  const targetIndex = chapters.findIndex(
-    (chapter) => chapter.chapter_id === targetChapterId,
-  );
-  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
-    return {chapters, error: null};
-  }
-  if (Math.abs(sourceIndex - targetIndex) !== 1) {
-    return {
-      chapters,
-      error: "当前 block_range 模式只支持拖到相邻章节，以保持章节连续。",
-    };
-  }
-
-  const sourceRange = parseBlockRange(chapters[sourceIndex].block_range);
-  const targetRange = parseBlockRange(chapters[targetIndex].block_range);
-  if (!sourceRange || !targetRange) {
-    return {chapters, error: "章节范围无效，请刷新后重试。"};
-  }
-
-  const next = chapters.map((chapter) => ({...chapter}));
-  if (sourceIndex < targetIndex) {
-    if (
-      draggedPosition < sourceRange.start ||
-      draggedPosition > sourceRange.end
-    ) {
-      return {chapters, error: "拖拽位置无效，请重试。"};
-    }
-    next[sourceIndex].block_range = formatBlockRange(
-      sourceRange.start,
-      draggedPosition - 1,
-    );
-    next[targetIndex].block_range = formatBlockRange(
-      draggedPosition,
-      targetRange.end,
-    );
-    return {chapters: next, error: null};
-  }
-
-  if (
-    draggedPosition < sourceRange.start ||
-    draggedPosition > sourceRange.end
-  ) {
-    return {chapters, error: "拖拽位置无效，请重试。"};
-  }
-  next[targetIndex].block_range = formatBlockRange(
-    targetRange.start,
-    draggedPosition,
-  );
-  next[sourceIndex].block_range = formatBlockRange(
-    draggedPosition + 1,
-    sourceRange.end,
-  );
-  return {chapters: next, error: null};
-}
-
-function buildChapterSizes(
-  totalBlocks: number,
-  chapterCount: number,
-  weights: number[],
-): number[] {
-  if (totalBlocks <= 0 || chapterCount <= 0) {
-    return [];
-  }
-  if (chapterCount === 1) {
-    return [totalBlocks];
-  }
-
-  const safeCount = Math.min(chapterCount, totalBlocks);
-  const normalizedWeights =
-    weights.length === safeCount && weights.some((weight) => weight > 0)
-      ? weights.map((weight) => Math.max(0, weight))
-      : Array.from({length: safeCount}, () => 1);
-
-  const base = Array.from({length: safeCount}, () => 1);
-  let remaining = totalBlocks - safeCount;
-  if (remaining <= 0) {
-    return base;
-  }
-
-  const weightSum =
-    normalizedWeights.reduce((sum, weight) => sum + weight, 0) || safeCount;
-  const fractions = normalizedWeights.map((weight, index) => {
-    const raw = (weight / weightSum) * remaining;
-    const extra = Math.floor(raw);
-    base[index] += extra;
-    remaining -= extra;
-    return {index, fraction: raw - extra};
-  });
-
-  fractions
-    .sort((left, right) => right.fraction - left.fraction)
-    .slice(0, remaining)
-    .forEach(({index}) => {
-      base[index] += 1;
-    });
-
-  return base;
-}
-
 function normalizeChapterTitle(title: string, index: number): string {
   const trimmed = String(title || "").trim();
   return trimmed || `章节${index + 1}`;
 }
 
-export function materializeChapterRanges(
-  chapters: Chapter[],
-  keptLines: TestLine[],
-): Chapter[] {
-  if (keptLines.length === 0) {
-    return [];
-  }
-
-  return chapters
-    .map((chapter, index) => {
-      const parsed = parseBlockRange(chapter.block_range);
-      if (!parsed) {
-        return null;
-      }
-      const chapterLines = keptLines.slice(parsed.start - 1, parsed.end);
-      if (chapterLines.length === 0) {
-        return null;
-      }
-      return {
-        chapter_id: index + 1,
-        title: normalizeChapterTitle(chapter.title, index),
-        start: chapterLines[0].start,
-        end: chapterLines[chapterLines.length - 1].end,
-        block_range: formatBlockRange(parsed.start, parsed.end),
-      } satisfies Chapter;
-    })
-    .filter((chapter): chapter is Chapter => Boolean(chapter));
+function defaultChapterKey(index: number): string {
+  return `chapter-${String(index + 1).padStart(4, "0")}`;
 }
 
-export function syncChaptersWithKeptLines(
+function getOrderedLines(lines: TestLine[]): TestLine[] {
+  return [...lines].sort((a, b) => a.line_id - b.line_id);
+}
+
+function getLineIndexMap(lines: TestLine[]): Map<number, number> {
+  return new Map(lines.map((line, index) => [line.line_id, index]));
+}
+
+function renumberChapters(chapters: Chapter[]): Chapter[] {
+  return [...chapters]
+    .sort((left, right) => left.start_line_id - right.start_line_id)
+    .map((chapter, index) => ({
+      ...chapter,
+      chapter_key: String(chapter.chapter_key || defaultChapterKey(index)),
+      chapter_id: index + 1,
+      title: normalizeChapterTitle(chapter.title, index),
+    }));
+}
+
+function deriveBlockRange(activeLines: TestLine[], keptLines: TestLine[]): string {
+  if (activeLines.length === 0) {
+    return "";
+  }
+  const keptIndexByLineId = new Map(
+    keptLines.map((line, index) => [line.line_id, index + 1]),
+  );
+  const start = keptIndexByLineId.get(activeLines[0].line_id);
+  const end = keptIndexByLineId.get(activeLines[activeLines.length - 1].line_id);
+  if (!start || !end) {
+    return "";
+  }
+  return start === end ? String(start) : `${start}-${end}`;
+}
+
+export function materializeChapterRanges(
   chapters: Chapter[],
-  keptLines: TestLine[],
+  allLines: TestLine[],
 ): Chapter[] {
-  const keptCount = keptLines.length;
-  if (keptCount === 0) {
+  const orderedLines = getOrderedLines(allLines);
+  if (orderedLines.length === 0) {
     return [];
   }
+  const keptLines = getKeptTestLines(orderedLines);
+  const normalizedChapters = renumberChapters(chapters);
+  const lineIndexById = getLineIndexMap(orderedLines);
 
-  const nextCount = Math.min(Math.max(chapters.length, 1), keptCount);
-  const weights = chapters.slice(0, nextCount).map((chapter) => {
-    const parsed = parseBlockRange(chapter.block_range);
-    if (!parsed) {
-      return 1;
+  return normalizedChapters.map((chapter, index) => {
+    const startIndex = lineIndexById.get(chapter.start_line_id);
+    if (startIndex == null) {
+      return {
+        ...chapter,
+        end_line_id: chapter.start_line_id,
+        active_start_line_id: null,
+        active_end_line_id: null,
+        active_line_count: 0,
+        start: null,
+        end: null,
+        block_range: "",
+      } satisfies Chapter;
     }
-    return Math.max(1, parsed.end - parsed.start + 1);
-  });
-  const sizes = buildChapterSizes(keptCount, nextCount, weights);
+    const nextStartLineId = normalizedChapters[index + 1]?.start_line_id;
+    const nextStartIndex = nextStartLineId != null ? lineIndexById.get(nextStartLineId) : undefined;
+    const endIndex = nextStartIndex != null ? nextStartIndex - 1 : orderedLines.length - 1;
+    const chapterLines = orderedLines.slice(startIndex, endIndex + 1);
+    const activeLines = chapterLines.filter((line) => !line.user_final_remove);
 
-  let cursor = 1;
-  return sizes.map((size, index) => {
-    const start = cursor;
-    const end = cursor + size - 1;
-    cursor = end + 1;
-    const chapterLines = keptLines.slice(start - 1, end);
     return {
+      chapter_key: chapter.chapter_key,
       chapter_id: index + 1,
-      title: normalizeChapterTitle(chapters[index]?.title || "", index),
-      start: chapterLines[0].start,
-      end: chapterLines[chapterLines.length - 1].end,
-      block_range: formatBlockRange(start, end),
+      title: normalizeChapterTitle(chapter.title, index),
+      start_line_id: chapter.start_line_id,
+      end_line_id: chapterLines[chapterLines.length - 1]?.line_id ?? chapter.start_line_id,
+      active_start_line_id: activeLines[0]?.line_id ?? null,
+      active_end_line_id: activeLines[activeLines.length - 1]?.line_id ?? null,
+      active_line_count: activeLines.length,
+      start: activeLines[0]?.start ?? null,
+      end: activeLines[activeLines.length - 1]?.end ?? null,
+      block_range: deriveBlockRange(activeLines, keptLines),
     } satisfies Chapter;
   });
 }
 
+export function syncChaptersWithKeptLines(
+  chapters: Chapter[],
+  allLines: TestLine[],
+): Chapter[] {
+  if (chapters.length > 0) return renumberChapters(chapters);
+
+  const orderedLines = getOrderedLines(allLines);
+  if (orderedLines.length === 0) return [];
+
+  return materializeChapterRanges(
+    [
+      {
+        chapter_key: defaultChapterKey(0),
+        chapter_id: 1,
+        title: "章节1",
+        start_line_id: orderedLines[0].line_id,
+        end_line_id: orderedLines[orderedLines.length - 1].line_id,
+        active_start_line_id: null,
+        active_end_line_id: null,
+        active_line_count: 0,
+        start: null,
+        end: null,
+      },
+    ],
+    orderedLines,
+  );
+}
+
+export function getChapterLinesFromRange(
+  chapter: Chapter,
+  allLines: TestLine[],
+): TestLine[] {
+  return getKeptTestLines(allLines).filter((line) => {
+    if (chapter.active_start_line_id == null || chapter.active_end_line_id == null) {
+      return false;
+    }
+    return (
+      line.line_id >= chapter.active_start_line_id &&
+      line.line_id <= chapter.active_end_line_id
+    );
+  });
+}
+
+export function getTimelineChapterMarkers(
+  allLines: TestLine[],
+  chapters: Chapter[],
+): Map<number, Chapter> {
+  const markers = new Map<number, Chapter>();
+  const materialized = materializeChapterRanges(chapters, allLines);
+  for (const chapter of materialized) {
+    const markerLineId = chapter.active_start_line_id ?? chapter.start_line_id;
+    if (markerLineId != null) {
+      markers.set(markerLineId, chapter);
+    }
+  }
+  return markers;
+}
+
+export function moveAdjacentChapterRange(
+  chapters: Chapter[],
+  targetLineId: number,
+  targetChapterKey: string,
+): {chapters: Chapter[]; error: string | null} {
+  const normalized = renumberChapters(chapters);
+  const targetIndex = normalized.findIndex(
+    (chapter) => chapter.chapter_key === targetChapterKey,
+  );
+  if (targetIndex <= 0) {
+    return {chapters: normalized, error: null};
+  }
+
+  const previous = normalized[targetIndex - 1];
+  const current = normalized[targetIndex];
+  const next = normalized[targetIndex + 1] ?? null;
+  const minStart = previous.start_line_id + 1;
+  const maxStart = next ? next.start_line_id - 1 : Number.POSITIVE_INFINITY;
+
+  if (targetLineId < minStart || targetLineId > maxStart) {
+    return {
+      chapters: normalized,
+      error: "当前只支持拖到相邻章节边界内，以保持章节连续。",
+    };
+  }
+
+  if (targetLineId === current.start_line_id) {
+    return {chapters: normalized, error: null};
+  }
+
+  return {
+    chapters: renumberChapters(
+      normalized.map((chapter) =>
+        chapter.chapter_key === targetChapterKey
+          ? {...chapter, start_line_id: targetLineId}
+          : chapter,
+      ),
+    ),
+    error: null,
+  };
+}
+
 export function deleteChapterAndRebalance(
   chapters: Chapter[],
-  chapterId: number,
-  keptLines: TestLine[],
+  chapterKey: string,
+  allLines: TestLine[],
 ): Chapter[] {
-  if (chapters.length <= 1) {
-    return syncChaptersWithKeptLines(chapters.slice(0, 1), keptLines);
+  const normalized = renumberChapters(chapters);
+  if (normalized.length <= 1) return normalized;
+
+  const index = normalized.findIndex((chapter) => chapter.chapter_key === chapterKey);
+  if (index < 0) return normalized;
+
+  const orderedLines = getOrderedLines(allLines);
+  if (orderedLines.length === 0) {
+    return normalized.filter((chapter) => chapter.chapter_key !== chapterKey);
   }
-  const remaining = chapters.filter((chapter) => chapter.chapter_id !== chapterId);
-  return syncChaptersWithKeptLines(remaining, keptLines);
+
+  const next = normalized.map((chapter) => ({...chapter}));
+  if (index === 0 && next[1]) {
+    next[1].start_line_id = orderedLines[0].line_id;
+  }
+
+  return renumberChapters(
+    next.filter((chapter) => chapter.chapter_key !== chapterKey),
+  );
 }
 
 export function buildTestConfirmChapters(
   chapters: Chapter[],
-  keptLines: TestLine[],
+  allLines: TestLine[],
 ): TestConfirmChapter[] {
-  const normalizedChapters = materializeChapterRanges(chapters, keptLines);
-  if (normalizedChapters.length === 0) {
-    throw new Error("当前没有可用章节，请至少保留一句字幕。");
+  const keptLines = getKeptTestLines(allLines);
+  if (keptLines.length === 0) {
+    throw new Error("请至少保留一句字幕后再进入导出。");
   }
 
-  return normalizedChapters.map((chapter, index) => ({
+  const materialized = materializeChapterRanges(chapters, allLines);
+  const emptyChapters = materialized.filter((chapter) => chapter.active_line_count === 0);
+  if (emptyChapters.length > 0) {
+    const names = emptyChapters
+      .map((chapter) =>
+        normalizeChapterTitle(chapter.title, Math.max(0, chapter.chapter_id - 1)),
+      )
+      .join(" / ");
+    throw new Error(`请先处理空章节：${names}`);
+  }
+
+  return renumberChapters(chapters).map((chapter, index) => ({
+    chapter_key: chapter.chapter_key,
     chapter_id: index + 1,
     title: normalizeChapterTitle(chapter.title, index),
-    block_range: chapter.block_range,
+    start_line_id: chapter.start_line_id,
   }));
+}
+
+export function getKeptLinePosition(
+  allLines: TestLine[],
+  lineId: number,
+): number | null {
+  const keptIndex = getKeptTestLines(allLines).findIndex(
+    (line) => line.line_id === lineId,
+  );
+  return keptIndex >= 0 ? keptIndex + 1 : null;
 }

@@ -28,11 +28,17 @@ export type TestLine = {
 };
 
 export type Chapter = {
+  chapter_key: string;
   chapter_id: number;
   title: string;
-  start: number;
-  end: number;
-  block_range: string;
+  start_line_id: number;
+  end_line_id: number;
+  active_start_line_id: number | null;
+  active_end_line_id: number | null;
+  active_line_count: number;
+  start: number | null;
+  end: number | null;
+  block_range?: string;
 };
 
 export type TestDocument = {
@@ -41,7 +47,10 @@ export type TestDocument = {
   document_revision: string;
 };
 
-export type TestConfirmChapter = Pick<Chapter, "chapter_id" | "title" | "block_range">;
+export type TestConfirmChapter = Pick<
+  Chapter,
+  "chapter_key" | "chapter_id" | "title" | "start_line_id"
+>;
 
 export type RenderCaptionToken = {
   text: string;
@@ -636,13 +645,9 @@ async function uploadAudioDirectToLocalApi(jobId: string, file: File): Promise<J
 }
 
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
-  try {
-    const target = await getAudioDirectUploadTarget(jobId);
-    await putAudioToOss(target.put_url, file);
-    return await markAudioOssReady(jobId, target.object_key);
-  } catch {
-    return uploadAudioDirectToLocalApi(jobId, file);
-  }
+  const target = await getAudioDirectUploadTarget(jobId);
+  await putAudioToOss(target.put_url, file);
+  return await markAudioOssReady(jobId, target.object_key);
 }
 
 export async function uploadSourceVideo(jobId: string, file: File): Promise<Job> {
@@ -681,9 +686,9 @@ export async function confirmTest(
         user_final_remove: line.user_final_remove,
       })),
       chapters: payload.chapters.map((chapter) => ({
-        chapter_id: chapter.chapter_id,
+        chapter_key: chapter.chapter_key,
         title: chapter.title,
-        block_range: chapter.block_range,
+        start_line_id: chapter.start_line_id,
       })),
       expected_revision: payload.expectedRevision,
     }),

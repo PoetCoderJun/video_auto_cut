@@ -68,7 +68,14 @@ class PiRunnerEndToEndTests(unittest.TestCase):
         self.assertIn("<remove>前面这句说错了", final_srt_text)
         self.assertIn("后面这句是正确表达", final_srt_text)
         self.assertIn("再补一句自然一点", final_srt_text)
-        self.assertEqual(chapters, [{"chapter_id": 1, "title": "开场", "start": 1.2, "end": 3.4, "block_range": "1-2"}])
+        self.assertEqual(len(chapters), 1)
+        self.assertEqual(chapters[0]["chapter_id"], 1)
+        self.assertEqual(chapters[0]["title"], "开场")
+        self.assertEqual(chapters[0]["start"], 1.2)
+        self.assertEqual(chapters[0]["end"], 3.4)
+        self.assertEqual(chapters[0]["block_range"], "1-2")
+        self.assertEqual(chapters[0]["start_line_id"], 2)
+        self.assertTrue(str(chapters[0]["chapter_key"]).startswith("chapter-"))
 
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_polish_and_chapter_accept_text_line_sidecar(self, mock_chat) -> None:
@@ -103,7 +110,14 @@ class PiRunnerEndToEndTests(unittest.TestCase):
 
         self.assertEqual([line["line_id"] for line in polished_lines], [1, 2])
         self.assertTrue(polished_lines[0]["user_final_remove"])
-        self.assertEqual(chapters, [{"chapter_id": 1, "title": "开场", "start": 1.2, "end": 2.2, "block_range": "1"}])
+        self.assertEqual(len(chapters), 1)
+        self.assertEqual(chapters[0]["chapter_id"], 1)
+        self.assertEqual(chapters[0]["title"], "开场")
+        self.assertEqual(chapters[0]["start"], 1.2)
+        self.assertEqual(chapters[0]["end"], 2.2)
+        self.assertEqual(chapters[0]["block_range"], "1")
+        self.assertEqual(chapters[0]["start_line_id"], 2)
+        self.assertTrue(str(chapters[0]["chapter_key"]).startswith("chapter-"))
 
 
 if __name__ == "__main__":

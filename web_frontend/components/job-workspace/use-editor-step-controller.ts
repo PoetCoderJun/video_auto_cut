@@ -27,8 +27,6 @@ import {
   getOriginalDurationFromLines,
   materializeChapterRanges,
   moveAdjacentChapterRange,
-  parseBlockRange,
-  syncChaptersWithKeptLines,
 } from "./chapter-utils";
 import {useTestDocumentPolling} from "./use-test-document-polling";
 
@@ -52,11 +50,13 @@ export function useEditorStepController({
     documentRevision,
     handleRetryTestDraftLoad,
     lines,
+    markUserModified,
     resetTestDocument,
     setChapters,
     setLines,
     testDraftError,
     testReadyHandoffActive,
+    testReadyLinesLoaded,
   } = useTestDocumentPolling({
     jobId,
     status: job?.status,
@@ -68,69 +68,61 @@ export function useEditorStepController({
   }, [jobId, resetTestDocument]);
 
   const keptLines = useMemo(() => getKeptTestLines(lines), [lines]);
-  const keptLinePositionById = useMemo(
-    () =>
-      new Map(
-        keptLines.map((line, index) => [line.line_id, index + 1] as const),
-      ),
-    [keptLines],
-  );
 
   const updateChapter = useCallback(
-    (chapterId: number, patch: Partial<Chapter>) => {
+    (chapterKey: string, patch: Partial<Chapter>) => {
+      markUserModified();
       setChapters((previous) =>
         previous.map((chapter) =>
-          chapter.chapter_id === chapterId
+          chapter.chapter_key === chapterKey
             ? {...chapter, ...patch}
             : chapter,
         ),
       );
     },
-    [setChapters],
+    [markUserModified, setChapters],
   );
 
   const updateLine = useCallback(
     (lineId: number, patch: Partial<TestLine>) => {
-      setLines((previous) => {
-        const nextLines = previous.map((line) =>
+      markUserModified();
+      setLines((previous) =>
+        previous.map((line) =>
           line.line_id === lineId ? {...line, ...patch} : line,
-        );
-        if (Object.prototype.hasOwnProperty.call(patch, "user_final_remove")) {
-          setChapters((previousChapters) =>
-            syncChaptersWithKeptLines(previousChapters, getKeptTestLines(nextLines)),
-          );
-        }
-        return nextLines;
-      });
+        ),
+      );
     },
-    [setChapters, setLines],
+    [markUserModified, setLines],
   );
 
   const moveChapterBoundary = useCallback(
-    (draggedPosition: number, targetChapterId: number) => {
+    (targetLineId: number, targetChapterKey: string) => {
+      markUserModified();
       setChapters((previous) => {
         const moved = moveAdjacentChapterRange(
           previous,
-          draggedPosition,
-          targetChapterId,
+          targetLineId,
+          targetChapterKey,
         );
         if (moved.error) {
           setError(moved.error);
           return previous;
         }
-        return syncChaptersWithKeptLines(moved.chapters, keptLines);
+        setError("");
+        return moved.chapters;
       });
     },
-    [keptLines, setChapters, setError],
+    [markUserModified, setChapters, setError],
   );
 
   const removeChapter = useCallback(
-    (chapterId: number) => {
+    (chapterKey: string) => {
+      markUserModified();
       setChapters((previous) =>
-        deleteChapterAndRebalance(previous, chapterId, keptLines),
+        deleteChapterAndRebalance(previous, chapterKey, lines),
       );
     },
-    [keptLines, setChapters],
+    [lines, markUserModified, setChapters],
   );
 
   const handleConfirmTest = useCallback(async () => {
@@ -144,7 +136,7 @@ export function useEditorStepController({
     try {
       const status = await confirmTest(jobId, {
         lines,
-        chapters: buildTestConfirmChapters(chapters, keptLines),
+        chapters: buildTestConfirmChapters(chapters, lines),
         expectedRevision: documentRevision,
       });
       setJob((previous) => mergeJobStatus(previous, status));
@@ -173,38 +165,28 @@ export function useEditorStepController({
     [lines],
   );
   const displayChapters = useMemo(
-    () => materializeChapterRanges(chapters, keptLines),
-    [chapters, keptLines],
+    () => materializeChapterRanges(chapters, lines),
+    [chapters, lines],
   );
 
-  const chapterByStartPosition = useMemo(() => {
-    const mapping = new Map<number, Chapter>();
-    displayChapters.forEach((chapter) => {
-      const parsed = parseBlockRange(chapter.block_range);
-      if (parsed) {
-        mapping.set(parsed.start, chapter);
-      }
-    });
-    return mapping;
-  }, [displayChapters]);
-
   const isEditorVisible =
-    job?.status === STATUS.TEST_READY && !testReadyHandoffActive;
+    job?.status === STATUS.TEST_READY &&
+    testReadyLinesLoaded &&
+    !testReadyHandoffActive;
 
   return {
     state: {
       busy,
       chapterBadgeColors: CHAPTER_BADGE_COLORS,
-      chapterByStartPosition,
       displayChapters,
       estimatedDuration,
       isEditorVisible,
-      keptLinePositionById,
       keptLines,
       lines,
       originalDuration,
       testDraftError,
       testReadyHandoffActive,
+      testReadyLinesLoaded,
     },
     actions: {
       handleConfirmTest,

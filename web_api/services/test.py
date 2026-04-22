@@ -18,6 +18,7 @@ from video_auto_cut.editing.chapter_domain import (
     format_block_range,
     kept_test_lines,
     parse_block_range,
+    validate_non_empty_chapters,
 )
 from video_auto_cut.editing.llm_client import build_llm_config
 from video_auto_cut.asr.oss_uploader import create_oss_uploader_from_config
@@ -26,6 +27,7 @@ from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit
 from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
 from video_auto_cut.shared.test_text_io import (
+    write_chapters_v2_json,
     write_final_test_srt,
     write_chapters_text,
     write_test_text,
@@ -65,9 +67,16 @@ class TestRunContext:
 def generate_test_chapters(
     *,
     output_path: Path,
-    kept_lines: list[dict[str, Any]],
+    lines: list[dict[str, Any]] | None = None,
+    kept_lines: list[dict[str, Any]] | None = None,
     video_path: Path | None = None,
 ) -> list[dict[str, Any]]:
+    source_lines = lines if lines is not None else kept_lines
+    if not source_lines:
+        raise RuntimeError("test lines missing")
+    filtered_kept_lines = kept_test_lines(source_lines)
+    if not filtered_kept_lines:
+        raise RuntimeError("kept test lines missing")
     options = build_pipeline_options_from_settings(get_settings())
     llm_config = build_llm_config(
         base_url=options.llm_base_url,
@@ -79,14 +88,14 @@ def generate_test_chapters(
         enable_thinking=False,
     )
     max_chapters, chapter_policy_hint = _resolve_test_chapter_policy(
-        kept_lines=kept_lines,
+        kept_lines=filtered_kept_lines,
         video_path=video_path,
     )
     artifacts = run_test_pi(
         TestPiRequest(
             task="chapter",
             llm_config=llm_config,
-            lines=kept_lines,
+            lines=filtered_kept_lines,
             title_max_chars=_resolve_topic_title_max_chars(options),
             max_chapters=max_chapters,
             chapter_policy_hint=chapter_policy_hint,
@@ -94,14 +103,16 @@ def generate_test_chapters(
     )
     chapters = _coerce_test_chapters_to_policy(
         artifacts.chapters,
-        kept_lines=kept_lines,
+        kept_lines=filtered_kept_lines,
         max_chapters=max_chapters,
     )
     if not chapters:
         raise RuntimeError("test flow generated empty chapter list")
-    ensure_full_block_coverage(chapters, total_blocks=len(kept_lines))
-    write_chapters_text(chapters, output_path)
-    return chapters
+    ensure_full_block_coverage(chapters, total_blocks=len(filtered_kept_lines))
+    normalized = canonicalize_test_chapters(chapters, source_lines)
+    write_chapters_v2_json(normalized, output_path.with_suffix(".v2.json"))
+    write_chapters_text(normalized, output_path)
+    return normalized
 
 
 def _resolve_topic_title_max_chars(options: Any) -> int:
@@ -481,13 +492,12 @@ def _generate_test_chapters_draft(
     state: TestJobStateManager,
 ) -> tuple[list[dict[str, Any]], Path]:
     state.mark_generating_chapters()
-    kept_lines = kept_test_lines(lines)
     test_dir = context.dirs["base"] / "test"
     test_dir.mkdir(parents=True, exist_ok=True)
     chapters_draft_path = test_dir / "chapters_draft.txt"
     chapters = generate_test_chapters(
         output_path=chapters_draft_path,
-        kept_lines=kept_lines,
+        lines=lines,
         video_path=context.video_path,
     )
     return chapters, chapters_draft_path
@@ -613,14 +623,16 @@ def confirm_test(
             by_id[line_id]["user_final_remove"] = bool(item.get("user_final_remove", False))
 
         lines = [by_id[key] for key in sorted(by_id)]
-        kept_lines = kept_test_lines(lines)
-        normalized_chapters = canonicalize_test_chapters(chapters, kept_lines)
+        normalized_chapters = canonicalize_test_chapters(chapters, lines)
+        validate_non_empty_chapters(normalized_chapters)
 
         final_test_srt = test_dir / "final_test.srt"
         final_test_text = test_dir / "final_test.txt"
         final_chapters = test_dir / "final_chapters.txt"
+        final_chapters_v2 = test_dir / "final_chapters.v2.json"
         write_final_test_srt(lines, final_test_srt, DEFAULT_ENCODING)
         write_test_text(lines, final_test_text)
+        write_chapters_v2_json(normalized_chapters, final_chapters_v2)
         write_chapters_text(normalized_chapters, final_chapters)
 
         upsert_job_files(

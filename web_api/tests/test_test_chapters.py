@@ -16,6 +16,10 @@ from web_api.services.test import confirm_test, generate_test_chapters
 
 
 class TestChaptersTests(unittest.TestCase):
+    def assertChapterSubset(self, actual: dict[str, object], expected: dict[str, object]) -> None:
+        for key, value in expected.items():
+            self.assertEqual(actual.get(key), value, f"chapter field mismatch: {key}")
+
     def test_generate_test_chapters_uses_canonical_pi_chapter_path(self) -> None:
         kept_lines = [
             {
@@ -55,25 +59,30 @@ class TestChaptersTests(unittest.TestCase):
                     kept_lines=kept_lines,
                 )
 
-        self.assertEqual(
-            chapters,
-            [
-                {
-                    "chapter_id": 1,
-                    "title": "开场",
-                    "start": 0.0,
-                    "end": 3.0,
-                    "block_range": "1-3",
-                },
-                {
-                    "chapter_id": 2,
-                    "title": "结尾",
-                    "start": 3.0,
-                    "end": 6.0,
-                    "block_range": "4-6",
-                },
-            ],
+        self.assertEqual(len(chapters), 2)
+        self.assertChapterSubset(
+            chapters[0],
+            {
+                "chapter_id": 1,
+                "title": "开场",
+                "start_line_id": 1,
+                "start": 0.0,
+                "end": 3.0,
+                "block_range": "1-3",
+            },
         )
+        self.assertChapterSubset(
+            chapters[1],
+            {
+                "chapter_id": 2,
+                "title": "结尾",
+                "start_line_id": 4,
+                "start": 3.0,
+                "end": 6.0,
+                "block_range": "4-6",
+            },
+        )
+        self.assertTrue(str(chapters[0].get("chapter_key", "")).startswith("chapter-"))
         mock_runner.assert_called_once()
 
     def test_generate_test_chapters_limits_landscape_jobs_to_six(self) -> None:
@@ -314,11 +323,16 @@ class TestChaptersTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            chapters,
-            [
-                {"chapter_id": 10, "title": "前半", "start": 0.0, "end": 3.0, "block_range": "1-2"},
-                {"chapter_id": 20, "title": "后半", "start": 3.0, "end": 6.0, "block_range": "3-4"},
-            ],
+            [chapter["block_range"] for chapter in chapters],
+            ["1-2", "3-4"],
+        )
+        self.assertChapterSubset(
+            chapters[0],
+            {"chapter_id": 1, "title": "前半", "start_line_id": 1, "start": 0.0, "end": 3.0},
+        )
+        self.assertChapterSubset(
+            chapters[1],
+            {"chapter_id": 2, "title": "后半", "start_line_id": 3, "start": 3.0, "end": 6.0},
         )
 
     def test_confirm_test_rejects_revision_conflict(self) -> None:
@@ -343,7 +357,7 @@ class TestChaptersTests(unittest.TestCase):
                 confirm_test(
                     "job-1",
                     [{"line_id": 1, "optimized_text": "你好啊", "user_final_remove": False}],
-                    [{"chapter_id": 1, "title": "开场", "block_range": "1"}],
+                    [{"chapter_key": "chapter-0001", "title": "开场", "start_line_id": 1}],
                     expected_revision="stale-revision",
                 )
 
@@ -394,24 +408,26 @@ class TestChaptersTests(unittest.TestCase):
                         {"line_id": 1, "optimized_text": "第一句", "user_final_remove": False},
                         {"line_id": 2, "optimized_text": "第二句-编辑后", "user_final_remove": False},
                     ],
-                    [{"chapter_id": 9, "title": "确认稿", "block_range": "1-2"}],
+                    [{"chapter_key": "chapter-0001", "title": "确认稿", "start_line_id": 1}],
                     expected_revision=expected_revision,
                 )
 
-        self.assertEqual(
-            result["chapters"],
-            [
-                {
-                    "chapter_id": 9,
-                    "title": "确认稿",
-                    "start": 0.0,
-                    "end": 2.5,
-                    "block_range": "1-2",
-                }
-            ],
+        self.assertEqual(len(result["chapters"]), 1)
+        self.assertChapterSubset(
+            result["chapters"][0],
+            {
+                "chapter_id": 1,
+                "chapter_key": "chapter-0001",
+                "title": "确认稿",
+                "start_line_id": 1,
+                "start": 0.0,
+                "end": 2.5,
+                "block_range": "1-2",
+            },
         )
         self.assertTrue(result["document_revision"])
-        mock_ensure_render_contract.assert_called_once_with("job-1")
+        mock_ensure_render_contract.assert_called_once()
+        self.assertEqual(mock_ensure_render_contract.call_args.args[0], "job-1")
 
     def test_document_revision_is_stable_for_semantically_equivalent_chapter_input(self) -> None:
         lines = [
@@ -479,9 +495,10 @@ class TestChaptersTests(unittest.TestCase):
         normalized = canonicalize_test_chapters(source, lines)
 
         self.assertEqual(source, snapshot)
-        self.assertEqual(
-            normalized,
-            [{"chapter_id": 10, "title": "前半", "start": 0.0, "end": 2.5, "block_range": "1-2"}],
+        self.assertEqual(len(normalized), 1)
+        self.assertChapterSubset(
+            normalized[0],
+            {"chapter_id": 1, "title": "前半", "start_line_id": 1, "start": 0.0, "end": 2.5, "block_range": "1-2"},
         )
 
     def test_list_test_lines_reads_text_draft(self) -> None:
@@ -530,9 +547,11 @@ class TestChaptersTests(unittest.TestCase):
             (job_root / "chapters_draft.txt").write_text("【1-2】确认稿\n", encoding="utf-8")
 
             with patch("web_api.job_file_repository.job_dir", side_effect=lambda current_job_id: Path(tmpdir) / current_job_id):
-                self.assertEqual(
-                    list_test_chapters(job_id),
-                    [{"chapter_id": 1, "title": "确认稿", "start": 0.0, "end": 2.5, "block_range": "1-2"}],
+                chapters = list_test_chapters(job_id)
+                self.assertEqual(len(chapters), 1)
+                self.assertChapterSubset(
+                    chapters[0],
+                    {"chapter_id": 1, "title": "确认稿", "start_line_id": 1, "start": 0.0, "end": 2.5, "block_range": "1-2"},
                 )
 
 

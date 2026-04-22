@@ -61,6 +61,7 @@ class Settings:
     topic_max_topics: int
     topic_title_max_chars: int
     cut_merge_gap: float
+    script: str
     auth_enabled: bool
     auth_jwks_url: str | None
     auth_issuer: str | None

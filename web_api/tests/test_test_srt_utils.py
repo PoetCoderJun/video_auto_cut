@@ -189,10 +189,13 @@ class BuildTestLinesFromSrtTest(unittest.TestCase):
             write_chapters_text(chapters, path)
             round_tripped = build_test_chapters_from_text(path, kept_lines=kept_lines)
 
-        self.assertEqual(
-            round_tripped,
-            [{"chapter_id": 1, "title": "确认稿", "start": 0.0, "end": 2.5, "block_range": "1-2"}],
-        )
+        self.assertEqual(len(round_tripped), 1)
+        self.assertEqual(round_tripped[0]["chapter_id"], 1)
+        self.assertEqual(round_tripped[0]["title"], "确认稿")
+        self.assertEqual(round_tripped[0]["start_line_id"], 1)
+        self.assertEqual(round_tripped[0]["start"], 0.0)
+        self.assertEqual(round_tripped[0]["end"], 2.5)
+        self.assertEqual(round_tripped[0]["block_range"], "1-2")
 
 
 if __name__ == "__main__":

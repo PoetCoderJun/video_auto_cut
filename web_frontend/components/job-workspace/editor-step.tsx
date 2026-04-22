@@ -9,9 +9,10 @@ import {Card, CardContent} from "@/components/ui/card";
 import {Textarea} from "@/components/ui/textarea";
 import {formatDuration} from "@/lib/source-video-guard";
 import {cn} from "@/lib/utils";
-import {ArrowRight, Check, Loader2, X} from "lucide-react";
+import {ArrowRight, Check, GripVertical, Loader2, X} from "lucide-react";
 
 import {getTimelineChapterMarkers} from "./chapter-utils";
+import {CHAPTER_BORDER_COLORS} from "./constants";
 import {autoResize} from "./workspace-utils";
 
 export function EditorStep({
@@ -23,21 +24,19 @@ export function EditorStep({
     handleConfirmTest: () => void;
     handleReset: () => void;
     handleRetryTestDraftLoad: () => void;
-    moveChapterBoundary: (draggedPosition: number, targetChapterId: number) => void;
-    removeChapter: (chapterId: number) => void;
-    updateChapter: (chapterId: number, patch: Partial<Chapter>) => void;
+    moveChapterBoundary: (targetLineId: number, targetChapterKey: string) => void;
+    removeChapter: (chapterKey: string) => void;
+    updateChapter: (chapterKey: string, patch: Partial<Chapter>) => void;
     updateLine: (lineId: number, patch: Partial<TestLine>) => void;
   };
   helpers: {
-    getChapterLinesFromRange: (chapter: Chapter, keptLines: TestLine[]) => TestLine[];
+    getChapterLinesFromRange: (chapter: Chapter, allLines: TestLine[]) => TestLine[];
   };
   state: {
     busy: boolean;
     chapterBadgeColors: string[];
-    chapterByStartPosition: Map<number, Chapter>;
     displayChapters: Chapter[];
     estimatedDuration: number;
-    keptLinePositionById: Map<number, number>;
     keptLines: TestLine[];
     lines: TestLine[];
     originalDuration: number;
@@ -47,10 +46,8 @@ export function EditorStep({
   const {
     busy,
     chapterBadgeColors,
-    chapterByStartPosition,
     displayChapters,
     estimatedDuration,
-    keptLinePositionById,
     keptLines,
     lines,
     originalDuration,
@@ -62,14 +59,8 @@ export function EditorStep({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const chapterMarkerByLineId = useMemo(
-    () =>
-      getTimelineChapterMarkers(
-        lines,
-        displayChapters,
-        keptLinePositionById,
-        chapterByStartPosition,
-      ),
-    [chapterByStartPosition, displayChapters, keptLinePositionById, lines],
+    () => getTimelineChapterMarkers(lines, displayChapters),
+    [displayChapters, lines],
   );
 
   const resolveDropTargetLineId = (clientY: number): number | null => {
@@ -97,14 +88,14 @@ export function EditorStep({
 
   if (lines.length === 0) {
     return (
-      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white py-16 text-center shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-border bg-card py-16 text-center shadow-sm">
         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-        <p className="font-medium text-slate-900">正在载入编辑文档...</p>
-        <p className="text-sm text-slate-500">
+        <p className="font-medium text-foreground">正在载入编辑文档...</p>
+        <p className="text-sm text-muted-foreground">
           字幕和章节整理完成后，这里会显示可编辑内容。
         </p>
         {testDraftError && (
-          <p className="mx-auto max-w-md text-sm text-red-600">{testDraftError}</p>
+          <p className="mx-auto max-w-md text-sm text-destructive">{testDraftError}</p>
         )}
         {testDraftError && (
           <Button
@@ -129,6 +120,12 @@ export function EditorStep({
           <p className="text-muted-foreground">
             直接修改字幕，章节会作为分隔符嵌在同一时间线里。
           </p>
+          {displayChapters.length > 1 && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+              <GripVertical className="h-3 w-3" />
+              <span>提示：拖拽章节标签可调整章节边界</span>
+            </div>
+          )}
         </div>
         <div className="hidden md:block">
           <Badge variant="outline" className="text-sm">
@@ -137,7 +134,7 @@ export function EditorStep({
         </div>
       </div>
 
-      <div className="relative min-h-[500px] w-full rounded-md bg-white border border-[#e2e8f0] shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6">
+      <div className="relative min-h-[500px] w-full rounded-md bg-card border border-border shadow-sm py-12 px-8 md:px-16 overflow-hidden mt-6 pb-32">
         <div
           ref={containerRef}
           className="max-w-3xl mx-auto flex flex-col gap-[6px]"
@@ -152,24 +149,20 @@ export function EditorStep({
           }}
           onDrop={(event) => {
             event.preventDefault();
-            const droppedChapterId = parseInt(
-              event.dataTransfer.getData("text/plain"),
-              10,
-            );
+            const droppedChapterKey = String(
+              event.dataTransfer.getData("text/plain") || "",
+            ).trim();
             const targetLineId = resolveDropTargetLineId(event.clientY);
             setDraggedChapterId(null);
             setDropTargetLineId(null);
-            if (Number.isNaN(droppedChapterId) || targetLineId == null) return;
-            const linePosition = keptLinePositionById.get(targetLineId);
-            if (linePosition == null) return;
-            actions.moveChapterBoundary(linePosition, droppedChapterId);
+            if (!droppedChapterKey || targetLineId == null) return;
+            actions.moveChapterBoundary(targetLineId, droppedChapterKey);
           }}
         >
           {lines.map((line, index) => {
             const isRemoved = line.user_final_remove;
             const isNoSpeech = !line.optimized_text || line.optimized_text.trim() === "";
             const lineTime = formatDuration(Number(line.start) || 0);
-            const linePosition = keptLinePositionById.get(line.line_id);
             const chapter = chapterMarkerByLineId.get(line.line_id) ?? null;
             const chapterIndex =
               chapter
@@ -177,7 +170,7 @@ export function EditorStep({
                 : -1;
             const currentChapterLines =
               chapter && chapterIndex >= 0
-                ? helpers.getChapterLinesFromRange(chapter, keptLines)
+                ? helpers.getChapterLinesFromRange(chapter, lines)
                 : [];
             const badgeColorClass =
               chapterIndex >= 0
@@ -187,7 +180,10 @@ export function EditorStep({
             return (
               <React.Fragment key={line.line_id}>
                 {dropTargetLineId === line.line_id && !isRemoved && (
-                  <div className="h-1 rounded-full bg-blue-500/50 my-1" />
+                  <div className="relative h-1.5 my-1">
+                    <div className="absolute inset-0 rounded-full bg-primary/20" />
+                    <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0.5 rounded-full bg-primary/70" />
+                  </div>
                 )}
                 {chapter && (
                   <div
@@ -196,7 +192,7 @@ export function EditorStep({
                       if (chapterIndex === 0) return;
                       event.dataTransfer.setData(
                         "text/plain",
-                        chapter.chapter_id.toString(),
+                        chapter.chapter_key,
                       );
                       event.dataTransfer.effectAllowed = "move";
                       setDraggedChapterId(chapter.chapter_id);
@@ -207,14 +203,20 @@ export function EditorStep({
                       setDropTargetLineId(null);
                     }}
                     className={cn(
-                      "group relative flex items-center gap-2 select-none transition",
+                      "group/chapter relative flex items-center gap-2 select-none transition rounded-md px-2 -mx-1 border-l-4 bg-muted/30",
                       chapterIndex > 0
-                        ? "cursor-grab hover:bg-slate-50 active:cursor-grabbing"
+                        ? "cursor-grab hover:bg-muted active:cursor-grabbing"
                         : "cursor-not-allowed",
-                      draggedChapterId === chapter.chapter_id && chapterIndex > 0 && "opacity-40",
+                      draggedChapterId === chapter.chapter_id && chapterIndex > 0 && "opacity-50 ring-1 ring-dashed ring-primary/40 bg-primary/5",
+                      CHAPTER_BORDER_COLORS[chapterIndex % CHAPTER_BORDER_COLORS.length],
                     )}
                     title={chapterIndex > 0 ? "拖拽以调整章节边界" : "第一章节无法拖动"}
                   >
+                    {chapterIndex > 0 ? (
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30 group-hover/chapter:text-muted-foreground/70 transition-colors" />
+                    ) : (
+                      <span className="w-3.5 shrink-0" />
+                    )}
                     <span className={cn("text-xs font-semibold", badgeColorClass)}>
                       章节{chapterIndex + 1}
                     </span>
@@ -223,17 +225,17 @@ export function EditorStep({
                       value={chapter.title}
                       placeholder="章节标题"
                       onChange={(event) =>
-                        actions.updateChapter(chapter.chapter_id, {
+                        actions.updateChapter(chapter.chapter_key, {
                           title: event.target.value,
                         })
                       }
-                      className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+                      className="min-w-0 flex-1 bg-transparent text-xs font-semibold text-foreground outline-none placeholder:text-muted-foreground/60"
                     />
                     {displayChapters.length > 1 && (
                       <button
                         type="button"
-                        className={cn("rounded p-1 transition hover:bg-white hover:text-red-500", badgeColorClass)}
-                        onClick={() => actions.removeChapter(chapter.chapter_id)}
+                        className={cn("rounded p-1 transition hover:bg-background hover:text-destructive", badgeColorClass)}
+                        onClick={() => actions.removeChapter(chapter.chapter_key)}
                         title="删除分隔符并并入相邻章节"
                       >
                         <X className="h-4 w-4" />
@@ -248,7 +250,7 @@ export function EditorStep({
                   }}
                   className="group relative flex items-start gap-3"
                 >
-                  <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-[#94a3b8]">
+                  <span className="mt-[2px] select-none font-mono text-[12px] leading-[1.7] text-muted-foreground">
                     {lineTime}
                   </span>
 
@@ -256,7 +258,7 @@ export function EditorStep({
                     {isRemoved ? (
                       <button
                         type="button"
-                        className="block py-[2px] text-left text-[12px] text-[#94a3b8] line-through"
+                        className="block py-[2px] text-left text-[12px] text-muted-foreground line-through"
                         onClick={() =>
                           actions.updateLine(line.line_id, {
                             user_final_remove: false,
@@ -281,14 +283,15 @@ export function EditorStep({
                         ref={(element) => {
                           if (element) autoResize(element);
                         }}
-                        className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-[1.7] text-[#334155] shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-[#cbd5e1]"
+                        className="min-h-0 block w-full resize-none border-0 bg-transparent p-0 text-[15px] leading-[1.7] text-foreground shadow-none focus-visible:ring-0 rounded-none m-0 overflow-hidden placeholder:text-muted-foreground/60"
                         placeholder={isNoSpeech ? "<No Speech>" : ""}
                       />
                     )}
                   </div>
                   {isRemoved ? (
-                    <div
-                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] transition hover:text-[#22c55e]"
+                    <button
+                      type="button"
+                      className="shrink-0 ml-2 flex h-6 items-center px-1 text-muted-foreground/50 transition hover:text-emerald-600"
                       onClick={() =>
                         actions.updateLine(line.line_id, {
                           user_final_remove: false,
@@ -297,10 +300,11 @@ export function EditorStep({
                       title="恢复此行"
                     >
                       <Check className="h-4 w-4" />
-                    </div>
+                    </button>
                   ) : (
-                    <div
-                      className="shrink-0 ml-2 flex h-6 cursor-pointer items-center px-1 text-[#cbd5e1] transition hover:text-[#ef4444]"
+                    <button
+                      type="button"
+                      className="shrink-0 ml-2 flex h-6 items-center px-1 text-muted-foreground/50 transition hover:text-destructive"
                       onClick={() =>
                         actions.updateLine(line.line_id, {
                           user_final_remove: true,
@@ -309,7 +313,7 @@ export function EditorStep({
                       title="剔除此行"
                     >
                       <X className="h-4 w-4" />
-                    </div>
+                    </button>
                   )}
                 </div>
               </React.Fragment>

@@ -21,8 +21,10 @@ from .constants import (
 from .utils.persistence_helpers import now_iso, parse_iso_datetime_or_epoch
 from video_auto_cut.asr.word_timing_sidecar import sidecar_path_for_srt
 from video_auto_cut.shared.test_text_io import (
+    load_chapters_v2_json,
     load_test_chapters,
     load_test_lines,
+    write_chapters_v2_json,
     write_chapters_text,
     write_test_text,
 )
@@ -91,12 +93,20 @@ def _test_chapters_draft_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "chapters_draft.txt"
 
 
+def _test_chapters_draft_v2_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "chapters_draft.v2.json"
+
+
 def _test_final_lines_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_test.txt"
 
 
 def _test_final_chapters_path(job_id: str) -> Path:
     return job_dir(job_id) / "test" / "final_chapters.txt"
+
+
+def _test_final_chapters_v2_path(job_id: str) -> Path:
+    return job_dir(job_id) / "test" / "final_chapters.v2.json"
 
 
 def _existing_test_lines_path(job_id: str, *, final: bool) -> Path:
@@ -551,8 +561,10 @@ def upsert_job_files(job_id: str, **kwargs: Any) -> None:
 def clear_step_data(job_id: str) -> None:
     _test_lines_draft_path(job_id).unlink(missing_ok=True)
     _test_chapters_draft_path(job_id).unlink(missing_ok=True)
+    _test_chapters_draft_v2_path(job_id).unlink(missing_ok=True)
     _test_final_lines_path(job_id).unlink(missing_ok=True)
     _test_final_chapters_path(job_id).unlink(missing_ok=True)
+    _test_final_chapters_v2_path(job_id).unlink(missing_ok=True)
     _test_confirmed_path(job_id).unlink(missing_ok=True)
 
 
@@ -648,6 +660,7 @@ def list_test_lines(job_id: str) -> list[dict[str, Any]]:
 
 
 def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
+    write_chapters_v2_json(chapters, _test_chapters_draft_v2_path(job_id))
     write_chapters_text(chapters, _test_chapters_draft_path(job_id))
 
 
@@ -655,14 +668,26 @@ def _list_test_chapters_from_path(job_id: str, path: Path) -> list[dict[str, Any
     if not path.exists():
         return []
     lines = list_test_lines(job_id)
-    kept_lines = [line for line in lines if not bool(line.get("user_final_remove", False))]
-    return load_test_chapters(path, kept_lines=kept_lines)
+    return load_test_chapters(path, all_lines=lines)
+
+
+def _list_test_chapters_v2(job_id: str, path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    lines = list_test_lines(job_id)
+    return load_chapters_v2_json(path, all_lines=lines)
 
 
 def list_test_chapters(job_id: str) -> list[dict[str, Any]]:
+    final_v2_path = _test_final_chapters_v2_path(job_id)
     final_path = _existing_test_chapters_path(job_id, final=True)
+    if _test_confirmed_path(job_id).exists() and final_v2_path.exists():
+        return _list_test_chapters_v2(job_id, final_v2_path)
     if _test_confirmed_path(job_id).exists() and final_path.exists():
         return list_final_test_chapters(job_id)
+    draft_v2_path = _test_chapters_draft_v2_path(job_id)
+    if draft_v2_path.exists():
+        return _list_test_chapters_v2(job_id, draft_v2_path)
     draft_path = _existing_test_chapters_path(job_id, final=False)
     if draft_path.exists():
         return _list_test_chapters_from_path(job_id, draft_path)
@@ -670,6 +695,9 @@ def list_test_chapters(job_id: str) -> list[dict[str, Any]]:
 
 
 def list_final_test_chapters(job_id: str) -> list[dict[str, Any]]:
+    final_v2_path = _test_final_chapters_v2_path(job_id)
+    if final_v2_path.exists():
+        return _list_test_chapters_v2(job_id, final_v2_path)
     return _list_test_chapters_from_path(
         job_id,
         _existing_test_chapters_path(job_id, final=True),
