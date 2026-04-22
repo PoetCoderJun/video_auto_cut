@@ -44,6 +44,10 @@
   - Standard local startup:
     - `./scripts/start_web_mvp.sh debug`
     - if Kimi is overloaded (`429 rate_limit_error` / `currently overloaded`), restart with `PI_PROVIDER=vac-llm ./scripts/start_web_mvp.sh debug`
+  - Stable build-mode startup for preview/export debugging when you need to avoid Next dev HMR / page target rebuilds:
+    - `WEB_DB_LOCAL_ONLY=1 BETTER_AUTH_LOCAL_ONLY=1 ./scripts/start_web_mvp.sh build`
+    - Use this especially when browser E2E reaches export but dev mode keeps rebuilding or CDP targets get invalidated during preview/export.
+    - `start_web_mvp.sh` now resolves the auth/business local replica path to an absolute path before starting standalone Next, so build mode can reuse the local Better Auth sqlite replica correctly.
   - If frontend deps were cleaned, run `npm --prefix web_frontend install` first.
   - Before a long browser run, first confirm smoke login works:
     - `POST http://127.0.0.1:3000/api/auth/sign-in/email` should return `200`
