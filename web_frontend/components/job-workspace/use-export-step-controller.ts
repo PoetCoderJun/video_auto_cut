@@ -71,6 +71,7 @@ import {
   triggerFileDownload,
   withTimeout,
 } from "./workspace-utils";
+import {buildSrtDownloadFromRenderConfig} from "./export-subtitles";
 
 const RENDER_META_TIMEOUT_MS = 60_000;
 const RENDER_CONFIG_TIMEOUT_MS = 90_000;
@@ -105,6 +106,9 @@ export function useExportStepController({
   const [renderProgress, setRenderProgress] = useState(0);
   const [renderDownloadUrl, setRenderDownloadUrl] = useState<string | null>(null);
   const [renderFileName, setRenderFileName] = useState("output.mp4");
+  const [subtitleExportBusy, setSubtitleExportBusy] = useState(false);
+  const [subtitleDownloadUrl, setSubtitleDownloadUrl] = useState<string | null>(null);
+  const [subtitleFileName, setSubtitleFileName] = useState("output.srt");
   const [renderConfig, setRenderConfig] = useState<WebRenderConfig | null>(null);
   const [renderConfigBusy, setRenderConfigBusy] = useState(false);
   const [renderSourceFile, setRenderSourceFile] = useState<File | null>(null);
@@ -330,8 +334,11 @@ export function useExportStepController({
       if (renderDownloadUrl) {
         URL.revokeObjectURL(renderDownloadUrl);
       }
+      if (subtitleDownloadUrl) {
+        URL.revokeObjectURL(subtitleDownloadUrl);
+      }
     };
-  }, [renderDownloadUrl]);
+  }, [renderDownloadUrl, subtitleDownloadUrl]);
 
   useEffect(() => {
     setRenderBusy(false);
@@ -352,6 +359,14 @@ export function useExportStepController({
       return null;
     });
     setRenderFileName("output.mp4");
+    setSubtitleExportBusy(false);
+    setSubtitleDownloadUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return null;
+    });
+    setSubtitleFileName("output.srt");
     setSubtitleTheme("white");
     setOverlayControls({...DEFAULT_OVERLAY_CONTROLS});
     setSelectedFile(null);
@@ -722,6 +737,32 @@ export function useExportStepController({
     subtitleTheme,
   ]);
 
+  const handleExportSubtitles = useCallback(async () => {
+    setError("");
+    setSubtitleExportBusy(true);
+    try {
+      const resolvedConfig = renderConfig ?? (await getWebRenderConfig(jobId));
+      if (!renderConfig) {
+        applyRenderPreviewConfig(resolvedConfig);
+      }
+      const {content, fileName} = buildSrtDownloadFromRenderConfig(resolvedConfig);
+      const blob = new Blob([content], {type: "application/x-subrip;charset=utf-8"});
+      const objectUrl = URL.createObjectURL(blob);
+      setSubtitleFileName(fileName);
+      setSubtitleDownloadUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return objectUrl;
+      });
+      triggerFileDownload(objectUrl, fileName);
+    } catch (err) {
+      setError(getFriendlyError(err) || "导出字幕失败，请重试。");
+    } finally {
+      setSubtitleExportBusy(false);
+    }
+  }, [applyRenderPreviewConfig, getWebRenderConfig, jobId, renderConfig, setError]);
+
   useEffect(() => {
     if (renderBusy) {
       return;
@@ -763,12 +804,16 @@ export function useExportStepController({
       renderSourceCompatibility,
       renderSourceFile: effectiveRenderSourceFile,
       selectedFile,
+      subtitleDownloadUrl,
+      subtitleExportBusy,
+      subtitleFileName,
       supportedUploadAccept: SUPPORTED_UPLOAD_EXTENSIONS.join(","),
       subtitleTheme,
       subtitleThemeOptions: SUBTITLE_THEME_OPTIONS,
     },
     actions: {
       clearRenderMessage: () => setRenderCompletionMarkerMessage(""),
+      handleExportSubtitles,
       handleSourceFileChange,
       handleStartRender,
       prepareRenderPreview,

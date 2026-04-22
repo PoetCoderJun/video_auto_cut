@@ -25,7 +25,7 @@ import {
   type ProgressLabelMode,
 } from "@/lib/remotion/overlay-controls";
 import {cn} from "@/lib/utils";
-import {Download, FileVideo, Loader2} from "lucide-react";
+import {Download, FileText, FileVideo, Loader2} from "lucide-react";
 
 import type {RenderSourceCompatibilityState} from "./use-render-source-compatibility";
 import {triggerFileDownload} from "./workspace-utils";
@@ -103,6 +103,7 @@ export function ExportStep({
 }: {
   actions: {
     clearRenderMessage: () => void;
+    handleExportSubtitles: () => void;
     handleSourceFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
     handleStartRender: () => void;
     prepareRenderPreview: () => Promise<WebRenderConfig | null>;
@@ -134,6 +135,9 @@ export function ExportStep({
     renderSourceCompatibility: RenderSourceCompatibilityState;
     renderSourceFile: File | null;
     selectedFile: File | null;
+    subtitleDownloadUrl: string | null;
+    subtitleExportBusy: boolean;
+    subtitleFileName: string;
     subtitleTheme: SubtitleTheme;
     subtitleThemeOptions: Array<{value: SubtitleTheme; label: string}>;
     supportedUploadAccept: string;
@@ -159,6 +163,9 @@ export function ExportStep({
     renderSourceCompatibility,
     renderSourceFile,
     selectedFile,
+    subtitleDownloadUrl,
+    subtitleExportBusy,
+    subtitleFileName,
     subtitleTheme,
     subtitleThemeOptions,
     supportedUploadAccept,
@@ -487,6 +494,33 @@ export function ExportStep({
                     "刷新预览"
                   )}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={actions.handleExportSubtitles}
+                  disabled={busy || renderBusy || subtitleExportBusy}
+                >
+                  {subtitleExportBusy ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 正在导出字幕
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="mr-2 h-4 w-4" /> 导出字幕（.srt）
+                    </>
+                  )}
+                </Button>
+                {subtitleDownloadUrl && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => triggerFileDownload(subtitleDownloadUrl, subtitleFileName)}
+                  >
+                    <Download className="mr-2 h-4 w-4" /> 下载上次字幕
+                  </Button>
+                )}
                 <Button
                   type="button"
                   className="w-full"
