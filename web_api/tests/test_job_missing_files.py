@@ -16,7 +16,7 @@ from web_api.constants import (
     JOB_STATUS_UPLOAD_READY,
     PROGRESS_UPLOAD_READY,
 )
-from web_api.job_file_repository import create_job, get_job, update_job
+from web_api.job_file_repository import create_job, get_job, update_job, upsert_job_files
 from web_api.services.test_runner import recover_interrupted_test_runs, run_test_job_background
 
 
@@ -40,6 +40,21 @@ class _TempWorkDirTestCase(unittest.TestCase):
 
 
 class JobMissingFilesTests(_TempWorkDirTestCase):
+
+    def test_get_job_keeps_created_when_only_video_is_present(self) -> None:
+        job_id = "job_source_only"
+        create_job(job_id, "CREATED", "user-1")
+        input_dir = Path(self.tmpdir.name) / "jobs" / job_id / "input"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        source_path = input_dir / "source.mov"
+        source_path.write_bytes(b"video")
+        upsert_job_files(job_id, video_path=str(source_path))
+
+        job = get_job(job_id, owner_user_id="user-1")
+
+        self.assertIsNotNone(job)
+        self.assertEqual(job["status"], "CREATED")
+        self.assertIsNone(job["error"])
 
     def test_get_job_marks_test_confirmed_without_final_srt_as_failed(self) -> None:
         job_id = "job_missing_test_srt"

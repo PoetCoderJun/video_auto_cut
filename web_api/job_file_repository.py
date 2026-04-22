@@ -249,7 +249,7 @@ def _infer_job_status(job_id: str) -> str:
         and _existing_test_chapters_path(job_id, final=False).exists()
     ):
         return JOB_STATUS_TEST_READY
-    if files.get("video_path") or files.get("audio_path") or files.get("asr_oss_key"):
+    if files.get("audio_path") or files.get("asr_oss_key"):
         return JOB_STATUS_UPLOAD_READY
     return JOB_STATUS_CREATED
 

@@ -29,6 +29,11 @@ _LOCAL_AUDIO_UPLOAD_CHUNK_SIZE = 1024 * 1024
 _DEFAULT_LOCAL_AUDIO_UPLOAD_MAX_MB = 2048
 
 
+def _has_uploaded_audio(files: dict[str, Any] | None) -> bool:
+    payload = files or {}
+    return bool(payload.get("audio_path") or payload.get("asr_oss_key"))
+
+
 def _local_audio_upload_max_bytes() -> int:
     raw = (
         os.getenv("WEB_LOCAL_AUDIO_UPLOAD_MAX_MB")
@@ -58,6 +63,8 @@ def require_status(job: dict[str, Any], allowed: AbstractSet[str]) -> None:
 def queue_test_run(job_id: str, user_id: str) -> dict[str, Any]:
     job = load_job_or_404(job_id, user_id)
     require_status(job, {JOB_STATUS_UPLOAD_READY})
+    if not _has_uploaded_audio(get_job_files(job_id)):
+        raise invalid_step_state("音频尚未上传完成，请稍后重试")
     ensure_credit_available(user_id)
     update_job(
         job_id,
@@ -202,7 +209,8 @@ def save_local_uploaded_video(job_id: str, source_file: UploadFile) -> dict[str,
         raise invalid_step_state("上传文件为空")
 
     upsert_job_files(job_id, video_path=str(video_path))
-    update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
+    if _has_uploaded_audio(get_job_files(job_id)):
+        update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
     return {
         "video_path": str(video_path),
         "filename": raw_name,

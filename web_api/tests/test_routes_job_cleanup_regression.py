@@ -46,7 +46,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
 
     def test_create_job_endpoint_returns_created_job_payload(self) -> None:
         with TestClient(create_app()) as client:
-            response = client.post("/api/v1/jobs")
+            response = client.post("/api/v1/jobs", json={})
 
         self.assertEqual(response.status_code, 200)
         job = response.json()["data"]["job"]
@@ -62,7 +62,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             patch("web_api.api.routes.run_test_job_background", return_value=None) as mock_run_test_job_background,
             TestClient(create_app()) as client,
         ):
-            create_response = client.post("/api/v1/jobs")
+            create_response = client.post("/api/v1/jobs", json={})
             self.assertEqual(create_response.status_code, 200)
             job_id = create_response.json()["data"]["job"]["job_id"]
 
@@ -121,7 +121,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             patch("web_api.api.routes.ensure_active_user", return_value=None),
             TestClient(create_app()) as client,
         ):
-            create_response = client.post("/api/v1/jobs")
+            create_response = client.post("/api/v1/jobs", json={})
             self.assertEqual(create_response.status_code, 200)
             job_id = create_response.json()["data"]["job"]["job_id"]
 
@@ -144,7 +144,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             patch("web_api.api.routes.ensure_active_user", return_value=None),
             TestClient(create_app()) as client,
         ):
-            create_response = client.post("/api/v1/jobs")
+            create_response = client.post("/api/v1/jobs", json={})
             self.assertEqual(create_response.status_code, 200)
             job_id = create_response.json()["data"]["job"]["job_id"]
 
@@ -164,7 +164,7 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             patch("web_api.api.routes.ensure_active_user", return_value=None),
             TestClient(create_app()) as client,
         ):
-            create_response = client.post("/api/v1/jobs")
+            create_response = client.post("/api/v1/jobs", json={})
             self.assertEqual(create_response.status_code, 200)
             job_id = create_response.json()["data"]["job"]["job_id"]
 
@@ -181,6 +181,50 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
         job = get_job(job_id, owner_user_id="dev_local_user")
         self.assertEqual(job["status"], "UPLOAD_READY")
         self.assertEqual(get_job_files(job_id)["audio_path"], upload["audio_path"])
+
+    def test_source_upload_local_keeps_job_created_until_audio_is_ready(self) -> None:
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            patch(
+                "web_api.api.routes.get_settings",
+                return_value=type(
+                    "Settings",
+                    (),
+                    {
+                        "asr_oss_endpoint": "https://oss.example.test",
+                        "asr_oss_bucket": "bucket",
+                        "asr_oss_access_key_id": "key-id",
+                        "asr_oss_access_key_secret": "key-secret",
+                    },
+                )(),
+            ),
+            patch(
+                "web_api.api.routes.get_presigned_put_url_for_job",
+                return_value=("https://upload.example.test/audio.mp3", "video-auto-cut/asr/job/audio.mp3"),
+            ),
+            TestClient(create_app()) as client,
+        ):
+            create_response = client.post("/api/v1/jobs", json={})
+            self.assertEqual(create_response.status_code, 200)
+            job_id = create_response.json()["data"]["job"]["job_id"]
+
+            response = client.post(
+                f"/api/v1/jobs/{job_id}/source-upload-local",
+                files={"source_file": ("source.mov", b"valid video bytes", "video/quicktime")},
+            )
+            self.assertEqual(response.status_code, 200)
+
+            job = get_job(job_id, owner_user_id="dev_local_user")
+            self.assertIsNotNone(job)
+            self.assertEqual(job["status"], "CREATED")
+            self.assertIsNone(job["error"])
+
+            upload_url_response = client.post(f"/api/v1/jobs/{job_id}/oss-upload-url")
+
+        self.assertEqual(upload_url_response.status_code, 200)
+        upload_payload = upload_url_response.json()["data"]
+        self.assertEqual(upload_payload["put_url"], "https://upload.example.test/audio.mp3")
+        self.assertEqual(upload_payload["object_key"], "video-auto-cut/asr/job/audio.mp3")
 
 
 
