@@ -44,11 +44,11 @@ function OverlayToggleTile({
   return (
     <label
       className={cn(
-        "flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm transition hover:border-slate-300 hover:bg-slate-50",
+        "flex cursor-pointer items-center justify-between rounded-lg border border px-3 py-2 text-sm transition hover:border-border hover:bg-muted/50",
         disabled && "cursor-not-allowed opacity-60",
       )}
     >
-      <span className="font-medium text-slate-700">{label}</span>
+      <span className="font-medium text-foreground">{label}</span>
       <Checkbox
         checked={checked}
         disabled={disabled}
@@ -79,7 +79,7 @@ function OverlaySliderField({
 }) {
   return (
     <div className="space-y-1">
-      <div className="flex items-center justify-between text-[11px] font-medium text-slate-500">
+      <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
         <span>{label}</span>
         <span>{valueText}</span>
       </div>
@@ -91,7 +91,7 @@ function OverlaySliderField({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.currentTarget.value))}
-        className="h-2 w-full cursor-ew-resize accent-slate-900 disabled:cursor-not-allowed"
+        className="h-2 w-full cursor-ew-resize accent-foreground disabled:cursor-not-allowed"
       />
     </div>
   );
@@ -132,6 +132,7 @@ export function ExportStep({
     renderProgress: number;
     renderSetupError: string;
     renderSourceCompatibility: RenderSourceCompatibilityState;
+    renderSourceFile: File | null;
     selectedFile: File | null;
     subtitleTheme: SubtitleTheme;
     subtitleThemeOptions: Array<{value: SubtitleTheme; label: string}>;
@@ -156,6 +157,7 @@ export function ExportStep({
     renderProgress,
     renderSetupError,
     renderSourceCompatibility,
+    renderSourceFile,
     selectedFile,
     subtitleTheme,
     subtitleThemeOptions,
@@ -168,13 +170,13 @@ export function ExportStep({
         <div className="flex h-full min-h-0 flex-col gap-3 xl:h-[min(70vh,760px)]">
           <ExportFramePreview
             config={renderConfig}
-            sourceFile={selectedFile}
+            sourceFile={renderSourceFile ?? selectedFile}
             subtitleTheme={subtitleTheme}
             previewTimeSec={previewTimeSec}
             overlayControls={overlayControls}
           />
           {renderConfigBusy && (
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               正在生成预览配置...
             </div>
@@ -197,8 +199,8 @@ export function ExportStep({
               disabled={renderActionBusy || busy}
             />
 
-            <div className="border-b border-slate-200 bg-slate-50/60 px-3 py-2">
-              <div className="text-sm font-semibold text-slate-900">导出设置</div>
+            <div className="border-b border bg-muted/60 px-3 py-2">
+              <div className="text-sm font-semibold text-foreground">导出设置</div>
             </div>
 
             <div className="px-3 py-2.5">
@@ -220,7 +222,7 @@ export function ExportStep({
                 ) : null}
 
                 {hasRenderSource && renderSourceCompatibility.status === "checking" ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <div className="rounded-xl border border bg-muted/50 p-3 text-sm text-foreground">
                     <div className="flex items-center gap-2">
                       <Loader2 className="h-4 w-4 animate-spin" />
                       <span>{renderSourceCompatibility.message}</span>
@@ -242,14 +244,14 @@ export function ExportStep({
                 ) : null}
 
                 {hasRenderSource && renderSourceCompatibility.status === "unknown" ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <div className="rounded-xl border border bg-muted/50 p-3 text-sm text-foreground">
                     {renderSourceCompatibility.message}
                   </div>
                 ) : null}
 
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       标题行数
                     </label>
                     <Select
@@ -276,7 +278,7 @@ export function ExportStep({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    <label className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                       字幕样式
                     </label>
                     <Select
@@ -301,7 +303,7 @@ export function ExportStep({
                 </div>
 
                 <section className="space-y-1 pt-1">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     显示内容
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -341,8 +343,8 @@ export function ExportStep({
                   </div>
                 </section>
 
-                <section className="space-y-1 border-t border-slate-100 pt-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <section className="space-y-1 border-t border-border/60 pt-1.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     字幕
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -385,8 +387,8 @@ export function ExportStep({
                   </div>
                 </section>
 
-                <section className="space-y-1 border-t border-slate-100 pt-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <section className="space-y-1 border-t border-border/60 pt-1.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     进度条
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1">
@@ -429,8 +431,8 @@ export function ExportStep({
                   </div>
                 </section>
 
-                <section className="space-y-1 border-t border-slate-100 pt-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <section className="space-y-1 border-t border-border/60 pt-1.5">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     章节
                   </div>
                   <OverlaySliderField
@@ -455,7 +457,7 @@ export function ExportStep({
               </div>
             </div>
 
-            <div className="border-t border-slate-200 bg-white px-3 py-2.5">
+            <div className="border-t border bg-card px-3 py-2.5">
               {renderBusy && (
                 <div className="mb-2.5 space-y-1.5">
                   <div className="flex justify-between text-xs text-muted-foreground">

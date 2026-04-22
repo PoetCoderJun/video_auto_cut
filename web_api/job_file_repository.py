@@ -33,6 +33,7 @@ _STAGE_UNSET = object()
 
 JOB_FILE_FIELDS = (
     "video_path",
+    "render_source_video_path",
     "audio_path",
     "asr_oss_key",
     "pending_asr_oss_key",
@@ -184,6 +185,10 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Fallbacks by conventional paths.
     if not result["video_path"]:
         result["video_path"] = _existing_video_path(job_id)
+    if not result["render_source_video_path"]:
+        candidate_render_source = job_dir(job_id) / "render" / "cut_source.browser.mp4"
+        if candidate_render_source.exists():
+            result["render_source_video_path"] = str(candidate_render_source)
     if not result["audio_path"]:
         result["audio_path"] = _existing_audio_path(job_id)
     if not result["asr_words_sidecar_path"] and result.get("srt_path"):

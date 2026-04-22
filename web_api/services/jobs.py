@@ -10,6 +10,7 @@ from fastapi import UploadFile
 
 from ..config import ensure_job_dirs
 from ..constants import (
+    ALLOWED_VIDEO_EXTENSIONS,
     JOB_STATUS_SUCCEEDED,
     JOB_STATUS_TEST_CONFIRMED,
     JOB_STATUS_TEST_RUNNING,
@@ -165,5 +166,46 @@ def save_local_uploaded_audio(job_id: str, audio_file: UploadFile) -> dict[str, 
         **ready,
         "filename": raw_name,
         "stored_as": audio_path.name,
+        "size_bytes": total,
+    }
+
+
+def save_local_uploaded_video(job_id: str, source_file: UploadFile) -> dict[str, Any]:
+    dirs = ensure_job_dirs(job_id)
+    raw_name = Path(source_file.filename or "source.mp4").name
+    suffix = Path(raw_name).suffix.lower() or ".mp4"
+    if suffix not in ALLOWED_VIDEO_EXTENSIONS:
+        raise invalid_step_state("当前文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。")
+
+    video_path = dirs["input"] / f"source{suffix}"
+    total = 0
+    try:
+        with video_path.open("wb") as output:
+            while True:
+                chunk = source_file.file.read(_LOCAL_AUDIO_UPLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                total += len(chunk)
+                output.write(chunk)
+    except Exception:
+        try:
+            video_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+    if total <= 0:
+        try:
+            video_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise invalid_step_state("上传文件为空")
+
+    upsert_job_files(job_id, video_path=str(video_path))
+    update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
+    return {
+        "video_path": str(video_path),
+        "filename": raw_name,
+        "stored_as": video_path.name,
         "size_bytes": total,
     }

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import math
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +13,10 @@ from video_auto_cut.rendering.subtitle_render_contract import (
     build_subtitle_render_v1_contract,
     build_subtitle_style_llm_config,
     normalize_subtitle_theme as normalize_render_contract_theme,
+    request_subtitle_style_contract,
     write_subtitle_render_v1_contract,
 )
+from video_auto_cut.shared.test_text_io import write_final_test_srt
 
 from ..config import ensure_job_dirs, get_settings
 from ..constants import DEFAULT_ENCODING
@@ -22,8 +26,11 @@ from .render_typography import (
     remap_topics_to_cut_timeline,
     resolve_dimensions as _resolve_dimensions,
 )
+from .render_source_video import generate_cut_source_video_to_browser_compatible_mp4
 
 _TIMECODE_RE = re.compile(r"^(?P<hh>\d{2}):(?P<mm>\d{2}):(?P<ss>\d{2})\.(?P<ms>\d{3})$")
+_EDITOR_STYLE_CACHE_NAME = "subtitle-style-editor.v1.json"
+_CUT_SOURCE_VIDEO_NAME = "cut_source.browser.mp4"
 
 
 def build_web_render_config(
@@ -34,26 +41,66 @@ def build_web_render_config(
     height: int | None = None,
     duration_sec: float | None = None,
 ) -> dict[str, Any]:
-    files = get_job_files(job_id)
-    if not files:
+    resolved_files = get_job_files(job_id)
+    if not resolved_files:
         raise RuntimeError("job files not found for render")
 
-    contract_config = _build_web_render_config_from_subtitle_render_v1_source(
-        files,
+    contract = _load_subtitle_render_v1_contract(resolved_files)
+    if contract is None:
+        raise RuntimeError("导出配置尚未准备完成，请返回上一步重新确认后再试。")
+
+    return _subtitle_render_v1_to_web_render_config(
+        contract,
         fps=fps,
         width=width,
         height=height,
         duration_sec=duration_sec,
     )
-    if contract_config is not None:
-        return contract_config
 
-    test_srt_path = files.get("final_test_srt_path")
-    if not test_srt_path:
-        raise RuntimeError("render inputs missing")
 
+def ensure_subtitle_render_v1_contract(
+    job_id: str,
+    *,
+    files: dict[str, Any] | None = None,
+    lines: list[dict[str, Any]] | None = None,
+    chapters: list[dict[str, Any]] | None = None,
+    document_revision: str | None = None,
+) -> dict[str, Any]:
+    resolved_files = files or get_job_files(job_id)
+    if not resolved_files:
+        raise RuntimeError("job files not found for render")
+
+    with _subtitle_render_contract_lock(job_id):
+        existing_contract = _load_subtitle_render_v1_contract(resolved_files)
+        if existing_contract is not None and _contract_matches_revision(existing_contract, document_revision):
+            return existing_contract
+
+        return _generate_subtitle_render_v1_contract(
+            job_id,
+            resolved_files,
+            lines=lines,
+            chapters=chapters,
+            document_revision=document_revision,
+        )
+
+
+def _generate_subtitle_render_v1_contract(
+    job_id: str,
+    files: dict[str, Any],
+    *,
+    lines: list[dict[str, Any]] | None = None,
+    chapters: list[dict[str, Any]] | None = None,
+    document_revision: str | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
     dirs = ensure_job_dirs(job_id)
+    test_srt_path = _resolve_contract_source_srt_path(
+        files,
+        dirs=dirs,
+        lines=lines,
+    )
+    if not test_srt_path:
+        raise RuntimeError("render inputs missing")
     cut_srt_path = dirs["render"] / "web.cut.srt"
     cut_timeline = build_cut_srt_from_optimized_srt(
         source_srt_path=str(test_srt_path),
@@ -77,30 +124,264 @@ def build_web_render_config(
     segments = [item for item in segments if item is not None]
     if not segments:
         raise RuntimeError("render segments missing")
+    render_source_video_path = _ensure_render_source_video_path(
+        job_id,
+        files,
+        dirs=dirs,
+        segments=segments,
+    )
 
-    topics = [_normalize_topic(item) for item in list_final_test_chapters(job_id)]
+    topic_source = chapters if chapters is not None else list_final_test_chapters(job_id)
+    topics = [_normalize_topic(item) for item in topic_source]
     topics = [item for item in topics if item is not None]
     topics = remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))
 
+    subtitle_theme = normalize_render_contract_theme(files.get("subtitle_theme") or "white")
+    style_contract = _build_aligned_style_contract_from_editor_cache(
+        captions,
+        _load_editor_subtitle_style_cache(dirs["render"]),
+        subtitle_theme=subtitle_theme,
+    )
     generated_contract = build_subtitle_render_v1_contract(
         captions=captions,
         segments=segments,
         topics=topics,
         output_name=f"{job_id}_export.mp4",
-        subtitle_theme=normalize_render_contract_theme(files.get("subtitle_theme") or "white"),
+        subtitle_theme=subtitle_theme,
+        style_contract=style_contract,
         llm_config=_build_subtitle_style_llm_config(),
     )
+    if render_source_video_path:
+        generated_contract["src"] = f"/api/v1/jobs/{job_id}/render/source-video"
+        generated_contract["sourceKind"] = "cut-proxy"
+    if document_revision:
+        generated_contract["sourceRevision"] = document_revision
     contract_path = dirs["render"] / "subtitle-render.v1.json"
     write_subtitle_render_v1_contract(generated_contract, contract_path)
-    upsert_job_files(job_id, subtitle_render_v1_path=str(contract_path))
-    return _subtitle_render_v1_to_web_render_config(
-        generated_contract,
-        fps=fps,
-        width=width,
-        height=height,
-        duration_sec=duration_sec,
+    upsert_job_files(
+        job_id,
+        subtitle_render_v1_path=str(contract_path),
+        render_source_video_path=render_source_video_path,
     )
+    return generated_contract
+
+
+def warm_editor_subtitle_style_cache(
+    job_id: str,
+    *,
+    lines: list[dict[str, Any]],
+    files: dict[str, Any] | None = None,
+    document_revision: str | None = None,
+) -> dict[str, Any]:
+    resolved_files = files or get_job_files(job_id)
+    if not resolved_files:
+        raise RuntimeError("job files not found for render")
+
+    dirs = ensure_job_dirs(job_id)
+    with _subtitle_render_contract_lock(job_id):
+        existing_contract = _load_editor_subtitle_style_cache(dirs["render"])
+        if existing_contract is not None and _contract_matches_revision(existing_contract, document_revision):
+            return existing_contract
+
+        captions = _build_style_source_captions_from_lines(lines)
+        subtitle_theme = normalize_render_contract_theme(resolved_files.get("subtitle_theme") or "white")
+        style_contract = request_subtitle_style_contract(
+            captions=captions,
+            subtitle_theme=subtitle_theme,
+            llm_config=_build_subtitle_style_llm_config(),
+        )
+        if document_revision:
+            style_contract["sourceRevision"] = document_revision
+        _write_editor_subtitle_style_cache(dirs["render"], style_contract)
+        return style_contract
+
+
+def _resolve_contract_source_srt_path(
+    files: dict[str, Any],
+    *,
+    dirs: dict[str, Path],
+    lines: list[dict[str, Any]] | None,
+) -> str | None:
+    if lines is not None:
+        source_path = dirs["render"] / "editor-ready.test.srt"
+        write_final_test_srt(lines, source_path, DEFAULT_ENCODING)
+        return str(source_path)
+
+    test_srt_path = files.get("final_test_srt_path")
+    if isinstance(test_srt_path, Path):
+        return str(test_srt_path)
+    if isinstance(test_srt_path, str) and test_srt_path.strip():
+        return test_srt_path
+    return None
+
+
+def _contract_matches_revision(contract: dict[str, Any], document_revision: str | None) -> bool:
+    if not document_revision:
+        return True
+    existing_revision = str(contract.get("sourceRevision") or "").strip()
+    return existing_revision == document_revision
+
+
+def _ensure_render_source_video_path(
+    job_id: str,
+    files: dict[str, Any],
+    *,
+    dirs: dict[str, Path],
+    segments: list[dict[str, Any]],
+) -> str | None:
+    raw_video_path = files.get("video_path")
+    if not isinstance(raw_video_path, str) or not raw_video_path.strip():
+        return None
+    input_video_path = Path(raw_video_path)
+    if not input_video_path.exists():
+        return None
+
+    existing_path = files.get("render_source_video_path")
+    if isinstance(existing_path, str) and existing_path.strip():
+        candidate = Path(existing_path)
+        if candidate.exists() and candidate.is_file():
+            return str(candidate)
+
+    output_path = dirs["render"] / _CUT_SOURCE_VIDEO_NAME
+    if output_path.exists() and output_path.is_file():
+        return str(output_path)
+
+    generate_cut_source_video_to_browser_compatible_mp4(
+        input_path=input_video_path,
+        output_path=output_path,
+        segments=segments,
+    )
+    return str(output_path)
+
+
+def _build_style_source_captions_from_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    captions: list[dict[str, Any]] = []
+    for index, line in enumerate(lines, start=1):
+        try:
+            start = float(line["start"])
+            end = float(line["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        text = str(line.get("optimized_text") or line.get("original_text") or "").strip()
+        if not text:
+            continue
+        try:
+            line_index = int(line.get("line_id") or index)
+        except (TypeError, ValueError):
+            line_index = index
+        captions.append(
+            {
+                "index": line_index,
+                "start": round(start, 3),
+                "end": round(end, 3),
+                "text": text,
+            }
+        )
+    return captions
+
+
+def _editor_style_cache_path(render_dir: Path) -> Path:
+    return render_dir / _EDITOR_STYLE_CACHE_NAME
+
+
+def _load_editor_subtitle_style_cache(render_dir: Path) -> dict[str, Any] | None:
+    path = _editor_style_cache_path(render_dir)
+    if not path.exists() or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_editor_subtitle_style_cache(render_dir: Path, payload: dict[str, Any]) -> Path:
+    path = _editor_style_cache_path(render_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def _build_aligned_style_contract_from_editor_cache(
+    captions: list[dict[str, Any]],
+    editor_style_contract: dict[str, Any] | None,
+    *,
+    subtitle_theme: str,
+) -> dict[str, Any] | None:
+    if not editor_style_contract:
+        return None
+
+    cached_rows: dict[int, dict[str, Any]] = {}
+    for item in list(editor_style_contract.get("captions") or []):
+        if not isinstance(item, dict):
+            continue
+        try:
+            cached_index = int(item.get("index"))
+        except (TypeError, ValueError):
+            continue
+        cached_rows[cached_index] = item
+
+    aligned_rows: list[dict[str, Any]] = []
+    for caption in captions:
+        caption_text = str(caption.get("text") or "").strip()
+        try:
+            caption_index = int(caption.get("index"))
+        except (TypeError, ValueError):
+            return None
+        cached = cached_rows.get(caption_index)
+        if not cached:
+            return None
+        if str(cached.get("text") or "").strip() != caption_text:
+            return None
+        aligned_rows.append(
+            {
+                "start": _format_contract_time(caption.get("start")),
+                "end": _format_contract_time(caption.get("end")),
+                "text": caption_text,
+                "highlights": list(cached.get("highlights") or []),
+            }
+        )
+
+    return {
+        "version": str(editor_style_contract.get("version") or "subtitle-style.v1"),
+        "subtitleTheme": subtitle_theme,
+        "captions": aligned_rows,
+    }
+
+
+def _format_contract_time(value: Any) -> str:
+    parsed = _parse_time_value(value)
+    if parsed is None:
+        return "00:00:00.000"
+    hours = int(parsed // 3600)
+    minutes = int((parsed % 3600) // 60)
+    seconds = int(parsed % 60)
+    millis = int(round((parsed - int(parsed)) * 1000))
+    if millis >= 1000:
+        seconds += 1
+        millis -= 1000
+    if seconds >= 60:
+        minutes += 1
+        seconds -= 60
+    if minutes >= 60:
+        hours += 1
+        minutes -= 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
+
+
+@contextmanager
+def _subtitle_render_contract_lock(job_id: str):
+    lock_path = ensure_job_dirs(job_id)["render"] / ".subtitle-render-v1.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _build_web_render_config_from_subtitle_render_v1_source(
@@ -232,6 +513,7 @@ def _subtitle_render_v1_to_web_render_config(
         "showProgress",
         "showChapter",
         "progressLabelMode",
+        "sourceKind",
     ):
         value = payload.get(key)
         if value is not None:

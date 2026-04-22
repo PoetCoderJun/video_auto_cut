@@ -25,6 +25,7 @@ _STAGE_UNSET = object()
 
 JOB_FILE_FIELDS = (
     "video_path",
+    "render_source_video_path",
     "audio_path",
     "asr_oss_key",
     "pending_asr_oss_key",

@@ -34,6 +34,7 @@ from ..errors import (
 )
 from ..job_file_repository import (
     create_job,
+    get_job_files,
     upsert_job_files,
 )
 from ..schemas import (
@@ -66,6 +67,7 @@ from ..services.jobs import (
     queue_test_run,
     require_status,
     save_local_uploaded_audio,
+    save_local_uploaded_video,
 )
 from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.test_runner import run_test_job_background
@@ -381,6 +383,34 @@ def audio_upload_local(
     return _ok({"job": job, "upload": result})
 
 
+@router.post("/jobs/{job_id}/source-upload-local")
+def source_upload_local(
+    job_id: str,
+    source_file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(require_current_user),
+) -> dict[str, Any]:
+    try:
+        ensure_active_user(current_user.user_id, current_user.email)
+    except AccountServiceError as exc:
+        raise _translate_account_error(exc) from exc
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+
+    try:
+        result = save_local_uploaded_video(job_id, source_file)
+    finally:
+        source_file.file.close()
+
+    job = load_job_or_404(job_id, current_user.user_id)
+    logging.info(
+        "[web_api] route=source_upload_local user=%s job=%s video_path=%s",
+        current_user.user_id,
+        job_id,
+        result.get("video_path"),
+    )
+    return _ok({"job": job, "upload": result})
+
+
 @router.post("/jobs/{job_id}/test/run")
 def test_run(
     job_id: str,
@@ -477,6 +507,27 @@ def render_config(
     except (RuntimeError, ValueError) as exc:
         raise invalid_step_state(str(exc)) from exc
     return _ok({"render": render})
+
+
+@router.get("/jobs/{job_id}/render/source-video")
+def render_source_video(
+    job_id: str,
+    current_user: CurrentUser = Depends(require_current_user),
+):
+    job = load_job_or_404(job_id, current_user.user_id)
+    require_status(job, {JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED})
+    files = get_job_files(job_id)
+    source_path_raw = files.get("render_source_video_path") if files else None
+    if not isinstance(source_path_raw, str) or not source_path_raw.strip():
+        raise invalid_step_state("导出中间视频尚未准备完成，请稍后重试。")
+    source_path = Path(source_path_raw)
+    if not source_path.exists():
+        raise invalid_step_state("导出中间视频尚未准备完成，请稍后重试。")
+    return FileResponse(
+        path=source_path,
+        media_type="video/mp4",
+        filename=source_path.name,
+    )
 
 
 @router.post("/jobs/{job_id}/render/complete")

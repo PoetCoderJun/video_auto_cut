@@ -110,6 +110,7 @@ export type RenderInputProps = {
   fps: number;
   width: number;
   height: number;
+  sourceKind?: "original" | "cut-proxy";
   subtitleTheme?: SubtitleTheme;
   subtitleScale?: number;
   subtitleYPercent?: number;
@@ -139,6 +140,7 @@ export type ClientUploadIssueStage =
   | "source_preflight"
   | "render_validation"
   | "job_create"
+  | "source_upload"
   | "audio_extract"
   | "audio_upload"
   | "source_cache";
@@ -376,6 +378,52 @@ async function requestAuthed<T>(
   return request<T>(path, init, {requireAuth: true, ...options});
 }
 
+export async function transcodeSourceVideoToBrowserCompatibleMp4(
+  file: File
+): Promise<File> {
+  const token = await resolveAuthToken();
+  if (!token) {
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+  }
+
+  const formData = new FormData();
+  formData.append("source_file", file, file.name);
+
+  let response: Response;
+  try {
+    response = await fetch(`${base}/source/browser-compatible`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new ApiClientError(
+      `无法连接 API（${base}）：${toMessage(err)}`,
+      "NETWORK_ERROR",
+      0
+    );
+  }
+
+  await assertOk(response);
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch =
+    disposition.match(/filename\\*=UTF-8''([^;]+)/i) ??
+    disposition.match(/filename=\"?([^\";]+)\"?/i);
+  const outputName = fileNameMatch
+    ? decodeURIComponent(String(fileNameMatch[1] || "").trim())
+    : `${file.name.replace(/\\.[^.]+$/, "") || "source"}_browser_compatible.mp4`;
+
+  return new File([blob], outputName, {
+    type: "video/mp4",
+    lastModified: Date.now(),
+  });
+}
+
 function getRenderCompletionStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   try {
@@ -577,10 +625,34 @@ async function markAudioOssReady(jobId: string, objectKey: string): Promise<Job>
   return data.job;
 }
 
+async function uploadAudioDirectToLocalApi(jobId: string, file: File): Promise<Job> {
+  const formData = new FormData();
+  formData.append("audio_file", file, file.name || "audio.mp3");
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/audio-upload-local`, {
+    method: "POST",
+    body: formData,
+  });
+  return data.job;
+}
+
 export async function uploadAudio(jobId: string, file: File): Promise<Job> {
-  const target = await getAudioDirectUploadTarget(jobId);
-  await putAudioToOss(target.put_url, file);
-  return markAudioOssReady(jobId, target.object_key);
+  try {
+    const target = await getAudioDirectUploadTarget(jobId);
+    await putAudioToOss(target.put_url, file);
+    return await markAudioOssReady(jobId, target.object_key);
+  } catch {
+    return uploadAudioDirectToLocalApi(jobId, file);
+  }
+}
+
+export async function uploadSourceVideo(jobId: string, file: File): Promise<Job> {
+  const formData = new FormData();
+  formData.append("source_file", file, file.name || "source.mp4");
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/source-upload-local`, {
+    method: "POST",
+    body: formData,
+  });
+  return data.job;
 }
 
 export async function runTest(jobId: string): Promise<TestRunAccepted> {
@@ -641,6 +713,44 @@ export async function getWebRenderConfigWithMeta(jobId: string, meta: RenderMeta
   }
   const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config?${params.toString()}`);
   return coerceWebRenderConfig(data.render);
+}
+
+export async function getWebRenderConfig(jobId: string): Promise<WebRenderConfig> {
+  const data = await requestAuthed<{render: WebRenderConfig}>(`/jobs/${jobId}/render/config`);
+  return coerceWebRenderConfig(data.render);
+}
+
+export async function downloadRenderSourceVideo(jobId: string): Promise<File> {
+  const token = await resolveAuthToken();
+  if (!token) {
+    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${base}/jobs/${jobId}/render/source-video`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    });
+  } catch (err) {
+    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
+  }
+
+  await assertOk(response);
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const fileNameMatch =
+    disposition.match(/filename\\*=UTF-8''([^;]+)/i) ??
+    disposition.match(/filename=\"?([^\";]+)\"?/i);
+  const outputName = fileNameMatch
+    ? decodeURIComponent(String(fileNameMatch[1] || "").trim())
+    : `${jobId}_cut_source.mp4`;
+  return new File([blob], outputName, {
+    type: blob.type || "video/mp4",
+  });
 }
 
 export async function markRenderSucceeded(

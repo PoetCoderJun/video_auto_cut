@@ -3,8 +3,10 @@ import {
   type ClientUploadIssueStage,
   type Job,
   uploadAudio,
+  uploadSourceVideo,
 } from "./api";
 import { extractAudioForAsr } from "./audio-extract";
+import { resolveRenderMetaFromFile } from "./render-source-meta";
 import { validateBrowserRenderCapability } from "./upload-render-validation";
 import { prepareUploadSourceFile } from "./upload-source-preflight";
 import { saveCachedJobSourceVideo } from "./video-cache";
@@ -72,6 +74,10 @@ export async function runUploadPipeline(options: {
           onStageMessage?.("正在检查源视频兼容性...");
           return;
         }
+        if (nextStage === "transcoding") {
+          onStageMessage?.("当前视频浏览器不兼容，正在转成兼容 MP4...");
+          return;
+        }
         onStageMessage?.("");
       },
     });
@@ -85,16 +91,27 @@ export async function runUploadPipeline(options: {
     stage = "job_create";
     const job = await createJob();
 
+    stage = "source_upload";
+    onStageMessage?.("正在上传源视频...");
+    const sourceUploadPromise = uploadSourceVideo(job.job_id, file);
+
     stage = "audio_extract";
     onStageMessage?.("正在提取音频...");
+    const renderMetaPromise = resolveRenderMetaFromFile(preparedSource.file).catch(
+      () => null,
+    );
     const audioFile = await extractAudioForAsr(preparedSource.file);
 
     stage = "audio_upload";
     onStageMessage?.("正在上传音频...");
     const uploadedJob = await uploadAudio(job.job_id, audioFile);
+    await sourceUploadPromise;
 
     stage = "source_cache";
-    await saveCachedJobSourceVideo(job.job_id, preparedSource.file).catch(
+    const renderMeta = await renderMetaPromise;
+    await saveCachedJobSourceVideo(job.job_id, preparedSource.file, {
+      renderMeta,
+    }).catch(
       () => undefined,
     );
 

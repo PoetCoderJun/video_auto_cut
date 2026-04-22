@@ -17,6 +17,7 @@ from ..job_file_repository import (
 
 ARTIFACT_FIELDS = (
     "video_path",
+    "render_source_video_path",
     "audio_path",
     "srt_path",
     "asr_words_sidecar_path",
@@ -156,6 +157,7 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
     upsert_job_files(
         job_id,
         video_path=None,
+        render_source_video_path=None,
         audio_path=None,
         asr_oss_key=None,
         optimized_srt_oss_key=None,
