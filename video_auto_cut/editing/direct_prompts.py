@@ -12,6 +12,17 @@ SYSTEM_PROMPT_START = "<!-- SYSTEM_PROMPT:START -->"
 SYSTEM_PROMPT_END = "<!-- SYSTEM_PROMPT:END -->"
 
 
+def _normalize_legacy_prompt_doc(text: str) -> str:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cleaned_lines: list[str] = []
+    for line in lines:
+        if line.startswith("> "):
+            continue
+        cleaned_lines.append(line.rstrip())
+    normalized = "\n".join(cleaned_lines).strip()
+    return re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+
 @lru_cache(maxsize=None)
 def _load_prompt_template(name: str) -> str:
     path = DIRECT_PROMPTS_DIR / f"{name}.md"
@@ -25,7 +36,7 @@ def _load_prompt_template(name: str) -> str:
     )
     match = pattern.search(text)
     if match is None:
-        raise RuntimeError(f"Direct prompt source file missing system prompt markers: {path}")
+        return _normalize_legacy_prompt_doc(text)
 
     prompt = match.group(1).strip()
     if not prompt:

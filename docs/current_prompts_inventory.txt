@@ -22,6 +22,7 @@
   - highlight 阶段 system prompt 真源；代码只允许补主题说明，不应反向改写文件正文。
 - `video_auto_cut/editing/direct_prompts.py`
   - 只负责读取 `skills/direct-prompts/*.md`、补少量运行时参数并组装 messages，不再内嵌正文，也不应回填覆盖这些文件。
+  - 兼容两类文件真源：新 marker 格式，以及旧版手写 markdown 结构（如 `Overview / Prompt mirror`）。
 
 ==================================================
 3) repo-local skills / workflow 文档
