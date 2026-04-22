@@ -31,17 +31,18 @@ class PiRunnerEndToEndTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_raw_srt_to_final_srt_and_chapters_via_three_task_contracts(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
-            system_prompt = messages[0]["content"]
-            if "delete 阶段执行器" in system_prompt:
-                self.assertIn("只输出要删除的行号", messages[1]["content"])
+            user_prompt = messages[0]["content"]
+            self.assertEqual(messages[0]["role"], "user")
+            if "# delete direct prompt" in user_prompt:
+                self.assertIn("只输出要删除的行号", user_prompt)
                 return "1\n"
-            if "polish 阶段执行器" in system_prompt:
-                self.assertIn("只输出改动的行", messages[1]["content"])
+            if "# polish direct prompt" in user_prompt:
+                self.assertIn("只输出改动的行", user_prompt)
                 return ""
-            if "chapter 阶段执行器" in system_prompt:
-                self.assertIn("连续覆盖全部 block", system_prompt)
+            if "# chapter direct prompt" in user_prompt:
+                self.assertIn("连续覆盖全部 block", user_prompt)
                 return "【1-2】开场\n"
-            raise AssertionError(f"unexpected prompt: {system_prompt}")
+            raise AssertionError(f"unexpected prompt: {user_prompt}")
 
         mock_chat.side_effect = fake_chat
 
@@ -72,12 +73,13 @@ class PiRunnerEndToEndTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_polish_and_chapter_accept_text_line_sidecar(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
-            system_prompt = messages[0]["content"]
-            if "polish 阶段执行器" in system_prompt:
+            user_prompt = messages[0]["content"]
+            self.assertEqual(messages[0]["role"], "user")
+            if "# polish direct prompt" in user_prompt:
                 return ""
-            if "chapter 阶段执行器" in system_prompt:
+            if "# chapter direct prompt" in user_prompt:
                 return "【1】开场\n"
-            raise AssertionError(f"unexpected prompt: {system_prompt}")
+            raise AssertionError(f"unexpected prompt: {user_prompt}")
 
         mock_chat.side_effect = fake_chat
 

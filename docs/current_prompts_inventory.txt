@@ -23,6 +23,7 @@
 - `video_auto_cut/editing/direct_prompts.py`
   - 只负责读取 `skills/direct-prompts/*.md`、补少量运行时参数并组装 messages，不再内嵌正文，也不应回填覆盖这些文件。
   - 兼容两类文件真源：新 marker 格式，以及旧版手写 markdown 结构（如 `Overview / Prompt mirror`）。
+  - 当前 direct prompt 文件正文作为 `user` prompt 发送，不再作为 `system` prompt 发送。
 
 ==================================================
 3) repo-local skills / workflow 文档

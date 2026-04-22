@@ -10,12 +10,15 @@ class TestPiRunnerContractTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_delete_prompt_uses_sparse_index_input(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0]["role"], "user")
+            self.assertIn("# delete direct prompt", messages[0]["content"])
             self.assertIn("只输出需要删除的行号", messages[0]["content"])
             self.assertIn("不要只看字面相同，要看“是不是在说同一件事”", messages[0]["content"])
-            self.assertIn("如果一个返工簇里出现了两次以上相似起手句/铺垫句", messages[0]["content"])
-            self.assertIn("优先保留最晚出现、最完整、最顺、关键词最准确的那一版", messages[0]["content"])
-            self.assertIn("1\t第一句", messages[1]["content"])
-            self.assertIn("2\t第二句", messages[1]["content"])
+            self.assertIn("< No Speech >", messages[0]["content"])
+            self.assertIn("只要属于重复语义，必须删除前面的返工版本", messages[0]["content"])
+            self.assertIn("1\t第一句", messages[0]["content"])
+            self.assertIn("2\t第二句", messages[0]["content"])
             return "1\n"
 
         mock_chat.side_effect = fake_chat
@@ -75,10 +78,13 @@ class TestPiRunnerContractTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_polish_prompt_uses_sparse_changed_rows(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
-            self.assertIn("只输出那些“需要改写”的行", messages[0]["content"])
-            self.assertIn("如果一行只剩连接词、语气承接词、起手残片", messages[0]["content"])
-            self.assertIn("不要输出像 `然后<empty>` 这种混合文本", messages[0]["content"])
-            self.assertIn("1\t原句", messages[1]["content"])
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0]["role"], "user")
+            self.assertIn("# polish direct prompt", messages[0]["content"])
+            self.assertIn("只输出需要改动的行", messages[0]["content"])
+            self.assertIn("ASR 错词、同音误识别、英文/专有名词误识别", messages[0]["content"])
+            self.assertIn("不要扩写事实，不要改结论，不要跨行借内容", messages[0]["content"])
+            self.assertIn("1\t原句", messages[0]["content"])
             return "1\t润色后\n"
 
         mock_chat.side_effect = fake_chat
@@ -185,10 +191,12 @@ class TestPiRunnerContractTests(unittest.TestCase):
     @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
     def test_chapter_prompt_includes_policy_and_strips_code_fences(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
+            self.assertEqual(len(messages), 1)
+            self.assertEqual(messages[0]["role"], "user")
             self.assertIn("最多只能分成 2 章", messages[0]["content"])
             self.assertIn("横屏视频章节约束", messages[0]["content"])
             self.assertIn("标题绝不能超过 5 个字", messages[0]["content"])
-            self.assertIn("【1】第一段", messages[1]["content"])
+            self.assertIn("【1】第一段", messages[0]["content"])
             return "```\n【1-2】开场\n```"
 
         mock_chat.side_effect = fake_chat

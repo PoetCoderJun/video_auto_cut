@@ -50,7 +50,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         segments = make_segments(["前面这句说错了", "后面这句是正确表达", "再补一句自然一点"])
 
         def fake_chat(cfg, messages):
-            if "delete 阶段执行器" in messages[0]["content"]:
+            if "# delete direct prompt" in messages[0]["content"]:
                 return "1\n"
             return ""
 
@@ -78,7 +78,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         segments = make_segments(["< Low Speech >", "后面这一句保留"])
 
         def fake_chat(cfg, messages):
-            if "delete 阶段执行器" in messages[0]["content"]:
+            if "# delete direct prompt" in messages[0]["content"]:
                 return ""
             return ""
 

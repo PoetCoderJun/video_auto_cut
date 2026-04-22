@@ -63,7 +63,7 @@ def _append_runtime_note(prompt: str, note: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", f"{prompt.rstrip()}\n\n{note}").strip()
 
 
-def _render_chapter_system_prompt(
+def _render_chapter_prompt(
     *,
     title_max_chars: int,
     max_chapters: int | None,
@@ -93,30 +93,29 @@ def _render_chapter_system_prompt(
     return _append_runtime_note(prompt, "\n".join(extra_rules))
 
 
+def _build_user_message(*, prompt: str, instruction: str, payload: str) -> list[dict[str, str]]:
+    content = "\n\n".join(
+        part.strip()
+        for part in [prompt, instruction, str(payload or "").strip()]
+        if str(part or "").strip()
+    ).strip()
+    return [{"role": "user", "content": content}]
+
+
 def build_delete_messages(timed_text: str) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": _render_prompt_template("delete"),
-        },
-        {
-            "role": "user",
-            "content": "请直接处理下面的 delete 输入，并只输出要删除的行号：\n\n" + timed_text.strip(),
-        },
-    ]
+    return _build_user_message(
+        prompt=_render_prompt_template("delete"),
+        instruction="请直接处理下面的 delete 输入，并只输出要删除的行号：",
+        payload=timed_text,
+    )
 
 
 def build_polish_messages(timed_text: str) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": _render_prompt_template("polish"),
-        },
-        {
-            "role": "user",
-            "content": "请直接处理下面的 polish 输入，并只输出改动的行：\n\n" + timed_text.strip(),
-        },
-    ]
+    return _build_user_message(
+        prompt=_render_prompt_template("polish"),
+        instruction="请直接处理下面的 polish 输入，并只输出改动的行：",
+        payload=timed_text,
+    )
 
 
 def build_chapter_messages(
@@ -126,20 +125,15 @@ def build_chapter_messages(
     max_chapters: int | None = None,
     chapter_policy_hint: str = "",
 ) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": _render_chapter_system_prompt(
-                title_max_chars=title_max_chars,
-                max_chapters=max_chapters,
-                chapter_policy_hint=chapter_policy_hint,
-            ),
-        },
-        {
-            "role": "user",
-            "content": "请直接处理下面的 chapter 输入，并只输出最终章节文本：\n\n" + block_text.strip(),
-        },
-    ]
+    return _build_user_message(
+        prompt=_render_chapter_prompt(
+            title_max_chars=title_max_chars,
+            max_chapters=max_chapters,
+            chapter_policy_hint=chapter_policy_hint,
+        ),
+        instruction="请直接处理下面的 chapter 输入，并只输出最终章节文本：",
+        payload=block_text,
+    )
 
 
 def build_highlight_messages(sparse_text: str, *, subtitle_theme: str) -> list[dict[str, str]]:
@@ -152,16 +146,11 @@ def build_highlight_messages(sparse_text: str, *, subtitle_theme: str) -> list[d
         )
     else:
         prompt = _append_runtime_note(prompt, theme_note)
-    return [
-        {
-            "role": "system",
-            "content": prompt,
-        },
-        {
-            "role": "user",
-            "content": sparse_text.strip(),
-        },
-    ]
+    return _build_user_message(
+        prompt=prompt,
+        instruction="请直接处理下面的 highlight 输入，并只输出需要高亮的行：",
+        payload=sparse_text,
+    )
 
 
 def summarize_prompt_variant(task: str) -> dict[str, Any]:
