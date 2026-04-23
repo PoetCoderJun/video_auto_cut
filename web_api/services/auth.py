@@ -10,14 +10,16 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.algorithms import RSAAlgorithm
 
+from ..db_repository import get_guest_session_by_token
 from ..config import get_settings
 from ..errors import unauthorized
 
 _AUTH_BEARER = HTTPBearer(auto_error=False)
+_GUEST_TOKEN_HEADER = "x-guest-token"
 _JWKS_LOCK = threading.Lock()
 _JWKS_CACHE_BY_KID: dict[str, dict[str, Any]] = {}
 _JWKS_CACHE_EXPIRES_AT = 0.0
@@ -31,6 +33,30 @@ class CurrentUser:
     user_id: str
     email: str | None
     account: str | None
+
+
+@dataclass(frozen=True)
+class RequestActor:
+    actor_id: str
+    kind: str
+    email: str | None
+    account: str | None
+    guest_id: str | None = None
+
+
+def guest_actor_id(guest_id: str) -> str:
+    normalized_guest_id = str(guest_id or "").strip()
+    if not normalized_guest_id:
+        raise ValueError("guest_id cannot be empty")
+    return f"guest:{normalized_guest_id}"
+
+
+def guest_id_from_actor_id(actor_id: str | None) -> str | None:
+    normalized = str(actor_id or "").strip()
+    if not normalized.startswith("guest:"):
+        return None
+    guest_id = normalized.split(":", 1)[1].strip()
+    return guest_id or None
 
 
 def require_current_user(
@@ -54,6 +80,52 @@ def require_current_user(
     email = _extract_email(claims)
     account = _extract_account(claims)
     return CurrentUser(user_id=user_id, email=email, account=account)
+
+
+def require_request_actor(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_AUTH_BEARER),
+) -> RequestActor:
+    settings = get_settings()
+    token = credentials.credentials.strip() if credentials else ""
+    if token:
+        current_user = require_current_user(credentials)
+        return RequestActor(
+            actor_id=current_user.user_id,
+            kind="user",
+            email=current_user.email,
+            account=current_user.account,
+            guest_id=None,
+        )
+
+    if not settings.auth_enabled:
+        current_user = require_current_user(credentials)
+        return RequestActor(
+            actor_id=current_user.user_id,
+            kind="user",
+            email=current_user.email,
+            account=current_user.account,
+            guest_id=None,
+        )
+
+    guest_token = str(request.headers.get(_GUEST_TOKEN_HEADER) or "").strip()
+    if guest_token:
+        session = get_guest_session_by_token(guest_token)
+        if session:
+            status = str(session.get("status") or "ACTIVE").upper()
+            guest_id = str(session.get("guest_id") or "").strip()
+            if guest_id and status in {"ACTIVE", "CONSUMED"}:
+                return RequestActor(
+                    actor_id=guest_actor_id(guest_id),
+                    kind="guest",
+                    email=None,
+                    account=None,
+                    guest_id=guest_id,
+                )
+        raise unauthorized("免登录体验已失效，请登录后继续")
+
+    logging.warning("[auth] 401: no Authorization Bearer token or guest token")
+    raise unauthorized("请先登录，或使用首台设备免登录体验一次")
 
 
 def _decode_auth_token(token: str) -> dict[str, Any]:

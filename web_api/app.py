@@ -90,6 +90,8 @@ def _public_rate_limit_for_request(method: str, path: str) -> str | None:
         return None
     if normalized_path == "/api/v1/public/invites/claim":
         return "invite_claim"
+    if normalized_path == "/api/v1/public/guest/session":
+        return "invite_claim"
     if normalized_path == "/api/v1/public/coupons/verify":
         return "coupon_verify"
     return None

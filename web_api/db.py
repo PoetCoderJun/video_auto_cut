@@ -247,6 +247,20 @@ CREATE TABLE IF NOT EXISTS public_invite_settings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS guest_sessions (
+    guest_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    device_fingerprint_hash TEXT,
+    ip_hash TEXT NOT NULL,
+    user_agent_hash TEXT,
+    free_uses_remaining INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+    job_id TEXT,
+    consumed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_coupon_codes_status_created_at
 ON coupon_codes(status, created_at DESC);
 
@@ -258,6 +272,12 @@ ON credit_ledger(user_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_public_invite_claims_created_at
 ON public_invite_claims(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_guest_sessions_device_fingerprint_hash
+ON guest_sessions(device_fingerprint_hash);
+
+CREATE INDEX IF NOT EXISTS idx_guest_sessions_ip_user_agent_hash
+ON guest_sessions(ip_hash, user_agent_hash);
 """
 
 
@@ -393,6 +413,7 @@ def ensure_runtime_schema_ready(conn: Any) -> None:
         "credit_ledger",
         "public_invite_claims",
         "public_invite_settings",
+        "guest_sessions",
     )
     missing = [table_name for table_name in required_tables if not _table_exists(conn, table_name)]
     if missing:

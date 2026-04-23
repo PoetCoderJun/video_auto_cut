@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   ApiClientError,
+  claimGuestSession,
+  clearGuestSessionToken,
   clearRenderCompletionPending,
   createJob,
   getRenderCompletionPending,
@@ -401,6 +403,83 @@ test("createJob waits briefly for auth token initialization before failing", asy
     globalThis.fetch = originalFetch;
     setApiAuthTokenProvider(null);
     invalidateTokenCache();
+  }
+});
+
+test("createJob uses stored guest token when login token is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const restoreWindow = withMockWindowStorage();
+
+  setApiAuthTokenProvider(null);
+  invalidateTokenCache();
+  clearGuestSessionToken();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+
+    if (calls.length === 1) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-guest-claim",
+          data: {
+            guest: {
+              guest_id: "gst_1",
+              token: "guest-token-1",
+              free_uses_remaining: 1,
+              job_id: null,
+              reused_existing: false,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    if (calls.length === 2) {
+      return new Response(
+        JSON.stringify({
+          request_id: "req-guest-job",
+          data: {
+            job: {
+              job_id: "job-guest-1",
+              status: "CREATED",
+              progress: 0,
+              stage: null,
+              error: null,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {"Content-Type": "application/json"},
+        }
+      );
+    }
+
+    throw new Error(`unexpected fetch call ${calls.length}`);
+  };
+
+  try {
+    await claimGuestSession("device-fingerprint-test");
+    const job = await createJob();
+
+    assert.equal(job.job_id, "job-guest-1");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0].url, /\/public\/guest\/session$/);
+    assert.match(calls[1].url, /\/jobs$/);
+    assert.equal(new Headers(calls[1].init?.headers).get("Authorization"), null);
+    assert.equal(
+      new Headers(calls[1].init?.headers).get("X-Guest-Token"),
+      "guest-token-1"
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    clearGuestSessionToken();
+    restoreWindow();
   }
 });
 

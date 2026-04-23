@@ -42,7 +42,6 @@ from ..constants import (
     PROGRESS_TEST_CONFIRMED,
     PROGRESS_TEST_READY,
 )
-from ..db_repository import get_credit_balance
 from ..job_file_repository import (
     get_job_owner_user_id,
     get_job_script,
@@ -53,6 +52,7 @@ from ..job_file_repository import (
     update_job,
     upsert_job_files,
 )
+from .billing import has_available_credits
 from .render_web import ensure_subtitle_render_v1_contract, warm_editor_subtitle_style_cache
 
 
@@ -456,7 +456,7 @@ def _ensure_test_credit(job_id: str) -> None:
     owner_user_id = get_job_owner_user_id(job_id)
     if not owner_user_id:
         raise RuntimeError("job owner not found")
-    if get_credit_balance(owner_user_id) < 1:
+    if not has_available_credits(owner_user_id):
         raise RuntimeError("额度不足，请先兑换邀请码后重试")
 
 
@@ -645,12 +645,6 @@ def confirm_test(
             final_chapters_path=str(final_chapters),
         )
         confirmed_revision = build_document_revision(lines, normalized_chapters)
-        ensure_subtitle_render_v1_contract(
-            job_id,
-            lines=lines,
-            chapters=normalized_chapters,
-            document_revision=confirmed_revision,
-        )
         update_job(
             job_id,
             status=JOB_STATUS_TEST_CONFIRMED,
@@ -658,11 +652,26 @@ def confirm_test(
             stage_code="EXPORT_READY",
             stage_message="字幕和章节已确认，正在准备导出...",
         )
-        return {
-            "lines": lines,
-            "chapters": normalized_chapters,
-            "document_revision": confirmed_revision,
-        }
+
+    # 释放锁后再执行可能很重的渲染合同生成（包含 ffmpeg 转码）
+    try:
+        ensure_subtitle_render_v1_contract(
+            job_id,
+            lines=lines,
+            chapters=normalized_chapters,
+            document_revision=confirmed_revision,
+        )
+    except Exception:
+        logging.exception(
+            "[web_api] ensure_subtitle_render_v1_contract failed after confirm job=%s",
+            job_id,
+        )
+
+    return {
+        "lines": lines,
+        "chapters": normalized_chapters,
+        "document_revision": confirmed_revision,
+    }
 
 
 def schedule_editor_highlight_warmup(

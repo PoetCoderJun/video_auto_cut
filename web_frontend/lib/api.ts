@@ -1,4 +1,6 @@
 import {coerceWebRenderConfig} from "./remotion/subtitle-render-v1.ts";
+import {buildGuestDeviceFingerprint} from "./device.ts";
+import {GUEST_SESSION_STORAGE_KEY} from "./session.ts";
 
 export type JobStatus =
   | "CREATED"
@@ -70,6 +72,7 @@ export type RenderCaptionHighlight = {
   endToken?: number;
   color?: string;
   fontScale?: number;
+  backgroundColor?: string;
 };
 
 export type RenderCaptionLabel = {
@@ -119,7 +122,6 @@ export type RenderInputProps = {
   fps: number;
   width: number;
   height: number;
-  sourceKind?: "original" | "cut-proxy";
   subtitleTheme?: SubtitleTheme;
   subtitleScale?: number;
   subtitleYPercent?: number;
@@ -206,6 +208,7 @@ type ApiErrorResponse = {
 type AuthTokenProvider = () => Promise<string | null>;
 let authTokenProvider: AuthTokenProvider | null = null;
 let authTokenInflight: Promise<string | null> | null = null;
+let guestTokenCache: string | null | undefined;
 
 // Module-level JWT cache so we don't hit /api/auth/token on every request.
 let tokenCache: { token: string; expiresAt: number } | null = null;
@@ -218,10 +221,69 @@ export function invalidateTokenCache(): void {
   authTokenInflight = null;
 }
 
+function readStoredGuestToken(): string | null {
+  if (guestTokenCache !== undefined) {
+    return guestTokenCache;
+  }
+  if (typeof window === "undefined") {
+    guestTokenCache = null;
+    return guestTokenCache;
+  }
+  try {
+    const raw = window.localStorage.getItem(GUEST_SESSION_STORAGE_KEY);
+    if (!raw) {
+      guestTokenCache = null;
+      return guestTokenCache;
+    }
+    const parsed = JSON.parse(raw) as Partial<GuestSessionPayload>;
+    const token = String(parsed?.token || "").trim();
+    guestTokenCache = token || null;
+    return guestTokenCache;
+  } catch {
+    guestTokenCache = null;
+    return guestTokenCache;
+  }
+}
+
+function writeStoredGuestSession(payload: GuestSessionPayload | null): void {
+  guestTokenCache = payload?.token ? String(payload.token).trim() : null;
+  if (typeof window === "undefined") return;
+  try {
+    if (!payload || !guestTokenCache) {
+      window.localStorage.removeItem(GUEST_SESSION_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      GUEST_SESSION_STORAGE_KEY,
+      JSON.stringify({
+        guest_id: payload.guest_id,
+        token: guestTokenCache,
+        free_uses_remaining: payload.free_uses_remaining,
+        job_id: payload.job_id,
+        reused_existing: payload.reused_existing,
+      }),
+    );
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+export function clearGuestSessionToken(): void {
+  writeStoredGuestSession(null);
+}
+
 type RequestOptions = {
   authToken?: string;
   requireAuth?: boolean;
   keepalive?: boolean;
+};
+
+type GuestSessionPayload = {
+  guest_id: string;
+  token: string;
+  free_uses_remaining: number;
+  job_id: string | null;
+  reused_existing: boolean;
 };
 
 export type RenderCompletionPendingMarker = {
@@ -342,23 +404,34 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
   );
 
   let token: string | null = null;
+  let guestToken: string | null = null;
   // Explicit caller token always wins; only consult the provider when no explicit token was supplied.
   if (hasExplicitAuthToken) {
     const normalizedExplicitToken = String(options?.authToken || "").trim();
     if (normalizedExplicitToken) {
       token = normalizedExplicitToken;
     } else if (requireAuth) {
-      throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+      guestToken = readStoredGuestToken();
+      if (guestToken) {
+        headers.set("X-Guest-Token", guestToken);
+      } else {
+        throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+      }
     }
   } else {
     token = await resolveAuthToken();
-    if (requireAuth && !token) {
+    if (!token) {
+      guestToken = readStoredGuestToken();
+    }
+    if (requireAuth && !token && !guestToken) {
       throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
     }
   }
 
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  } else if (guestToken) {
+    headers.set("X-Guest-Token", guestToken);
   }
 
   let response: Response;
@@ -391,7 +464,8 @@ export async function transcodeSourceVideoToBrowserCompatibleMp4(
   file: File
 ): Promise<File> {
   const token = await resolveAuthToken();
-  if (!token) {
+  const guestToken = token ? null : readStoredGuestToken();
+  if (!token && !guestToken) {
     throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
   }
 
@@ -403,7 +477,8 @@ export async function transcodeSourceVideoToBrowserCompatibleMp4(
     response = await fetch(`${base}/source/browser-compatible`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...(token ? {Authorization: `Bearer ${token}`} : {}),
+        ...(guestToken ? {"X-Guest-Token": guestToken} : {}),
       },
       body: formData,
       cache: "no-store",
@@ -591,6 +666,39 @@ export async function claimPublicInviteCode(): Promise<{code: string; credits: n
   return data.invite;
 }
 
+export async function claimGuestSession(
+  deviceFingerprint = buildGuestDeviceFingerprint()
+): Promise<GuestSessionPayload> {
+  const data = await request<{guest: GuestSessionPayload}>(
+    "/public/guest/session",
+    {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        device_fingerprint: deviceFingerprint,
+      }),
+    }
+  );
+  writeStoredGuestSession(data.guest);
+  return data.guest;
+}
+
+export async function ensureGuestSessionForUpload(
+  deviceFingerprint = buildGuestDeviceFingerprint()
+): Promise<GuestSessionPayload | null> {
+  const token = readStoredGuestToken();
+  if (token) {
+    return {
+      guest_id: "",
+      token,
+      free_uses_remaining: 0,
+      job_id: null,
+      reused_existing: true,
+    };
+  }
+  return claimGuestSession(deviceFingerprint);
+}
+
 async function getAudioDirectUploadTarget(jobId: string): Promise<AudioDirectUploadTarget> {
   return requestAuthed<AudioDirectUploadTarget>(`/jobs/${jobId}/oss-upload-url`, {
     method: "POST",
@@ -758,38 +866,6 @@ export async function getWebRenderConfig(jobId: string): Promise<WebRenderConfig
   return coerceWebRenderConfig(data.render);
 }
 
-export async function downloadRenderSourceVideo(jobId: string): Promise<File> {
-  const token = await resolveAuthToken();
-  if (!token) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}/jobs/${jobId}/render/source-video`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-    });
-  } catch (err) {
-    throw new ApiClientError(`无法连接 API（${base}）：${toMessage(err)}`, "NETWORK_ERROR", 0);
-  }
-
-  await assertOk(response);
-  const blob = await response.blob();
-  const disposition = response.headers.get("Content-Disposition") || "";
-  const fileNameMatch =
-    disposition.match(/filename\\*=UTF-8''([^;]+)/i) ??
-    disposition.match(/filename=\"?([^\";]+)\"?/i);
-  const outputName = fileNameMatch
-    ? decodeURIComponent(String(fileNameMatch[1] || "").trim())
-    : `${jobId}_cut_source.mp4`;
-  return new File([blob], outputName, {
-    type: blob.type || "video/mp4",
-  });
-}
 
 export async function markRenderSucceeded(
   jobId: string,

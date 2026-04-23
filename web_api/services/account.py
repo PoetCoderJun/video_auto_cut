@@ -4,8 +4,10 @@ from typing import Any
 
 from ..config import get_settings
 from ..db_repository import (
+    claim_guest_session,
     claim_public_coupon_code,
     ensure_user,
+    get_guest_session,
     get_credit_balance,
     get_recent_credit_ledger,
     get_user,
@@ -43,6 +45,14 @@ class InviteClaimExhaustedError(AccountServiceError):
 
 
 class ClientIpUnavailableError(AccountServiceError):
+    pass
+
+
+class GuestSessionIneligibleError(AccountServiceError):
+    pass
+
+
+class GuestSessionUnavailableError(AccountServiceError):
     pass
 
 
@@ -138,6 +148,53 @@ def claim_public_invite_for_ip(ip_address: str) -> dict[str, object]:
         "code": str(result["code"]),
         "credits": int(result["credits"]),
         "already_claimed": bool(result["already_claimed"]),
+    }
+
+
+def claim_guest_session_for_request(
+    *,
+    ip_address: str,
+    user_agent: str | None,
+    device_fingerprint: str | None,
+) -> dict[str, object]:
+    normalized_ip = str(ip_address or "").strip()
+    if not normalized_ip:
+        raise ClientIpUnavailableError
+
+    try:
+        result = claim_guest_session(
+            ip_address=normalized_ip,
+            user_agent=user_agent,
+            device_fingerprint=device_fingerprint,
+        )
+    except LookupError as exc:
+        if str(exc) == "GUEST_SESSION_INELIGIBLE":
+            raise GuestSessionIneligibleError from exc
+        raise GuestSessionUnavailableError from exc
+    except ValueError as exc:
+        raise ClientIpUnavailableError from exc
+    except RuntimeError as exc:
+        raise GuestSessionUnavailableError from exc
+
+    return {
+        "guest_id": str(result["guest_id"]),
+        "token": str(result["token"]),
+        "free_uses_remaining": int(result["free_uses_remaining"]),
+        "job_id": result.get("job_id"),
+        "reused_existing": bool(result["reused_existing"]),
+    }
+
+
+def get_guest_session_snapshot(guest_id: str) -> dict[str, object] | None:
+    session = get_guest_session(guest_id)
+    if not session:
+        return None
+    return {
+        "guest_id": str(session["guest_id"]),
+        "free_uses_remaining": int(session["free_uses_remaining"]),
+        "status": str(session["status"]),
+        "job_id": session.get("job_id"),
+        "consumed_at": session.get("consumed_at"),
     }
 
 

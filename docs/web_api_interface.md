@@ -38,11 +38,14 @@
 - `WEB_AUTH_ISSUER`
 - `WEB_AUTH_AUDIENCE`
 
+部分任务接口现在也支持免登录体验头 `X-Guest-Token`。当前端先通过首台设备 guest session 领取到该 token 后，可在一次免费体验内访问任务相关接口而无需 Bearer JWT。
+
 ### 2.2 公开接口
 以下接口无需登录：
 
 - `POST /public/coupons/verify`
 - `POST /public/invites/claim`
+- `POST /public/guest/session`
 
 ## 3. 当前任务状态
 
@@ -118,16 +121,17 @@
 | `/auth/coupon/redeem` | `POST` | 登录 | 兑换 coupon 并刷新当前用户资料 |
 | `/public/coupons/verify` | `POST` | 公开 | 注册前校验 coupon 是否可用 |
 | `/public/invites/claim` | `POST` | 公开 | 按 IP 领取公共邀请码 |
-| `/client/upload-issues` | `POST` | 登录 | 上报浏览器端上传/预检问题 |
-| `/jobs` | `POST` | 登录 | 创建任务 |
-| `/jobs/{job_id}` | `GET` | 登录 | 查询任务状态 |
-| `/jobs/{job_id}/oss-upload-url` | `POST` | 登录 | 获取音频直传 OSS 的 PUT URL |
-| `/jobs/{job_id}/audio-oss-ready` | `POST` | 登录 | 告知后端 OSS 直传已完成 |
-| `/jobs/{job_id}/test/run` | `POST` | 登录 | 启动 Test 任务 |
-| `/jobs/{job_id}/test` | `GET` | 登录 | 读取当前 Test 文档 |
-| `/jobs/{job_id}/test/confirm` | `PUT` | 登录 | 提交最终字幕与章节并确认 |
-| `/jobs/{job_id}/render/config` | `GET` | 登录 | 获取浏览器导出配置 |
-| `/jobs/{job_id}/render/complete` | `POST` | 登录 | 标记浏览器导出完成并结算额度 |
+| `/public/guest/session` | `POST` | 公开 | 基于设备指纹 + IP/UA 领取首台设备免登录体验 token |
+| `/client/upload-issues` | `POST` | 登录 / Guest | 上报浏览器端上传/预检问题 |
+| `/jobs` | `POST` | 登录 / Guest | 创建任务 |
+| `/jobs/{job_id}` | `GET` | 登录 / Guest | 查询任务状态 |
+| `/jobs/{job_id}/oss-upload-url` | `POST` | 登录 / Guest | 获取音频直传 OSS 的 PUT URL |
+| `/jobs/{job_id}/audio-oss-ready` | `POST` | 登录 / Guest | 告知后端 OSS 直传已完成 |
+| `/jobs/{job_id}/test/run` | `POST` | 登录 / Guest | 启动 Test 任务 |
+| `/jobs/{job_id}/test` | `GET` | 登录 / Guest | 读取当前 Test 文档 |
+| `/jobs/{job_id}/test/confirm` | `PUT` | 登录 / Guest | 提交最终字幕与章节并确认 |
+| `/jobs/{job_id}/render/config` | `GET` | 登录 / Guest | 获取浏览器导出配置 |
+| `/jobs/{job_id}/render/complete` | `POST` | 登录 / Guest | 标记浏览器导出完成并结算额度 |
 
 ## 6. 路由说明
 
@@ -166,6 +170,15 @@
 
 #### `POST /public/invites/claim`
 按客户端 IP 领取公共邀请码，返回 `invite` 信息。
+
+#### `POST /public/guest/session`
+请求：
+
+```json
+{ "device_fingerprint": "..." }
+```
+
+返回 `guest` 信息，包含一次性 `token`。前端后续通过 `X-Guest-Token` 访问任务接口，以完成首台设备的一次免登录免费剪辑体验。
 
 ### 6.2 上传前诊断
 

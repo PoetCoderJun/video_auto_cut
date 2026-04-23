@@ -46,11 +46,55 @@ export function isUnsupportedLocalVideoBrowser(): boolean {
   const isOpera =
     /\bOPR\//.test(userAgent) ||
     brandNames.some((brand) => /Opera/i.test(brand));
+  const isChromeLike =
+    /(?:Headless)?Chrome\//.test(userAgent) ||
+    brandNames.some((brand) => /Chrom(e|ium)/i.test(brand));
   const isDesktopChrome =
-    /\bChrome\//.test(userAgent) &&
+    isChromeLike &&
     /Google/i.test(vendor) &&
     !isEdge &&
     !isOpera;
 
   return !isDesktopChrome;
+}
+
+export function buildGuestDeviceFingerprint(): string {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return "server";
+  }
+
+  const runtimeNavigator = navigator as NavigatorWithUAData;
+  const screenValue = typeof window.screen !== "undefined" ? window.screen : null;
+  const timezone =
+    typeof Intl !== "undefined"
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone || ""
+      : "";
+
+  const payload = {
+    userAgent: runtimeNavigator.userAgent || "",
+    language: runtimeNavigator.language || "",
+    languages: Array.isArray(runtimeNavigator.languages) ? runtimeNavigator.languages : [],
+    platform: runtimeNavigator.platform || "",
+    vendor: runtimeNavigator.vendor || "",
+    hardwareConcurrency:
+      typeof runtimeNavigator.hardwareConcurrency === "number"
+        ? runtimeNavigator.hardwareConcurrency
+        : 0,
+    maxTouchPoints:
+      typeof runtimeNavigator.maxTouchPoints === "number"
+        ? runtimeNavigator.maxTouchPoints
+        : 0,
+    webdriver: Boolean((runtimeNavigator as Navigator & {webdriver?: boolean}).webdriver),
+    screen: screenValue
+      ? {
+          width: Number(screenValue.width || 0),
+          height: Number(screenValue.height || 0),
+          colorDepth: Number(screenValue.colorDepth || 0),
+          pixelDepth: Number(screenValue.pixelDepth || 0),
+        }
+      : null,
+    timezone,
+  };
+
+  return JSON.stringify(payload);
 }

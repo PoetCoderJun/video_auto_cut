@@ -11,6 +11,11 @@ MAX_BLOCK_RANGE_LENGTH = 64
 MAX_CODE_LENGTH = 64
 MAX_OBJECT_KEY_LENGTH = 1024
 MAX_REVISION_LENGTH = 128
+MAX_SCRIPT_LENGTH = 50000
+
+
+class CreateJobRequest(BaseModel):
+    script: str = Field(default="", max_length=MAX_SCRIPT_LENGTH)
 
 
 class TestConfirmLine(BaseModel):
@@ -41,6 +46,10 @@ class TestConfirmRequest(BaseModel):
 
 class CouponRedeemRequest(BaseModel):
     code: str = Field(default="", min_length=1, max_length=MAX_CODE_LENGTH)
+
+
+class GuestSessionClaimRequest(BaseModel):
+    device_fingerprint: str = Field(default="", min_length=1, max_length=1024)
 
 
 class AudioOssReadyRequest(BaseModel):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import string
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,7 +26,6 @@ _STAGE_UNSET = object()
 
 JOB_FILE_FIELDS = (
     "video_path",
-    "render_source_video_path",
     "audio_path",
     "asr_oss_key",
     "pending_asr_oss_key",
@@ -103,6 +103,17 @@ def _generate_coupon_code(length: int = 10) -> str:
     alphabet = string.ascii_uppercase + string.digits
     token = "".join(secrets.choice(alphabet) for _ in range(max(4, int(length))))
     return f"CPN-{token}"
+
+
+def _generate_guest_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _hash_tracking_value(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _create_coupon_in_tx(
@@ -270,6 +281,291 @@ def claim_public_coupon_code(
             "credits": normalized_credits,
             "already_claimed": already_claimed,
         }
+
+
+def _row_to_guest_session(row: Any) -> dict[str, Any]:
+    return {
+        "guest_id": str(_row_value(row, "guest_id", 0) or "").strip(),
+        "token_hash": str(_row_value(row, "token_hash", 1) or "").strip(),
+        "device_fingerprint_hash": _row_value(row, "device_fingerprint_hash", 2),
+        "ip_hash": str(_row_value(row, "ip_hash", 3) or "").strip(),
+        "user_agent_hash": _row_value(row, "user_agent_hash", 4),
+        "free_uses_remaining": int(_row_value(row, "free_uses_remaining", 5) or 0),
+        "status": str(_row_value(row, "status", 6) or "ACTIVE").upper(),
+        "job_id": _row_value(row, "job_id", 7),
+        "consumed_at": _row_value(row, "consumed_at", 8),
+        "created_at": _row_value(row, "created_at", 9),
+        "updated_at": _row_value(row, "updated_at", 10),
+    }
+
+
+def _load_guest_session_in_tx(
+    conn: Any,
+    *,
+    guest_id: str | None = None,
+    token_hash: str | None = None,
+    device_fingerprint_hash: str | None = None,
+    ip_hash: str | None = None,
+    user_agent_hash: str | None = None,
+) -> dict[str, Any] | None:
+    row = None
+    if guest_id:
+        row = conn.execute(
+            """
+            SELECT guest_id, token_hash, device_fingerprint_hash, ip_hash, user_agent_hash,
+                   free_uses_remaining, status, job_id, consumed_at, created_at, updated_at
+            FROM guest_sessions
+            WHERE guest_id = ?
+            LIMIT 1
+            """,
+            (guest_id,),
+        ).fetchone()
+    elif token_hash:
+        row = conn.execute(
+            """
+            SELECT guest_id, token_hash, device_fingerprint_hash, ip_hash, user_agent_hash,
+                   free_uses_remaining, status, job_id, consumed_at, created_at, updated_at
+            FROM guest_sessions
+            WHERE token_hash = ?
+            LIMIT 1
+            """,
+            (token_hash,),
+        ).fetchone()
+    elif device_fingerprint_hash:
+        row = conn.execute(
+            """
+            SELECT guest_id, token_hash, device_fingerprint_hash, ip_hash, user_agent_hash,
+                   free_uses_remaining, status, job_id, consumed_at, created_at, updated_at
+            FROM guest_sessions
+            WHERE device_fingerprint_hash = ?
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (device_fingerprint_hash,),
+        ).fetchone()
+    elif ip_hash:
+        if user_agent_hash:
+            row = conn.execute(
+                """
+                SELECT guest_id, token_hash, device_fingerprint_hash, ip_hash, user_agent_hash,
+                       free_uses_remaining, status, job_id, consumed_at, created_at, updated_at
+                FROM guest_sessions
+                WHERE ip_hash = ? AND user_agent_hash = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (ip_hash, user_agent_hash),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT guest_id, token_hash, device_fingerprint_hash, ip_hash, user_agent_hash,
+                       free_uses_remaining, status, job_id, consumed_at, created_at, updated_at
+                FROM guest_sessions
+                WHERE ip_hash = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (ip_hash,),
+            ).fetchone()
+    if not row:
+        return None
+    return _row_to_guest_session(row)
+
+
+@retry_turso_operation("claim guest session")
+def claim_guest_session(
+    *,
+    ip_address: str,
+    user_agent: str | None,
+    device_fingerprint: str | None,
+) -> dict[str, Any]:
+    normalized_ip = str(ip_address or "").strip()
+    if not normalized_ip:
+        raise ValueError("client ip cannot be empty")
+
+    ip_hash = _hash_tracking_value(normalized_ip)
+    user_agent_hash = _hash_tracking_value(user_agent)
+    fingerprint_hash = _hash_tracking_value(device_fingerprint)
+    now = now_iso()
+
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+
+        existing = None
+        if fingerprint_hash:
+            existing = _load_guest_session_in_tx(
+                conn,
+                device_fingerprint_hash=fingerprint_hash,
+            )
+        if existing is None and ip_hash:
+            existing = _load_guest_session_in_tx(
+                conn,
+                ip_hash=ip_hash,
+                user_agent_hash=user_agent_hash,
+            )
+
+        guest_token = _generate_guest_token()
+        token_hash = _hash_tracking_value(guest_token)
+        if not token_hash:
+            conn.rollback()
+            raise RuntimeError("failed to create guest token")
+
+        if existing is not None:
+            status = str(existing.get("status") or "ACTIVE").upper()
+            remaining = int(existing.get("free_uses_remaining") or 0)
+            if remaining < 1 or status != "ACTIVE":
+                conn.rollback()
+                raise LookupError("GUEST_SESSION_INELIGIBLE")
+
+            conn.execute(
+                """
+                UPDATE guest_sessions
+                SET token_hash = ?,
+                    device_fingerprint_hash = COALESCE(device_fingerprint_hash, ?),
+                    ip_hash = ?,
+                    user_agent_hash = COALESCE(?, user_agent_hash),
+                    updated_at = ?
+                WHERE guest_id = ?
+                """,
+                (
+                    token_hash,
+                    fingerprint_hash,
+                    ip_hash,
+                    user_agent_hash,
+                    now,
+                    existing["guest_id"],
+                ),
+            )
+            conn.commit()
+            refreshed = _load_guest_session_in_tx(conn, guest_id=existing["guest_id"]) or existing
+            return {
+                "guest_id": str(refreshed["guest_id"]),
+                "token": guest_token,
+                "free_uses_remaining": int(refreshed["free_uses_remaining"]),
+                "job_id": refreshed.get("job_id"),
+                "reused_existing": True,
+            }
+
+        guest_id = f"gst_{uuid.uuid4().hex[:16]}"
+        conn.execute(
+            """
+            INSERT INTO guest_sessions(
+                guest_id,
+                token_hash,
+                device_fingerprint_hash,
+                ip_hash,
+                user_agent_hash,
+                free_uses_remaining,
+                status,
+                job_id,
+                consumed_at,
+                created_at,
+                updated_at
+            )
+            VALUES(?, ?, ?, ?, ?, 1, 'ACTIVE', NULL, NULL, ?, ?)
+            """,
+            (
+                guest_id,
+                token_hash,
+                fingerprint_hash,
+                ip_hash,
+                user_agent_hash,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return {
+            "guest_id": guest_id,
+            "token": guest_token,
+            "free_uses_remaining": 1,
+            "job_id": None,
+            "reused_existing": False,
+        }
+
+
+@retry_turso_operation("get guest session by token")
+def get_guest_session_by_token(token: str) -> dict[str, Any] | None:
+    token_hash = _hash_tracking_value(token)
+    if not token_hash:
+        return None
+    with get_conn() as conn:
+        return _load_guest_session_in_tx(conn, token_hash=token_hash)
+
+
+@retry_turso_operation("get guest session")
+def get_guest_session(guest_id: str) -> dict[str, Any] | None:
+    normalized_guest_id = str(guest_id or "").strip()
+    if not normalized_guest_id:
+        return None
+    with get_conn() as conn:
+        return _load_guest_session_in_tx(conn, guest_id=normalized_guest_id)
+
+
+@retry_turso_operation("set guest session job")
+def set_guest_session_job(guest_id: str, job_id: str | None) -> dict[str, Any]:
+    normalized_guest_id = str(guest_id or "").strip()
+    if not normalized_guest_id:
+        raise ValueError("guest_id cannot be empty")
+    normalized_job_id = str(job_id or "").strip() or None
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE guest_sessions
+            SET job_id = ?, updated_at = ?
+            WHERE guest_id = ?
+            """,
+            (normalized_job_id, now_iso(), normalized_guest_id),
+        )
+        conn.commit()
+        session = _load_guest_session_in_tx(conn, guest_id=normalized_guest_id)
+    if not session:
+        raise LookupError("GUEST_SESSION_NOT_FOUND")
+    return session
+
+
+@retry_turso_operation("consume guest session free use")
+def consume_guest_session_free_use(guest_id: str, job_id: str) -> dict[str, Any]:
+    normalized_guest_id = str(guest_id or "").strip()
+    normalized_job_id = str(job_id or "").strip()
+    if not normalized_guest_id:
+        raise ValueError("guest_id cannot be empty")
+    if not normalized_job_id:
+        raise ValueError("job_id cannot be empty")
+
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        session = _load_guest_session_in_tx(conn, guest_id=normalized_guest_id)
+        if not session:
+            conn.rollback()
+            raise LookupError("GUEST_SESSION_NOT_FOUND")
+
+        remaining = int(session.get("free_uses_remaining") or 0)
+        status = str(session.get("status") or "ACTIVE").upper()
+        previous_job_id = str(session.get("job_id") or "").strip()
+        if remaining < 1 or status != "ACTIVE":
+            if previous_job_id == normalized_job_id:
+                conn.commit()
+                return {"consumed": False, "balance": 0}
+            conn.rollback()
+            raise LookupError("INSUFFICIENT_CREDITS")
+
+        now = now_iso()
+        conn.execute(
+            """
+            UPDATE guest_sessions
+            SET free_uses_remaining = 0,
+                status = 'CONSUMED',
+                job_id = ?,
+                consumed_at = ?,
+                updated_at = ?
+            WHERE guest_id = ?
+            """,
+            (normalized_job_id, now, now, normalized_guest_id),
+        )
+        conn.commit()
+        return {"consumed": True, "balance": 0}
 
 
 @retry_turso_operation("get credit balance")

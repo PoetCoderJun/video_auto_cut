@@ -1,22 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Zap,
-  Video,
-  CheckCircle2,
-  Play,
   UploadCloud,
-  Scissors,
-  ShieldCheck,
+  CheckCircle2,
   ArrowRight,
+  Play,
+  FileVideo,
+  FileText,
+  Wand2,
+  Scissors,
+  Subtitles,
+  Clock,
+  Shield,
 } from "lucide-react";
+import Logo from "@/components/logo";
+import {
+  UploadIllustration,
+  AICutIllustration,
+  ExportIllustration,
+} from "@/components/step-illustrations";
 
 import {
   ApiClientError,
   activateInviteCode,
+  ensureGuestSessionForUpload,
   type ClientUploadIssueStage,
   getMe,
   invalidateTokenCache,
@@ -62,51 +72,109 @@ import {
 import { cn } from "@/lib/utils";
 import CouponRedeemEntry from "@/components/coupon-redeem-entry";
 import FounderCard from "@/components/founder-card";
+import HeroAnimation from "@/components/hero-animation";
 
 const FAQ_ITEMS = [
   {
     question: "支持哪些视频格式？",
-    answer: "当前支持主流视频格式：MP4、MOV、MKV、WebM、M4V、TS、M2TS、MTS。",
-  },
-  {
-    question: "一次处理大概需要多久？",
     answer:
-      "取决于视频时长和您的电脑性能，AI 分析仅需几分钟，导出过程由于在本地渲染，速度非常快。",
+      "当前支持主流视频格式：MP4、MOV、MKV、WebM、M4V、TS、M2TS、MTS。单次上传最长支持 10 分钟。",
   },
   {
-    question: "是否需要专业剪辑经验？",
-    answer: "完全不需要。整个流程按步骤引导，您的重点只是确认文字字幕和章节结构。",
+    question: "对浏览器有什么要求？",
+    answer:
+      "请使用桌面版 Chrome。由于导出渲染依赖浏览器本地 FFmpeg，目前暂不支持 Edge、Safari、Firefox 及移动端浏览器。",
   },
-];
-
-const LANDING_STATS = [
-  { label: "剪辑准备时间", value: "95%", hint: "平均可节省" },
-  { label: "上手门槛", value: "0", hint: "无需专业经验" },
-  { label: "流程步骤", value: "3", hint: "上传到导出" },
+  {
+    question: "视频数据安全吗？会上传到哪里？",
+    answer:
+      "视频上传至阿里云 OSS 用于云端 AI 语音转写与分析，分析完成后不会长期保留。最终视频导出渲染完全在您的本地浏览器中完成，成片不会上传至任何服务器。",
+  },
+  {
+    question: "如何获得使用额度？",
+    answer:
+      "首台新设备可免登录免费剪辑一次；之后注册/老用户继续通过邀请码或兑换码获取额度。",
+  },
 ];
 
 const FLOW_STEPS = [
   {
     title: "上传视频",
     description: "直接上传口播视频，系统自动提取语音与字幕。",
-    icon: <UploadCloud className="h-5 w-5 text-indigo-600" />,
+    illustration: UploadIllustration,
   },
   {
     title: "AI 智能精简",
     description: "自动识别废话、停顿和重复表达，生成更紧凑内容。",
-    icon: <Scissors className="h-5 w-5 text-violet-600" />,
+    illustration: AICutIllustration,
   },
   {
     title: "快速导出成片",
     description: "自动渲染字幕、进度条和章节，导出可发布视频。",
-    icon: <Play className="h-5 w-5 text-rose-600" />,
+    illustration: ExportIllustration,
   },
 ];
+
+function useInView(threshold = 0.2) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [inView, setInView] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { threshold }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [threshold]);
+  return { ref, inView: !mounted || inView };
+}
+
+function StepCard({ step, index }: { step: typeof FLOW_STEPS[0]; index: number }) {
+  const { ref, inView } = useInView(0.15);
+  const Illustration = step.illustration;
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        "transition-all duration-700 ease-out",
+        inView
+          ? "opacity-100 translate-y-0"
+          : "opacity-0 translate-y-6"
+      )}
+      style={{ transitionDelay: `${index * 150}ms` }}
+    >
+      <Card className="border-muted bg-card shadow-sm overflow-hidden h-full">
+        <div className="pt-6 px-6">
+          <Illustration className="h-28 text-foreground" />
+        </div>
+        <CardHeader className="pt-4">
+          <CardTitle className="text-lg">
+            <span className="text-muted-foreground mr-2">{index + 1}.</span>
+            {step.title}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CardDescription className="text-base leading-relaxed">
+            {step.description}
+          </CardDescription>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
 
 type UserStatus = "UNKNOWN" | "ACTIVE" | "PENDING_COUPON";
 
 export default function HomePageClient() {
-  const router = useRouter();
   const [jobId, setJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -118,6 +186,15 @@ export default function HomePageClient() {
   const [authAccount, setAuthAccount] = useState("");
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
   const [uploadStageMessage, setUploadStageMessage] = useState("");
+  const [scrolled, setScrolled] = useState(false);
+  const [script, setScript] = useState("");
+  const [scriptExpanded, setScriptExpanded] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // Set up a lazy token provider. JWT is fetched on first API request and cached
   // in api.ts for ~4 minutes; no network call on page mount.
@@ -181,6 +258,12 @@ export default function HomePageClient() {
     setMobileUploadBlocked(
       isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser()
     );
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 10);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
   const showMobileUploadError = useCallback(() => {
@@ -271,12 +354,20 @@ export default function HomePageClient() {
         return;
       }
 
-      // 1. Verify session lazily at consumption time.
+      // 1. Verify session lazily at consumption time. If the visitor is not
+      // signed in, try the one-time guest flow first.
       uploadStage = "session_check";
       const sessionResult = await (authClient as any).getSession();
       const user = sessionResult?.data?.user;
       if (!user?.id) {
-        router.push("/sign-in");
+        await ensureGuestSessionForUpload();
+        setInviteNotice("已开启首台设备免登录体验，本次可免费完整剪辑并导出一次。");
+        const result = await runUploadPipeline({
+          file,
+          script,
+          onStageMessage: setUploadStageMessage,
+        });
+        saveJobId(result.job.job_id);
         return;
       }
       const userId = String(user.id);
@@ -349,6 +440,7 @@ export default function HomePageClient() {
 
       const result = await runUploadPipeline({
         file,
+        script,
         onStageMessage: setUploadStageMessage,
       });
       saveJobId(result.job.job_id);
@@ -384,20 +476,17 @@ export default function HomePageClient() {
   if (jobId) {
     return (
       <div className="min-h-screen bg-background font-sans">
-        <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className={cn("sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-shadow duration-300", scrolled && "shadow-sm")}>
           <div className="container mx-auto flex h-14 items-center justify-between px-4 sm:px-6">
             <Link
               href="/"
-              className="flex items-center gap-2 font-bold text-lg text-foreground transition-opacity hover:opacity-80"
+              className="flex items-center gap-2 transition-opacity hover:opacity-80"
               onClick={(e) => {
                 e.preventDefault();
                 handleBackHome();
               }}
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Video className="h-4 w-4" />
-              </div>
-              <span>AI Cut</span>
+              <Logo iconSize={32} showText={true} />
             </Link>
             <div className="flex items-center gap-3">
               {isSignedIn && (
@@ -428,16 +517,13 @@ export default function HomePageClient() {
 
   return (
     <div className="min-h-screen bg-background font-sans">
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className={cn("sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 transition-shadow duration-300", scrolled && "shadow-sm")}>
         <div className="container mx-auto flex h-14 items-center justify-between px-4 sm:px-6">
           <Link
             href="/"
-            className="flex items-center gap-2 font-bold text-lg text-foreground transition-opacity hover:opacity-80"
+            className="flex items-center gap-2 transition-opacity hover:opacity-80"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Video className="h-4 w-4" />
-            </div>
-            <span>AI Cut</span>
+            <Logo iconSize={32} showText={true} />
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
             <a href="#how-it-works" className="transition-colors hover:text-foreground">
@@ -478,11 +564,12 @@ export default function HomePageClient() {
       </header>
 
       <main className="container mx-auto px-4 sm:px-6">
-        {/* Hero Section */}
-        <section className="relative pt-14 pb-14 text-center lg:pt-24">
-          <div className="absolute inset-x-0 -top-40 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-80">
+        {/* Hero Section — full viewport minus header */}
+        <section className="relative flex flex-col justify-center min-h-[calc(100dvh-3.5rem)] py-6 lg:py-8">
+          {/* Background gradient blob */}
+          <div className="absolute inset-x-0 -top-20 -z-10 transform-gpu overflow-hidden blur-3xl sm:-top-40">
             <div
-              className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-30 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
+              className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] -translate-x-1/2 rotate-[30deg] bg-gradient-to-tr from-[#ff80b5] to-[#9089fc] opacity-20 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
               style={{
                 clipPath:
                   "polygon(74.1% 44.1%, 100% 61.6%, 97.5% 26.9%, 85.5% 0.1%, 80.7% 2%, 72.5% 32.5%, 60.2% 62.4%, 52.4% 68.1%, 47.5% 58.3%, 45.2% 34.5%, 27.5% 76.7%, 0.1% 64.9%, 17.9% 100%, 27.6% 76.8%, 76.1% 97.7%, 74.1% 44.1%)",
@@ -490,114 +577,230 @@ export default function HomePageClient() {
             />
           </div>
 
-          <div className="mx-auto max-w-2xl">
-            <div className="mb-8 flex justify-center">
-              <div className="relative rounded-full px-3 py-1 text-sm leading-6 text-muted-foreground ring-1 ring-border/60 hover:ring-border/80 bg-background/50 backdrop-blur-sm">
-                <span className="flex items-center gap-1.5 font-semibold text-foreground">
-                  <Zap className="h-4 w-4 text-amber-500 fill-amber-500" />
-                  AI 自动剪辑，让口播制作提速 95%
+          <div className="flex flex-col lg:flex-row lg:items-center lg:gap-10 xl:gap-14">
+            {/* ── Left column: headline + upload card ── */}
+            <div className="flex-1 lg:max-w-[56%] min-w-0">
+              {/* Headline */}
+              <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-[3.25rem] lg:leading-[1.12]">
+                <span className="block text-muted-foreground font-semibold">
+                  一次录制，随便讲错
                 </span>
+                <span className="block mt-1">
+                  AI{" "}
+                  <span className="bg-gradient-to-r from-foreground to-indigo-600 bg-clip-text text-transparent">
+                    一键成片
+                  </span>
+                </span>
+              </h1>
+
+              {/* Highlights */}
+              <div className="mt-4 space-y-2 max-w-md lg:max-w-none">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 mt-0.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">一次录制，中途随便讲错</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">说错、重复、停顿都没关系，不用 NG 重录</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 mt-0.5">
+                    <Zap className="h-3.5 w-3.5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">AI 一键精剪成片</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">自动剔除废话、添加字幕章节，几分钟导出</p>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <h1 className="mb-6 text-4xl font-extrabold tracking-tight text-foreground sm:text-6xl">
-              AI 口播视频{" "}
-              <span className="bg-gradient-to-r from-foreground to-indigo-600 bg-clip-text text-transparent">
-                一键精剪与导出
-              </span>
-            </h1>
-
-            <p className="mt-6 text-lg leading-8 text-muted-foreground">
-              自动剔除废话、整理章节并渲染字幕效果，几分钟完成口播后期。<br />
-              全流程可编辑，既快又可控。
-            </p>
-
-            <div className="mt-10 flex flex-col items-center justify-center gap-6">
-              {/* Direct Upload Area */}
+              {/* Upload + Script Card */}
               <div
-                onClick={handleUploadAreaClick}
-                className={cn(
-                  "relative group w-full max-w-lg rounded-xl border-2 border-dashed border-muted-foreground/25 bg-card p-10 transition-all hover:border-primary/50 hover:bg-muted/30",
-                  mobileUploadBlocked || loading
-                    ? "cursor-not-allowed opacity-70"
-                    : "cursor-pointer"
-                )}
+                className="mt-5"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (mobileUploadBlocked || loading) return;
+                  const file = e.dataTransfer.files?.[0];
+                  if (!file) return;
+                  const input = document.querySelector<HTMLInputElement>("input[type='file']");
+                  if (!input) return;
+                  const dt = new DataTransfer();
+                  dt.items.add(file);
+                  input.files = dt.files;
+                  input.dispatchEvent(new Event("change", { bubbles: true }));
+                }}
               >
-                <input
-                  type="file"
-                  accept=".mp4,.mov,.mkv,.webm,.m4v,.ts,.m2ts,.mts"
-                  onChange={handleFileSelect}
-                  disabled={loading || mobileUploadBlocked}
-                  className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-                />
-                <div className="flex flex-col items-center justify-center gap-4 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/5 text-primary">
-                    {loading ? (
-                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    ) : (
-                      <UploadCloud className="h-8 w-8" />
+                <Card className="border-border/80 shadow-sm overflow-hidden">
+                  {/* Upload area */}
+                  <div
+                    onClick={handleUploadAreaClick}
+                    className={cn(
+                      "relative group px-5 py-4 transition-all duration-300 hover:bg-muted/30",
+                      mobileUploadBlocked || loading
+                        ? "cursor-not-allowed opacity-70"
+                        : "cursor-pointer"
+                    )}
+                  >
+                    <input
+                      type="file"
+                      accept=".mp4,.mov,.mkv,.webm,.m4v,.ts,.m2ts,.mts"
+                      onChange={handleFileSelect}
+                      disabled={loading || mobileUploadBlocked}
+                      className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                    />
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-all duration-300 group-hover:bg-primary/15 group-hover:scale-105">
+                        {loading ? (
+                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        ) : (
+                          <UploadCloud className="h-6 w-6" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground">
+                          {loading
+                            ? uploadStageMessage || "正在上传并分析..."
+                            : mobileUploadBlocked
+                            ? "当前浏览器暂不支持上传"
+                            : "拖拽文件到此处，或点击上传视频"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {mobileUploadBlocked
+                            ? "请使用桌面版 Chrome"
+                            : "支持 MP4, MOV, MKV 等 · 最长 10 分钟"}
+                        </p>
+                      </div>
+                      {!loading && !mobileUploadBlocked && (
+                        <span className="text-xs font-medium text-primary shrink-0 px-3 py-1.5 rounded-full bg-primary/5 ring-1 ring-primary/20 group-hover:bg-primary/10 transition-colors">
+                          选择文件
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-px bg-border/60" />
+
+                  {/* Script input area */}
+                  <div className="px-5 py-3 bg-muted/20">
+                    <button
+                      type="button"
+                      onClick={() => setScriptExpanded((v) => !v)}
+                      className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <FileText className="h-3.5 w-3.5" />
+                      <span>已有口播脚本？（可选）粘贴进来让 AI 更精准剪辑</span>
+                      <span className={cn("ml-auto transition-transform duration-200", scriptExpanded && "rotate-180")}>▼</span>
+                    </button>
+                    {scriptExpanded && (
+                      <div className="mt-2">
+                        <textarea
+                          value={script}
+                          onChange={(e) => setScript(e.target.value)}
+                          placeholder="在此粘贴你的口播脚本，AI 会以此为参考进行剪辑和润色..."
+                          className="w-full min-h-[80px] max-h-[160px] resize-y rounded-lg border border-border/80 bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/40"
+                        />
+                      </div>
                     )}
                   </div>
-                  <div className="space-y-1">
-                    <h3 className="font-semibold text-lg text-foreground">
-                      {loading
-                        ? uploadStageMessage || "正在上传并分析..."
-                        : mobileUploadBlocked
-                        ? "当前浏览器暂不支持上传"
-                        : "点击或拖拽上传视频"}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {mobileUploadBlocked
-                        ? "请使用桌面版 Chrome"
-                        : loading
-                        ? "请保持页面开启，我们会自动继续处理。"
-                        : "支持 MP4, MOV, MKV 等主流格式 · 最长 10 分钟"}
-                    </p>
-                  </div>
-                  {!isSignedIn && (
-                    <Badge variant="outline" className="text-amber-600 bg-amber-50 border-amber-200 mt-2">
-                      需登录后使用
-                    </Badge>
+                </Card>
+
+                {/* Status messages */}
+                <div className="mt-3 space-y-2">
+                  {inviteNotice && (
+                    <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {inviteNotice}
+                    </div>
+                  )}
+                  {mobileUploadBlocked && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                      当前浏览器暂不支持上传视频，请使用桌面版 Chrome。
+                    </div>
+                  )}
+                  {error && (
+                    <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive border border-destructive/20">
+                      <p>{error}</p>
+                    </div>
                   )}
                 </div>
               </div>
 
-              {inviteNotice && (
-                <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 border border-emerald-200">
-                  <CheckCircle2 className="h-4 w-4" />
-                  {inviteNotice}
-                </div>
-              )}
-
-              {mobileUploadBlocked && (
-                <div className="w-full max-w-lg rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800 text-center">
-                  当前浏览器暂不支持上传视频，请使用桌面版 Chrome。
-                </div>
-              )}
-
-              {error && (
-                <div className="w-full max-w-lg rounded-md bg-destructive/10 p-3 text-sm font-medium text-destructive text-center border border-destructive/20">
-                  <p>{error}</p>
-                </div>
-              )}
+              {/* Mobile: CTA buttons moved below card */}
+              <div className="mt-6 flex flex-wrap items-center gap-3 lg:hidden justify-center">
+                <Button
+                  onClick={() => {
+                    if (mobileUploadBlocked) {
+                      showMobileUploadError();
+                      return;
+                    }
+                    const input = document.querySelector<HTMLInputElement>("input[type='file']");
+                    input?.click();
+                  }}
+                  className="rounded-full h-10 px-5 text-sm"
+                  disabled={loading}
+                >
+                  <UploadCloud className="mr-2 h-4 w-4" />
+                  立即上传
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-full h-10 px-5 text-sm"
+                  onClick={() => {
+                    const el = document.getElementById("how-it-works");
+                    el?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  观看演示
+                </Button>
+              </div>
             </div>
 
-            <div className="mx-auto mt-12 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3">
-              {LANDING_STATS.map((item) => (
-                <Card key={item.label} className="border-border/80 bg-card/80 text-left shadow-sm">
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground">{item.label}</p>
-                    <p className="mt-1 text-2xl font-bold tracking-tight">{item.value}</p>
-                    <p className="text-xs text-muted-foreground">{item.hint}</p>
-                  </CardContent>
-                </Card>
+            {/* ── Right column: animation ── */}
+            <div className="hidden lg:flex flex-1 justify-center items-center max-w-[48%] min-h-[420px]">
+              <HeroAnimation />
+            </div>
+          </div>
+        </section>
+
+        {/* Features honeycomb grid */}
+        <section className="py-14 lg:py-18 -mx-4 sm:-mx-6 px-4 sm:px-6 border-y border-border/40">
+          <div className="mx-auto max-w-4xl">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 lg:gap-4">
+              {[
+                { icon: Scissors, title: "自动剪废话", desc: "识别重复、口误、停顿，自动删除冗余片段" },
+                { icon: Wand2, title: "AI 润色字幕", desc: "修正 ASR 错词、同音字，让字幕更专业" },
+                { icon: Subtitles, title: "智能加字幕", desc: "自动生成带样式的字幕和章节标记" },
+                { icon: Clock, title: "进度条", desc: "自动渲染视频进度条，提升完播率" },
+                { icon: Shield, title: "本地导出", desc: "成片在浏览器本地渲染，不上传服务器" },
+                { icon: Zap, title: "几分钟出片", desc: "从上传到导出，全流程 AI 自动化处理" },
+              ].map((feat, i) => (
+                <div
+                  key={feat.title}
+                  className={cn(
+                    "group relative rounded-xl border border-border/60 bg-card p-4 lg:p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-sm hover:-translate-y-0.5",
+                    i === 0 && "md:col-span-1",
+                    i === 3 && "md:col-span-1"
+                  )}
+                  style={{ transitionDelay: `${i * 50}ms` }}
+                >
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary mb-3 group-hover:bg-primary/15 transition-colors">
+                    <feat.icon className="h-[18px] w-[18px]" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-foreground">{feat.title}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{feat.desc}</p>
+                </div>
               ))}
             </div>
           </div>
         </section>
 
-        <section id="how-it-works" className="py-8">
-          <div className="mx-auto mb-8 max-w-2xl text-center">
+        <section id="how-it-works" className="bg-slate-50 dark:bg-slate-900/30 py-16 lg:py-20 -mx-4 sm:-mx-6 px-4 sm:px-6">
+          <div className="mx-auto max-w-2xl mb-10 text-center">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               3 步完成视频成片
             </h2>
@@ -607,28 +810,14 @@ export default function HomePageClient() {
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {FLOW_STEPS.map((step, index) => (
-              <Card key={step.title} className="border-muted bg-card shadow-sm">
-                <CardHeader>
-                  <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                    {step.icon}
-                  </div>
-                  <CardTitle className="text-lg">
-                    {index + 1}. {step.title}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription className="text-base leading-relaxed">
-                    {step.description}
-                  </CardDescription>
-                </CardContent>
-              </Card>
+              <StepCard key={step.title} step={step} index={index} />
             ))}
           </div>
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="mx-auto max-w-3xl py-16">
-          <div className="mb-10 text-center">
+        <section id="faq" className="mx-auto max-w-3xl py-16 lg:py-20 border-t border-border/60">
+          <div className="mb-12 text-center">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               常见问题
             </h2>
@@ -654,14 +843,14 @@ export default function HomePageClient() {
         </section>
 
         {/* Author */}
-        <section className="border-t border-border py-16">
+        <section className="border-t border-border/60 py-12">
           <div className="mx-auto max-w-md">
             <FounderCard />
           </div>
         </section>
 
-        <section className="pb-16">
-          <Card className="border-border bg-gradient-to-r from-indigo-50/70 via-violet-50/50 to-white shadow-sm">
+        <section className="pb-16 pt-8">
+          <Card className="border-border bg-gradient-to-br from-indigo-50 via-violet-50/70 to-background dark:from-indigo-950/30 dark:via-violet-950/20 dark:to-background shadow-sm">
             <CardContent className="flex flex-col items-center gap-4 px-6 py-8 text-center sm:px-10">
               <h3 className="text-xl font-bold text-foreground sm:text-2xl">
                 开始你的下一条高质量口播视频
