@@ -213,6 +213,18 @@ def _ensure_actor_can_use_job_routes(actor: RequestActor) -> None:
         raise _translate_account_error(exc) from exc
 
 
+def _coerce_actor(value: RequestActor | CurrentUser) -> RequestActor:
+    if isinstance(value, RequestActor):
+        return value
+    return RequestActor(
+        actor_id=value.user_id,
+        kind="user",
+        email=value.email,
+        account=value.account,
+        guest_id=None,
+    )
+
+
 @router.post("/jobs")
 def create_job_endpoint(
     request: CreateJobRequest = Body(default_factory=CreateJobRequest),
@@ -538,8 +550,9 @@ def render_config(
     height: int | None = None,
     fps: float | None = None,
     duration_sec: float | None = None,
-    actor: RequestActor = Depends(require_request_actor),
+    current_user: RequestActor | CurrentUser = Depends(require_request_actor),
 ) -> dict[str, Any]:
+    actor = _coerce_actor(current_user)
     job = load_job_or_404(job_id, actor.actor_id)
     require_status(job, RENDER_GET_ALLOWED_STATUSES)
     try:
@@ -562,8 +575,9 @@ def render_config(
 @router.post("/jobs/{job_id}/render/complete")
 def render_complete(
     job_id: str,
-    actor: RequestActor = Depends(require_request_actor),
+    current_user: RequestActor | CurrentUser = Depends(require_request_actor),
 ) -> dict[str, Any]:
+    actor = _coerce_actor(current_user)
     _ensure_actor_can_use_job_routes(actor)
     try:
         latest, billing_result = complete_render_export(job_id, actor.actor_id)
