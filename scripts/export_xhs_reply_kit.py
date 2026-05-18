@@ -28,7 +28,7 @@ DEFAULT_TEMPLATE = """已收到，感谢支持。
 使用方式：
 1. 打开 PoetCut
 2. 登录账号
-3. 点击首页「兑换码兑换」
+3. 点击首页“兑换码兑换”
 4. 输入上面的兑换码
 5. 兑换成功后到账 5 次剪辑额度
 
@@ -73,7 +73,7 @@ def render_html(*, codes: list[str], template: str, source: str) -> str:
     .stat {{ border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; background: #f8fafc; }}
     .stat b {{ display: block; font-size: 20px; }}
     label {{ display: block; margin: 14px 0 6px; font-size: 13px; font-weight: 700; }}
-    input, textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; font: inherit; background: white; }}
+    textarea {{ width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; font: inherit; background: white; }}
     textarea {{ min-height: 230px; resize: vertical; line-height: 1.5; }}
     button {{ width: 100%; border: 0; border-radius: 999px; padding: 14px 16px; font-size: 16px; font-weight: 800; color: white; background: #111827; margin-top: 10px; }}
     button.secondary {{ color: #111827; background: #e2e8f0; }}
@@ -85,42 +85,54 @@ def render_html(*, codes: list[str], template: str, source: str) -> str:
 <body>
   <main>
     <h1>PoetCut 小红书发码助手</h1>
-    <p>手机打开这个文件，点「复制回复」后粘贴到小红书私信。它只在本机记录已发状态，不会自动操作小红书。</p>
+    <p>手机打开这个文件，每次都会显示下一个可发送兑换码。点「复制回复」后粘贴到小红书私信，发送完再点删除并切到下一个。</p>
     <section class="panel">
       <div class="stats">
         <div class="stat"><span>总数</span><b id="total">0</b></div>
-        <div class="stat"><span>已发</span><b id="used">0</b></div>
+        <div class="stat"><span>已删</span><b id="used">0</b></div>
         <div class="stat"><span>剩余</span><b id="left">0</b></div>
       </div>
-      <label for="buyer">买家备注，可选</label>
-      <input id="buyer" placeholder="例如：小红书昵称 / 付款时间" />
       <div class="code" id="currentCode">-</div>
       <label for="reply">待发送回复</label>
       <textarea id="reply" readonly></textarea>
       <button id="copyBtn">复制回复</button>
-      <button id="markBtn" class="secondary">标记已发并切到下一个</button>
-      <button id="undoBtn" class="secondary">撤回上一次标记</button>
-      <button id="resetBtn" class="warn">清空本机已发记录</button>
-      <p class="hint">提示：如果浏览器不允许自动复制，点进文本框全选复制即可。</p>
+      <button id="deleteBtn" class="secondary">已发送，删除这个码并切到下一个</button>
+      <button id="undoBtn" class="secondary">撤回上一次删除</button>
+      <button id="resetBtn" class="warn">恢复这个页面内置的全部码</button>
+      <p class="hint">提示：删除只影响这个手机页面里的剩余列表，不会删除数据库兑换码。如果浏览器不允许自动复制，点进文本框全选复制即可。</p>
     </section>
   </main>
   <script>
     const CODES = {codes_json};
     const TEMPLATE = {template_json};
-    const STORAGE_KEY = "poetcut_xhs_used_codes_" + {json.dumps(source)};
-    const LOG_KEY = "poetcut_xhs_sent_log_" + {json.dumps(source)};
-    const usedSet = () => new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"));
-    const saveUsed = (set) => localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+    const STORAGE_KEY = "poetcut_xhs_remaining_codes_" + {json.dumps(source)};
+    const LOG_KEY = "poetcut_xhs_deleted_log_" + {json.dumps(source)};
+    function loadRemaining() {{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(CODES));
+        return [...CODES];
+      }}
+      try {{
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) throw new Error("invalid remaining list");
+        return parsed.filter((code) => typeof code === "string" && code.trim());
+      }} catch {{
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(CODES));
+        return [...CODES];
+      }}
+    }}
+    const saveRemaining = (items) => localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
     const log = () => JSON.parse(localStorage.getItem(LOG_KEY) || "[]");
     const saveLog = (items) => localStorage.setItem(LOG_KEY, JSON.stringify(items));
-    const nextCode = () => CODES.find((code) => !usedSet().has(code)) || "";
+    const nextCode = () => loadRemaining()[0] || "";
     const renderReply = (code) => TEMPLATE.replaceAll("{{CODE}}", code || "暂无可用兑换码");
     function refresh() {{
-      const used = usedSet();
+      const remaining = loadRemaining();
       const code = nextCode();
       document.getElementById("total").textContent = String(CODES.length);
-      document.getElementById("used").textContent = String(used.size);
-      document.getElementById("left").textContent = String(Math.max(0, CODES.length - used.size));
+      document.getElementById("used").textContent = String(Math.max(0, CODES.length - remaining.length));
+      document.getElementById("left").textContent = String(remaining.length);
       document.getElementById("currentCode").textContent = code || "暂无可用兑换码";
       document.getElementById("reply").value = renderReply(code);
     }}
@@ -137,16 +149,14 @@ def render_html(*, codes: list[str], template: str, source: str) -> str:
         alert("已选中回复文本，如未复制成功请手动复制。");
       }}
     }}
-    function markSent() {{
-      const code = nextCode();
+    function deleteCurrent() {{
+      const remaining = loadRemaining();
+      const code = remaining.shift();
       if (!code) return alert("没有剩余兑换码了。");
-      const used = usedSet();
-      used.add(code);
-      saveUsed(used);
+      saveRemaining(remaining);
       const items = log();
-      items.push({{ code, buyer: document.getElementById("buyer").value.trim(), sentAt: new Date().toISOString() }});
+      items.push({{ code, deletedAt: new Date().toISOString() }});
       saveLog(items);
-      document.getElementById("buyer").value = "";
       refresh();
     }}
     function undo() {{
@@ -154,16 +164,18 @@ def render_html(*, codes: list[str], template: str, source: str) -> str:
       const last = items.pop();
       if (!last) return alert("没有可撤回记录。");
       saveLog(items);
-      const used = usedSet();
-      used.delete(last.code);
-      saveUsed(used);
+      const remaining = loadRemaining();
+      if (!remaining.includes(last.code)) {{
+        remaining.unshift(last.code);
+      }}
+      saveRemaining(remaining);
       refresh();
     }}
     document.getElementById("copyBtn").addEventListener("click", copyReply);
-    document.getElementById("markBtn").addEventListener("click", markSent);
+    document.getElementById("deleteBtn").addEventListener("click", deleteCurrent);
     document.getElementById("undoBtn").addEventListener("click", undo);
     document.getElementById("resetBtn").addEventListener("click", () => {{
-      if (confirm("确定清空这个手机上的已发记录？不会影响数据库。")) {{
+      if (confirm("确定恢复这个页面内置的全部兑换码？不会影响数据库。")) {{
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(LOG_KEY);
         refresh();
@@ -211,7 +223,8 @@ def main() -> int:
                 "# PoetCut 小红书发码助手",
                 "",
                 "把 `xhs_coupon_sender.html` 通过 AirDrop、微信文件传输助手或 iCloud Drive 发到手机。",
-                "手机打开后点击「复制回复」，再粘贴到小红书私信。",
+                "手机打开后会显示下一个码。点击「复制回复」，再粘贴到小红书私信。",
+                "发送完点击「已发送，删除这个码并切到下一个」。删除只影响手机本地列表。",
                 "",
                 "注意：已发状态保存在手机浏览器本地，不会回写数据库。",
                 "真正核销仍以用户在 PoetCut 里兑换成功为准。",
