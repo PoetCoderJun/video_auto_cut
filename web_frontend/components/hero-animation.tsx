@@ -98,52 +98,13 @@ function ExportSampleFrame({ active }: { active: boolean }) {
       <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-950 shadow-inner">
         <Image
           src="/photo.jpg"
-          alt="导出样片截图"
+          alt="PoetCut 导出样片截图"
           fill
           sizes="430px"
-          className="object-cover object-center opacity-90"
+          className="object-cover object-center"
           priority
+          unoptimized
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/20" />
-
-        <div
-          className={cn(
-            "absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-md bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white shadow-sm backdrop-blur-sm transition-all duration-500",
-            active ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0"
-          )}
-        >
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-          AI 剪辑示例
-        </div>
-
-        <div
-          className={cn(
-            "absolute left-5 right-5 top-[40%] text-center text-[18px] font-black leading-tight tracking-normal text-white transition-all duration-700 [text-shadow:0_2px_10px_rgba(0,0,0,0.65)]",
-            active ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-          )}
-        >
-          一键生成带字幕、
-          <span className="mx-0.5 rounded bg-emerald-300 px-1 text-slate-950">高亮</span>
-          、进度条的成片
-        </div>
-
-        <div
-          className={cn(
-            "absolute bottom-4 left-5 right-5 transition-all delay-150 duration-700",
-            active ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
-          )}
-        >
-          <div className="mb-1.5 flex items-center justify-between text-[9px] font-medium text-white/80">
-            <span>开场</span>
-            <span>AI 剪辑</span>
-            <span>导出</span>
-          </div>
-          <div className="flex h-1.5 overflow-hidden rounded-full bg-white/25">
-            <div className="w-[38%] bg-emerald-300" />
-            <div className="w-[34%] bg-cyan-300" />
-            <div className="w-[18%] bg-violet-300" />
-          </div>
-        </div>
       </div>
 
       <div
@@ -165,7 +126,7 @@ function ExportSampleFrame({ active }: { active: boolean }) {
           >
             <polyline points="20 6 9 17 4 12" />
           </svg>
-          字幕、章节、进度条已包装完成
+          真实导出样片：字幕、章节、进度条已完成
         </span>
       </div>
     </div>
