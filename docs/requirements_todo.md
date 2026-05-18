@@ -24,6 +24,7 @@
 - 2026-04-16: **导出 overlay 渲染执行层回归 CSS**：保持字幕/章节/进度标签字号与可见性求解逻辑不变，但把章节卡片自然高度、`fit-content`/`max-width`、字幕盒子 padding/radius/theme 样式、进度标签 padding 的执行从 `typography.ts` 数值 token 回收至 CSS/呈现 helper。相关路径：`web_frontend/lib/remotion/typography.ts`、`web_frontend/lib/remotion/overlay-presentation.ts`、`web_frontend/lib/remotion/stitch-video-web.tsx`、`web_frontend/components/export-frame-preview/use-overlay-layout.ts`、`web_frontend/components/export-frame-preview/overlay-layer.tsx`、`docs/requirements_todo.md`
 
 ## Recent Done
+- 2026-05-18: **首页右侧动画加入导出样片截图**：首页 hero 右侧动画扩展为原始字幕、精剪后、导出样片三段，第 3 步展示带字幕、高亮、章节和进度条的导出后视频截图效果；三步流程里的导出插图也同步改成成片截图语义。相关路径：`web_frontend/components/hero-animation.tsx`、`web_frontend/components/step-illustrations.tsx`、`docs/requirements_todo.md`
 - 2026-05-18: **删除首页口播创作者 AI 剪辑说明区块**：移除“三步完成口播成片”之后、FAQ 之前的三列说明/场景卡片区域，让首页流程更短更聚焦。相关路径：`web_frontend/components/home-page-client.tsx`、`docs/requirements_todo.md`
 - 2026-05-18: **首页加入公测反馈与合作微信入口**：将 beta 页微信二维码和反馈文案融入首页，新增“公测开放中”的产品反馈/相关合作联系区，并把 beta 页内测语言更新为公测开放。相关路径：`web_frontend/components/home-page-client.tsx`、`web_frontend/app/beta/page.tsx`、`docs/requirements_todo.md`
 - 2026-05-18: **修复线上上传音频成功后页面仍卡在上传中的问题**：保留浏览器抽取 MP3 后直传 OSS 的主链路；为源视频 metadata/FPS 探测补充超时保护，并让 metadata 保存失败不阻塞已完成的音频上传，避免部分 MOV/浏览器 codec 边缘场景导致首页一直停在“正在上传音频”。相关路径：`web_frontend/lib/render-source-meta.ts`、`web_frontend/lib/upload-pipeline.ts`

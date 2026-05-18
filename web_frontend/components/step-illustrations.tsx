@@ -128,39 +128,39 @@ export function ExportIllustration({ className }: { className?: string }) {
       {/* 背景色块 */}
       <rect x="20" y="20" width="160" height="100" rx="14" fill={C.bg} />
 
-      {/* 播放器外框 */}
-      <rect x="48" y="36" width="84" height="56" rx="8" fill="white" stroke={C.main} strokeWidth="2" />
+      {/* 导出样片截图外框 */}
+      <rect x="38" y="34" width="124" height="72" rx="10" fill="white" stroke={C.main} strokeWidth="2" />
+      <clipPath id="export-sample-clip">
+        <rect x="43" y="39" width="114" height="62" rx="6" />
+      </clipPath>
+      <g clipPath="url(#export-sample-clip)">
+        <rect x="43" y="39" width="114" height="62" fill="#111827" />
+        <rect x="43" y="39" width="114" height="62" fill="#334155" opacity="0.35" />
+        <rect x="43" y="77" width="114" height="24" fill="#020617" opacity="0.72" />
 
-      {/* 内部画面 */}
-      <rect x="52" y="40" width="76" height="34" rx="4" fill={C.bg} />
+        {/* 口播画面剪影 */}
+        <circle cx="94" cy="57" r="10" fill="#e2e8f0" opacity="0.9" />
+        <path d="M78 89 Q94 70 112 89 L118 101 L72 101 Z" fill="#cbd5e1" opacity="0.9" />
+        <rect x="118" y="45" width="28" height="18" rx="3" fill="#64748b" opacity="0.75" />
+        <rect x="123" y="50" width="18" height="3" rx="1.5" fill="#cbd5e1" opacity="0.7" />
+        <rect x="123" y="56" width="12" height="3" rx="1.5" fill="#cbd5e1" opacity="0.45" />
 
-      {/* 播放按钮 */}
-      <circle cx="90" cy="57" r="10" fill="white" stroke={C.main} strokeWidth="1.5" />
-      <polygon points="87,52 87,62 97,57" fill={C.main} />
+        {/* 章节标签 */}
+        <rect x="49" y="45" width="44" height="10" rx="3" fill="#020617" opacity="0.72" />
+        <circle cx="55" cy="50" r="2" fill="#34d399" />
+        <rect x="60" y="48" width="26" height="3.5" rx="1.75" fill="white" opacity="0.82" />
 
-      {/* 字幕条 */}
-      <rect x="60" y="80" width="60" height="7" rx="3.5" fill={C.sub} />
+        {/* 字幕和高亮 */}
+        <rect x="59" y="73" width="82" height="8" rx="4" fill="#020617" opacity="0.55" />
+        <rect x="66" y="75.5" width="26" height="3" rx="1.5" fill="white" />
+        <rect x="94" y="73.8" width="16" height="6.2" rx="2" fill="#6ee7b7" />
+        <rect x="113" y="75.5" width="20" height="3" rx="1.5" fill="white" />
 
-      {/* 章节标记 */}
-      <rect x="58" y="90" width="2.5" height="5" rx="1.25" fill={C.main} />
-      <rect x="80" y="90" width="2.5" height="5" rx="1.25" fill={C.main} />
-      <rect x="102" y="90" width="2.5" height="5" rx="1.25" fill={C.main} />
-      <rect x="124" y="90" width="2.5" height="5" rx="1.25" fill={C.main} />
-
-      {/* 进度条底 */}
-      <rect x="58" y="92" width="68" height="2.5" rx="1.25" fill={C.dim} />
-      {/* 进度 */}
-      <rect x="58" y="92" width="30" height="2.5" rx="1.25" fill={C.main} />
-
-      {/* 导出箭头 */}
-      <path
-        d="M148 54 L158 64 L153 64 L153 82"
-        stroke={C.sub}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M158 64 L158 70" stroke={C.sub} strokeWidth="2" strokeLinecap="round" />
+        {/* 分段进度条 */}
+        <rect x="56" y="91" width="88" height="2.5" rx="1.25" fill="white" opacity="0.25" />
+        <rect x="56" y="91" width="35" height="2.5" rx="1.25" fill="#6ee7b7" />
+        <rect x="92" y="91" width="28" height="2.5" rx="1.25" fill="#67e8f9" />
+      </g>
 
       {/* 完成勾选 */}
       <circle cx="158" cy="46" r="7" fill="white" stroke={C.main} strokeWidth="1.5" />
