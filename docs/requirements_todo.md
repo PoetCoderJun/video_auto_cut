@@ -24,6 +24,7 @@
 - 2026-04-16: **导出 overlay 渲染执行层回归 CSS**：保持字幕/章节/进度标签字号与可见性求解逻辑不变，但把章节卡片自然高度、`fit-content`/`max-width`、字幕盒子 padding/radius/theme 样式、进度标签 padding 的执行从 `typography.ts` 数值 token 回收至 CSS/呈现 helper。相关路径：`web_frontend/lib/remotion/typography.ts`、`web_frontend/lib/remotion/overlay-presentation.ts`、`web_frontend/lib/remotion/stitch-video-web.tsx`、`web_frontend/components/export-frame-preview/use-overlay-layout.ts`、`web_frontend/components/export-frame-preview/overlay-layer.tsx`、`docs/requirements_todo.md`
 
 ## Recent Done
+- 2026-05-18: **删除首页口播创作者 AI 剪辑说明区块**：移除“三步完成口播成片”之后、FAQ 之前的三列说明/场景卡片区域，让首页流程更短更聚焦。相关路径：`web_frontend/components/home-page-client.tsx`、`docs/requirements_todo.md`
 - 2026-05-18: **首页加入公测反馈与合作微信入口**：将 beta 页微信二维码和反馈文案融入首页，新增“公测开放中”的产品反馈/相关合作联系区，并把 beta 页内测语言更新为公测开放。相关路径：`web_frontend/components/home-page-client.tsx`、`web_frontend/app/beta/page.tsx`、`docs/requirements_todo.md`
 - 2026-05-18: **修复线上上传音频成功后页面仍卡在上传中的问题**：保留浏览器抽取 MP3 后直传 OSS 的主链路；为源视频 metadata/FPS 探测补充超时保护，并让 metadata 保存失败不阻塞已完成的音频上传，避免部分 MOV/浏览器 codec 边缘场景导致首页一直停在“正在上传音频”。相关路径：`web_frontend/lib/render-source-meta.ts`、`web_frontend/lib/upload-pipeline.ts`
 - 2026-05-18: **整理开源发布与商业线上边界**：新增 AGPL 倾向的许可证声明、NOTICE/CONTRIBUTING/SECURITY 和开源策略文档，明确源码可开源、自托管需自备供应商账号，生产密钥/数据库/客户数据/支付配置等保持线上私有；同时补充 ignore 规则，并修正 API/worker Docker 镜像需要携带 `skills/direct-prompts/` 的打包边界。相关路径：`LICENSE`、`NOTICE.md`、`CONTRIBUTING.md`、`SECURITY.md`、`docs/open_source_strategy.md`、`.gitignore`、`.dockerignore`、`Dockerfile`

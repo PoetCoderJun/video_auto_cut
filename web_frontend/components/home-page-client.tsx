@@ -111,39 +111,6 @@ const FLOW_STEPS = [
   },
 ];
 
-const PAIN_POINTS = [
-  {
-    title: "不用为了说错一句话反复重录",
-    description:
-      "录口播时停顿、改口、重复很正常。PoetCut 会把这些录制现场留下来的杂乱内容先整理成可编辑草稿。",
-  },
-  {
-    title: "不用在时间轴里一句句找废话",
-    description:
-      "真正耗时的不是上传视频，而是听素材、找停顿、删重复、对字幕。PoetCut 把这部分集中到字幕编辑里完成。",
-  },
-  {
-    title: "不用每条视频都重新做字幕包装",
-    description:
-      "字幕、章节、进度条、高亮词这些发布前的包装，应该跟剪辑一起生成，而不是每次都从零摆一遍。",
-  },
-];
-
-const USE_CASES = [
-  {
-    title: "小红书口播",
-    description: "经验分享、产品讲解、观点表达，先自然讲完，再整理成更紧凑的版本。",
-  },
-  {
-    title: "知识分享",
-    description: "把讲课式、解释式内容自动分段，让观众更容易跟上重点。",
-  },
-  {
-    title: "个人 IP 日更",
-    description: "减少重复剪辑劳动，把时间留给选题、表达和持续发布。",
-  },
-];
-
 function PublicFeedbackSection() {
   return (
     <section id="contact" className="border-t border-border/60 py-14">
@@ -828,49 +795,6 @@ export default function HomePageClient() {
             {FLOW_STEPS.map((step, index) => (
               <StepCard key={step.title} step={step} index={index} />
             ))}
-          </div>
-        </section>
-
-        <section className="border-t border-border/60 py-14">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-8 max-w-3xl">
-              <p className="text-sm font-semibold text-primary">真正省时间的地方</p>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                让你少做最烦的后期重复劳动
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-                口播后期最累的不是点击导出，而是不断听素材、删废话、修字幕、加包装。PoetCut 先帮你做掉大部分。
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {PAIN_POINTS.map((item) => (
-                <div key={item.title} className="rounded-lg border bg-card p-5">
-                  <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="border-t border-border/60 py-14">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-7 text-center">
-              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                适合这些口播场景
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-                你只需要先把想说的话讲完，剩下的剪辑和包装交给 PoetCut 先出一版。
-              </p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {USE_CASES.map((item) => (
-                <div key={item.title} className="rounded-lg border bg-card p-5">
-                  <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p>
-                </div>
-              ))}
-            </div>
           </div>
         </section>
 
