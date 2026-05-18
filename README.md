@@ -2,6 +2,14 @@
 
 口播视频自动剪辑（Web + 本地流水线），当前部署方式仅支持 Railway。
 
+## License & Commercial Boundary
+
+本仓库源代码按 `AGPL-3.0-or-later` 开放，适合作为可自托管的开源代码库。PoetCut 名称、Logo、线上托管服务、生产环境配置、密钥、数据库、客户数据、分析账号、支付/商户配置和其他商业运营资产不包含在开源授权内。
+
+如果你要自托管，需要配置自己的 Turso/libsql、对象存储、ASR、LLM、Better Auth 和站点 URL。官方线上服务可以继续保留私有的生产配置、运营规则、账单/支付链路和供应商路由。
+
+更完整的开源边界见 `docs/open_source_strategy.md`。
+
 ## 目录约定
 
 - `web_frontend/`：Next.js 前端

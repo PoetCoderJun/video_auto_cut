@@ -10,6 +10,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: number;
   }> = [
     { path: "", changeFrequency: "weekly", priority: 1 },
+    { path: "/ai-koubo-jianji", changeFrequency: "weekly", priority: 0.95 },
     { path: "/features/remove-filler-words", changeFrequency: "monthly", priority: 0.8 },
     { path: "/features/subtitle-driven-editing", changeFrequency: "monthly", priority: 0.8 },
     { path: "/use-cases/koubo-video-editing", changeFrequency: "monthly", priority: 0.8 },

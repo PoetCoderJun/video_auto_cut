@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import SeoArticlePage from "@/components/seo-article-page";
 
 export const metadata: Metadata = {
-  title: "AI 自动删除口播废话、停顿和重复表达",
+  title: "AI口播剪辑自动删废话、停顿和重复表达",
   description:
-    "PoetCut 面向口播视频创作者，自动识别说错、重复、停顿和无效语气词，把一次录制整理成更紧凑的可发布视频。",
+    "PoetCut 面向中文 AI口播剪辑场景，自动识别说错、重复、停顿和无效语气词，把一次录制整理成更紧凑的可发布视频。",
   alternates: {
     canonical: "/features/remove-filler-words",
   },
@@ -14,9 +14,9 @@ export const metadata: Metadata = {
 export default function RemoveFillerWordsPage() {
   return (
     <SeoArticlePage
-      eyebrow="AI 口播精剪"
+      eyebrow="AI口播剪辑"
       title="自动删除口播视频里的废话和重复表达"
-      description="很多口播视频并不是内容不好，而是录制时会自然出现停顿、返工、口头禅和重复说明。PoetCut 会先把视频转成可编辑字幕，再根据语义判断哪些片段应该保留，哪些片段可以删除。"
+      description="很多口播视频并不是内容不好，而是录制时会自然出现停顿、返工、口头禅和重复说明。就像语音打字工具不会只保留逐字口述，PoetCut 也会先把视频转成可编辑字幕，再根据语义判断哪些片段应该保留、哪些片段可以删除。"
       sections={[
         {
           title: "适合一次录制的真实口播",

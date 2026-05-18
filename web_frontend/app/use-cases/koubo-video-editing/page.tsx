@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import SeoArticlePage from "@/components/seo-article-page";
 
 export const metadata: Metadata = {
-  title: "小红书和知识口播视频 AI 剪辑",
+  title: "小红书和知识口播视频 AI口播剪辑",
   description:
-    "PoetCut 适合小红书、知识分享、课程切片和个人 IP 口播视频，自动删废话、整理字幕章节并导出可发布成片。",
+    "PoetCut 适合小红书、知识分享、课程切片和个人 IP 口播视频，提供 AI口播剪辑、自动删废话、字幕章节整理和可发布成片导出。",
   alternates: {
     canonical: "/use-cases/koubo-video-editing",
   },
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default function KouboVideoEditingPage() {
   return (
     <SeoArticlePage
-      eyebrow="使用场景"
+      eyebrow="AI口播剪辑场景"
       title="适合小红书和知识类口播的视频自动剪辑"
       description="口播创作者最耗时的环节往往不是拍摄，而是把说错、停顿、重复表达和无效铺垫剪掉。PoetCut 的目标是把这部分后期流程压缩到一次上传和一次确认。"
       sections={[

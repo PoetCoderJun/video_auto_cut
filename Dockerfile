@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY web_api ./web_api
 COPY video_auto_cut ./video_auto_cut
+COPY skills/direct-prompts ./skills/direct-prompts
 
 # Default: run API (Railway sets PORT; override Start Command for Worker to: python -m web_api)
 EXPOSE 8000

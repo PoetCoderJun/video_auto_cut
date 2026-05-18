@@ -2,20 +2,34 @@ import type {Metadata} from "next";
 import HomePageClient from "../components/home-page-client";
 
 export const metadata: Metadata = {
-  title: "AI 口播视频自动剪辑、删废话与字幕导出",
+  title: "AI口播剪辑：随便录，几分钟一键出片",
   description:
-    "PoetCut 帮口播创作者自动转字幕、删除废话和重复表达、整理章节，并在浏览器中导出带字幕和进度条的可发布视频。",
+    "PoetCut 帮中文口播创作者自动删除废话、停顿和重复表达，全自动包装字幕、进度条和章节，只需上传原始口播视频即可得到可发布草稿。",
   alternates: {
     canonical: "/",
   },
   keywords: [
     "PoetCut",
     "AI Cut",
+    "AI口播剪辑",
+    "AI网感剪辑",
+    "AI网感口播剪辑",
+    "AI 口播剪辑",
+    "AI口播视频剪辑",
     "AI 视频剪辑",
     "AI 口播视频剪辑",
+    "口播视频自动剪辑",
+    "口播自动删废话",
+    "口播字幕剪辑",
+    "口播视频包装",
+    "视频进度条自动生成",
+    "章节卡自动生成",
+    "关键词高光",
     "自动剪辑视频",
     "自动删除废话",
+    "自动剪废话",
     "口播视频精简",
+    "个人IP口播剪辑",
     "小红书口播视频剪辑",
     "自动生成章节",
     "字幕驱动剪辑",
@@ -26,7 +40,7 @@ const softwareApplicationLd = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   name: "PoetCut",
-  alternateName: ["AI Cut", "AI 视频智能剪辑"],
+  alternateName: ["AI Cut", "AI口播剪辑", "AI 视频智能剪辑"],
   url: "https://poetcut.online",
   applicationCategory: "MultimediaApplication",
   operatingSystem: "Web",
@@ -37,7 +51,7 @@ const softwareApplicationLd = {
     availability: "https://schema.org/InStock",
   },
   description:
-    "PoetCut 面向口播视频创作者，自动提取字幕、删除废话和重复表达、整理章节，并帮助快速导出视频成片。",
+    "PoetCut 面向中文口播视频创作者，把原始口播自动剪成可发布视频，删除废话和重复表达、整理字幕章节，并生成进度条和高亮包装。",
 };
 
 const faqLd = {
@@ -50,6 +64,22 @@ const faqLd = {
       acceptedAnswer: {
         "@type": "Answer",
         text: "支持 MP4、MOV、MKV、WebM、M4V、TS、M2TS、MTS，单次最长 10 分钟。",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "PoetCut 适合做 AI口播剪辑吗？",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "适合。PoetCut 主要面向中文口播视频，把自然讲话中的口误、停顿、重复和改口整理成可编辑字幕，再生成章节、进度条、高亮等视频包装。",
+      },
+    },
+    {
+      "@type": "Question",
+      name: "能自动删除口播视频里的废话吗？",
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: "可以。PoetCut 会根据字幕和上下文识别停顿、口头禅、重复表达和说错后重来的片段，生成可编辑的精简草稿。",
       },
     },
     {

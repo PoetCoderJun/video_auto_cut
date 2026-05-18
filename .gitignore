@@ -7,6 +7,7 @@
 .DS_Store
 .idea/
 .vscode/
+.claude/
 *.swp
 
 # Logs
@@ -17,6 +18,8 @@ logs/
 # JavaScript / Remotion
 **/node_modules/
 web_frontend/.next/
+web_frontend/.next_pid
+*.tsbuildinfo
 remotion/.cache/
 remotion/public/*.mp4
 remotion/public/*.mov
@@ -70,10 +73,12 @@ pip-wheel-metadata/
 .ruff_cache/
 .cache/
 .trash/
-workdir/
+workdir*/
 .worktrees/
-workdir_regression/
-workdir_regression2/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 htmlcov/
 .coverage
 .coverage.*

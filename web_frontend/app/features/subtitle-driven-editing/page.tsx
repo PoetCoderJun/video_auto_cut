@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import SeoArticlePage from "@/components/seo-article-page";
 
 export const metadata: Metadata = {
-  title: "字幕驱动的视频剪辑工具",
+  title: "AI口播剪辑的字幕驱动视频剪辑工具",
   description:
-    "PoetCut 把口播视频转成可编辑字幕，通过文字精简、章节整理和本地浏览器导出，降低短视频后期制作成本。",
+    "PoetCut 把中文口播视频转成可编辑字幕，通过文字精简、章节整理和本地浏览器导出，降低 AI口播剪辑和短视频后期制作成本。",
   alternates: {
     canonical: "/features/subtitle-driven-editing",
   },
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default function SubtitleDrivenEditingPage() {
   return (
     <SeoArticlePage
-      eyebrow="字幕驱动剪辑"
+      eyebrow="AI口播剪辑"
       title="像改文稿一样剪口播视频"
       description="传统剪辑需要在时间轴上找停顿和口误。PoetCut 先把口播内容变成结构化字幕，让剪辑动作围绕文字展开，更适合知识分享、课程片段、个人 IP 和小红书口播内容。"
       sections={[

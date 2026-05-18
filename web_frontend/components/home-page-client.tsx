@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import {
   Zap,
@@ -9,6 +10,8 @@ import {
   ArrowRight,
   Play,
   FileText,
+  Handshake,
+  MessageCircle,
 } from "lucide-react";
 import Logo from "@/components/logo";
 import {
@@ -62,8 +65,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import FounderCard from "@/components/founder-card";
 import HeroAnimation from "@/components/hero-animation";
+import FounderCard from "@/components/founder-card";
+
+const WECHAT_ID = "PoetCoderJun";
 
 const FAQ_ITEMS = [
   {
@@ -90,21 +95,116 @@ const FAQ_ITEMS = [
 
 const FLOW_STEPS = [
   {
-    title: "上传视频",
-    description: "直接上传口播视频，系统自动提取语音与字幕。",
+    title: "上传原始口播",
+    description: "直接上传真实录制的视频，说错、停顿、重复都不用先手动处理。",
     illustration: UploadIllustration,
   },
   {
-    title: "AI 智能精简",
-    description: "自动识别废话、停顿和重复表达，生成更紧凑内容。",
+    title: "确认精剪草稿",
+    description: "AI 先帮你删废话、理字幕、分章节，你只需要做最后确认。",
     illustration: AICutIllustration,
   },
   {
-    title: "快速导出成片",
-    description: "自动渲染字幕、进度条和章节，导出可发布视频。",
+    title: "导出包装成片",
+    description: "字幕、章节、进度条和关键词高亮自动生成，直接导出可发布视频。",
     illustration: ExportIllustration,
   },
 ];
+
+const PAIN_POINTS = [
+  {
+    title: "不用为了说错一句话反复重录",
+    description:
+      "录口播时停顿、改口、重复很正常。PoetCut 会把这些录制现场留下来的杂乱内容先整理成可编辑草稿。",
+  },
+  {
+    title: "不用在时间轴里一句句找废话",
+    description:
+      "真正耗时的不是上传视频，而是听素材、找停顿、删重复、对字幕。PoetCut 把这部分集中到字幕编辑里完成。",
+  },
+  {
+    title: "不用每条视频都重新做字幕包装",
+    description:
+      "字幕、章节、进度条、高亮词这些发布前的包装，应该跟剪辑一起生成，而不是每次都从零摆一遍。",
+  },
+];
+
+const USE_CASES = [
+  {
+    title: "小红书口播",
+    description: "经验分享、产品讲解、观点表达，先自然讲完，再整理成更紧凑的版本。",
+  },
+  {
+    title: "知识分享",
+    description: "把讲课式、解释式内容自动分段，让观众更容易跟上重点。",
+  },
+  {
+    title: "个人 IP 日更",
+    description: "减少重复剪辑劳动，把时间留给选题、表达和持续发布。",
+  },
+];
+
+function PublicFeedbackSection() {
+  return (
+    <section id="contact" className="border-t border-border/60 py-14">
+      <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_320px] lg:items-center">
+        <div>
+          <Badge className="rounded-full bg-emerald-600 text-white hover:bg-emerald-600">
+            公测开放中
+          </Badge>
+          <h2 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            产品反馈、口播需求和相关合作，可以直接联系
+          </h2>
+          <div className="mt-4 space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
+            <p>
+              PoetCut 已经从内测进入公测开放阶段。现在登录账号即可直接体验完整的上传、AI 精剪、字幕编辑和浏览器导出流程。
+            </p>
+            <p>
+              这个产品最早来自真实口播剪辑里的痛点，也需要继续根据创作者的素材、节奏和发布场景一起迭代。如果你觉得哪里不顺手，或者有更具体的口播剪辑需求，欢迎直接发给我。
+            </p>
+          </div>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
+              <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">产品反馈</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  上传、剪辑、字幕、导出、风格包装，任何卡住或不顺手的地方都可以说。
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 rounded-lg border bg-card p-4">
+              <Handshake className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">相关合作</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  创作者共创、工作机会、产品合作、口播内容自动化场景都可以交流。
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-card p-5 shadow-sm">
+          <div className="mx-auto w-fit rounded-lg border border-border bg-background p-3 shadow-sm">
+            <Image
+              src="/wechat.jpg"
+              alt="PoetCut 公测反馈与合作微信二维码"
+              width={224}
+              height={224}
+              className="h-56 w-56 rounded-md object-contain"
+            />
+          </div>
+          <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm">
+            <p className="text-muted-foreground">微信号</p>
+            <p className="mt-1 font-semibold tracking-wide text-foreground">{WECHAT_ID}</p>
+            <p className="mt-1 text-xs text-muted-foreground">添加时请备注：PoetCut 反馈 / 合作</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function useInView(threshold = 0.2) {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -441,6 +541,12 @@ export default function HomePageClient() {
             <Link href="/use-cases/koubo-video-editing" className="transition-colors hover:text-foreground">
               适合谁用
             </Link>
+            <Link href="/ai-koubo-jianji" className="transition-colors hover:text-foreground">
+              产品思考
+            </Link>
+            <a href="#contact" className="transition-colors hover:text-foreground">
+              反馈合作
+            </a>
             <a href="#faq" className="transition-colors hover:text-foreground">
               常见问题
             </a>
@@ -496,14 +602,23 @@ export default function HomePageClient() {
                 <span>公测期间登录账号即可免费使用</span>
               </div>
               {/* Headline */}
-              <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-[3.25rem] lg:leading-[1.12]">
-                <span className="block text-muted-foreground font-semibold">
-                  一次录制，随便讲错
+              <h1 className="tracking-tight text-foreground">
+                <span className="block text-xl font-semibold leading-tight text-muted-foreground sm:text-2xl lg:text-[2rem]">
+                  口播视频一遍遍录制？
                 </span>
-                <span className="block mt-1">
-                  AI{" "}
-                  <span className="bg-gradient-to-r from-foreground to-indigo-600 bg-clip-text text-transparent">
-                    一键成片
+                <span className="mt-2 block text-xl font-semibold leading-tight text-muted-foreground sm:text-2xl lg:text-[2rem]">
+                  几分钟视频剪辑要花几个小时？
+                </span>
+                <span className="mt-7 flex flex-col gap-2 text-[1.9rem] font-extrabold leading-[1.08] text-foreground sm:text-5xl lg:text-[3.35rem]">
+                  <span className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
+                    <span className="whitespace-nowrap">一次录制</span>
+                    <span className="whitespace-nowrap">一镜到底</span>
+                  </span>
+                  <span className="flex flex-wrap items-baseline gap-x-8 gap-y-1">
+                    <span className="whitespace-nowrap">AI 一键剪辑</span>
+                    <span className="whitespace-nowrap text-indigo-600">
+                      包装出片
+                    </span>
                   </span>
                 </span>
               </h1>
@@ -515,8 +630,8 @@ export default function HomePageClient() {
                     <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">一次录制，中途随便讲错</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">说错、重复、停顿都没关系，不用 NG 重录</p>
+                    <p className="text-sm font-semibold text-foreground">讲错了也不用重来</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">停顿、改口、重复说明，都可以在精剪草稿里处理</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -524,8 +639,8 @@ export default function HomePageClient() {
                     <Zap className="h-3.5 w-3.5 text-primary" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">AI 一键精剪成片</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">自动剔除废话、添加字幕章节，几分钟导出</p>
+                    <p className="text-sm font-semibold text-foreground">剪辑和包装一次完成</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">字幕、章节、进度条、高亮自动生成，少做很多重复活</p>
                   </div>
                 </div>
               </div>
@@ -703,10 +818,10 @@ export default function HomePageClient() {
         <section id="how-it-works" className="bg-slate-50 dark:bg-slate-900/30 py-16 lg:py-20 -mx-4 sm:-mx-6 px-4 sm:px-6">
           <div className="mx-auto max-w-2xl mb-10 text-center">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              3 步完成视频成片
+              三步完成口播成片
             </h2>
             <p className="mt-3 text-sm text-muted-foreground sm:text-base">
-              从上传到导出，全流程结构清晰，适合内容创作者快速复用。
+              从上传、确认到导出，尽量把最耗时的剪辑和包装动作都收进一个流程。
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -717,34 +832,44 @@ export default function HomePageClient() {
         </section>
 
         <section className="border-t border-border/60 py-14">
-          <div className="mx-auto max-w-4xl">
-            <div className="mb-7 text-center">
-              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                为口播创作者做的 AI 剪辑
+          <div className="mx-auto max-w-5xl">
+            <div className="mb-8 max-w-3xl">
+              <p className="text-sm font-semibold text-primary">真正省时间的地方</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                让你少做最烦的后期重复劳动
               </h2>
               <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-                从自动删废话、字幕驱动剪辑到小红书口播后期，PoetCut 更关注真实创作者每天都会遇到的剪辑负担。
+                口播后期最累的不是点击导出，而是不断听素材、删废话、修字幕、加包装。PoetCut 先帮你做掉大部分。
               </p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Link
-                href="/features/remove-filler-words"
-                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
-              >
-                AI 自动删除口播废话
-              </Link>
-              <Link
-                href="/features/subtitle-driven-editing"
-                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
-              >
-                字幕驱动的视频剪辑
-              </Link>
-              <Link
-                href="/use-cases/koubo-video-editing"
-                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
-              >
-                小红书和知识口播场景
-              </Link>
+            <div className="grid gap-4 md:grid-cols-3">
+              {PAIN_POINTS.map((item) => (
+                <div key={item.title} className="rounded-lg border bg-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="border-t border-border/60 py-14">
+          <div className="mx-auto max-w-5xl">
+            <div className="mb-7 text-center">
+              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                适合这些口播场景
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+                你只需要先把想说的话讲完，剩下的剪辑和包装交给 PoetCut 先出一版。
+              </p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              {USE_CASES.map((item) => (
+                <div key={item.title} className="rounded-lg border bg-card p-5">
+                  <h3 className="text-base font-semibold text-foreground">{item.title}</h3>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -776,7 +901,8 @@ export default function HomePageClient() {
           </div>
         </section>
 
-        {/* Author */}
+        <PublicFeedbackSection />
+
         <section className="border-t border-border/60 py-12">
           <div className="mx-auto max-w-md">
             <FounderCard />
@@ -790,7 +916,7 @@ export default function HomePageClient() {
                 开始你的下一条高质量口播视频
               </h3>
               <p className="max-w-2xl text-sm text-muted-foreground sm:text-base">
-                上传视频后，AI 会自动完成字幕识别、内容精简与章节整理，你只需要做最后确认。
+                上传原始口播，先得到一版精剪和包装都完成的草稿，再做最后确认。
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button
@@ -830,6 +956,9 @@ export default function HomePageClient() {
           <Link href="/features/remove-filler-words" className="hover:text-foreground">
             自动删废话
           </Link>
+          <Link href="/ai-koubo-jianji" className="hover:text-foreground">
+            产品思考
+          </Link>
           <Link href="/features/subtitle-driven-editing" className="hover:text-foreground">
             字幕剪辑
           </Link>
@@ -839,6 +968,9 @@ export default function HomePageClient() {
           <Link href="/faq" className="hover:text-foreground">
             常见问题
           </Link>
+          <a href="#contact" className="hover:text-foreground">
+            反馈合作
+          </a>
         </div>
         <p className="mt-4">&copy; {new Date().getFullYear()} PoetCut. All rights reserved.</p>
       </footer>

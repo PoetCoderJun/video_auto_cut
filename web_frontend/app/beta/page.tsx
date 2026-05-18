@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 const WECHAT_ID = "PoetCoderJun";
 
 export const metadata: Metadata = {
-  title: "AI Cut 限时免费说明",
-  description: "AI Cut 当前阶段登录后限时免费使用，暂时不展示也不扣除额度。",
+  title: "PoetCut 公测开放说明",
+  description: "PoetCut 当前公测开放，登录后限时免费使用，欢迎反馈体验和交流合作。",
 };
 
 export default function BetaPage() {
@@ -43,13 +43,13 @@ export default function BetaPage() {
           <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:rounded-3xl sm:p-6">
             <div className="space-y-2.5">
               <Badge className="rounded-full bg-foreground text-background hover:bg-foreground">
-                AI Cut 限时免费
+                PoetCut 公测开放
               </Badge>
               <h1 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-                登录账号，限时免费使用
+                登录账号，限时免费体验
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                当前阶段需要登录账号后使用。限时免费期间可以完整剪辑并导出，暂时不展示额度，也不会扣除额度。
+                当前已经从内测进入公测开放阶段。登录账号后可以完整剪辑并导出，限时免费期间暂时不展示额度，也不会扣除额度。
               </p>
               <Link href="/">
                 <Button className="h-10 w-full rounded-full px-4 sm:h-10 sm:w-auto">
@@ -65,12 +65,12 @@ export default function BetaPage() {
               <div className="space-y-3.5 p-4 sm:space-y-4 sm:p-5">
                 <h2 className="text-base font-semibold text-foreground sm:text-xl">添加微信</h2>
                 <p className="text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                  如果你想反馈体验、交流剪口播需求，或者了解后续正式使用方式，可以添加微信。回复可能慢多多见谅。
+                  如果你想反馈体验、交流剪口播需求，或者讨论产品合作和相关机会，可以添加微信。回复可能慢多多见谅。
                 </p>
                 <div className="mx-auto w-fit rounded-2xl border border-border bg-background p-2.5 shadow-sm sm:p-3">
                   <Image
                     src="/wechat.jpg"
-                    alt="AI Cut 内测微信二维码"
+                    alt="PoetCut 公测反馈与合作微信二维码"
                     width={168}
                     height={168}
                     className="h-40 w-40 rounded-lg object-contain sm:h-52 sm:w-52"
@@ -80,18 +80,18 @@ export default function BetaPage() {
                 <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm sm:px-4 sm:py-3">
                   <p className="text-muted-foreground">微信号</p>
                   <p className="mt-1 font-semibold tracking-wide text-foreground">{WECHAT_ID}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">添加时请备注：AI Cut</p>
+                  <p className="mt-1 text-xs text-muted-foreground">添加时请备注：PoetCut 反馈 / 合作</p>
                 </div>
               </div>
             </div>
 
             <div className="rounded-2xl border border-border bg-card shadow-sm">
               <div className="space-y-3.5 p-4 sm:space-y-4 sm:p-5">
-                <h2 className="text-base font-semibold text-foreground sm:text-xl">给内测用户的一封信</h2>
+                <h2 className="text-base font-semibold text-foreground sm:text-xl">给公测用户的一封信</h2>
                 <div className="space-y-3 text-sm leading-6 text-muted-foreground sm:text-base sm:leading-8">
-                  <p>感谢你愿意参加这次内测，也谢谢你愿意花时间体验这个产品。</p>
+                  <p>感谢你愿意在公测阶段体验这个产品，也谢谢你愿意花时间告诉我真实感受。</p>
                   <p>
-                    它还在持续打磨中，由于是首先源自于我自己的需求，很需要大家根据自己的剪口播需求和视频节奏来一起迭代。
+                    它还在持续打磨中，由于是首先源自于我自己的口播剪辑需求，很需要大家根据自己的素材、节奏和发布场景一起迭代。
                   </p>
                   <p>
                     如果你在使用过程中觉得哪里不顺手，或者有任何想法和建议，都欢迎直接告诉我。

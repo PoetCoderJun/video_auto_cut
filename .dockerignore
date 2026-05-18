@@ -23,7 +23,9 @@ logs/
 # Keeping these out of build context makes the current boundary explicit:
 # this image does not bundle repo-local PI skills or frontend assets.
 .pi/
-skills/
+skills/*
+!skills/direct-prompts/
+!skills/direct-prompts/*.md
 web_frontend/
 docs/
 scripts/
