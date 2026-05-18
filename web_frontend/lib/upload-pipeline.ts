@@ -111,10 +111,15 @@ export async function runUploadPipeline(options: {
     stage = "audio_upload";
     onStageMessage?.("正在上传音频...");
     const uploadedJob = await uploadAudio(job.job_id, audioFile);
+
     stage = "source_upload";
-    await sourceMetadataPromise;
+    onStageMessage?.("正在保存源视频信息...");
+    await sourceMetadataPromise.catch((error) => {
+      console.warn("[upload-pipeline] source metadata save skipped", { error });
+    });
 
     stage = "source_cache";
+    onStageMessage?.("正在缓存本地预览...");
     const renderMeta = await renderMetaPromise;
     await saveCachedJobSourceVideo(job.job_id, preparedSource.file, {
       renderMeta,

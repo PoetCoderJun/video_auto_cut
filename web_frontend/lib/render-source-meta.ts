@@ -7,6 +7,8 @@ import {
 } from "./media-metadata.ts";
 
 const MEDIA_INFO_BEST_EFFORT_TIMEOUT_MS = 4_000;
+const BROWSER_METADATA_TIMEOUT_MS = 4_000;
+const FPS_ESTIMATE_TIMEOUT_MS = 1_500;
 
 function normalizePositiveNumber(value: unknown): number | null {
   const numeric = typeof value === "number" ? value : Number(value);
@@ -54,17 +56,47 @@ export async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta>
       duration: number;
     }>((resolve, reject) => {
       const video = document.createElement("video");
+      let settled = false;
+      const settle = (
+        handler: "resolve" | "reject",
+        value:
+          | {width: number; height: number; duration: number}
+          | Error,
+      ) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timer);
+        try {
+          video.removeAttribute("src");
+          video.load();
+        } catch {
+          // Ignore cleanup failures.
+        }
+        if (handler === "resolve") {
+          resolve(value as {width: number; height: number; duration: number});
+          return;
+        }
+        reject(value);
+      };
+      const timer = window.setTimeout(() => {
+        settle(
+          "reject",
+          new Error("读取本地视频元数据超时，请重新选择文件后重试。"),
+        );
+      }, BROWSER_METADATA_TIMEOUT_MS);
       video.preload = "metadata";
       video.muted = true;
       video.onloadedmetadata = () => {
-        resolve({
+        settle("resolve", {
           width: Math.round(video.videoWidth || 0),
           height: Math.round(video.videoHeight || 0),
           duration: video.duration,
         });
       };
       video.onerror = () =>
-        reject(new Error("无法读取本地视频元数据，请重新选择文件。"));
+        settle("reject", new Error("无法读取本地视频元数据，请重新选择文件。"));
       video.src = url;
     });
 
@@ -90,8 +122,14 @@ export async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta>
         const maxFrames = 45;
         const maxMs = 1200;
         const startAt = performance.now();
+        let settled = false;
 
         const finish = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          window.clearTimeout(timeout);
           try {
             video.pause();
           } catch {
@@ -109,8 +147,12 @@ export async function resolveRenderMetaFromFile(file: File): Promise<RenderMeta>
             resolve(30);
           }
         };
+        const timeout = window.setTimeout(finish, FPS_ESTIMATE_TIMEOUT_MS);
 
         const onFrame = (_now: number, frame: {mediaTime: number}) => {
+          if (settled) {
+            return;
+          }
           const time =
             typeof frame?.mediaTime === "number" ? frame.mediaTime : NaN;
           if (Number.isFinite(time)) {

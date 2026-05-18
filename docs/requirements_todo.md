@@ -24,6 +24,7 @@
 - 2026-04-16: **导出 overlay 渲染执行层回归 CSS**：保持字幕/章节/进度标签字号与可见性求解逻辑不变，但把章节卡片自然高度、`fit-content`/`max-width`、字幕盒子 padding/radius/theme 样式、进度标签 padding 的执行从 `typography.ts` 数值 token 回收至 CSS/呈现 helper。相关路径：`web_frontend/lib/remotion/typography.ts`、`web_frontend/lib/remotion/overlay-presentation.ts`、`web_frontend/lib/remotion/stitch-video-web.tsx`、`web_frontend/components/export-frame-preview/use-overlay-layout.ts`、`web_frontend/components/export-frame-preview/overlay-layer.tsx`、`docs/requirements_todo.md`
 
 ## Recent Done
+- 2026-05-18: **修复线上上传音频成功后页面仍卡在上传中的问题**：保留浏览器抽取 MP3 后直传 OSS 的主链路；为源视频 metadata/FPS 探测补充超时保护，并让 metadata 保存失败不阻塞已完成的音频上传，避免部分 MOV/浏览器 codec 边缘场景导致首页一直停在“正在上传音频”。相关路径：`web_frontend/lib/render-source-meta.ts`、`web_frontend/lib/upload-pipeline.ts`
 - 2026-05-18: **修复导出页非全屏时预览画面高度塌陷**：导出页在非 `xl` 两栏布局下为预览栏补充响应式最小高度，避免窗口不全屏时只剩播放器控制条、视频画面不可见。相关路径：`web_frontend/components/job-workspace/export-step.tsx`
 - 2026-05-18: **补强首页 SEO 与 Google Analytics 埋点**：统一 PoetCut 品牌元信息，新增可索引的功能/场景/FAQ 长尾页面并纳入 sitemap；robots 排除登录和开发页；接入 GA4 `G-5NFPXTC63E`，跟踪页面浏览、上传选择、登录拦截、上传拒绝、上传成功和上传错误等关键漏斗事件。相关路径：`web_frontend/app/layout.tsx`、`web_frontend/app/page.tsx`、`web_frontend/app/sitemap.ts`、`web_frontend/components/analytics.tsx`、`web_frontend/lib/analytics.ts`
 - 2026-05-16: **处理进度条补充等待时长提示**：上传后进入 ASR、字幕删除、润色和章节处理阶段时，在处理进度条附近提示可能需要 3-10 分钟，并引导用户稍后回来看。相关路径：`web_frontend/components/job-workspace/test-processing-state.tsx`、`docs/requirements_todo.md`
