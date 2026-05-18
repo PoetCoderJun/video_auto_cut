@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 const WECHAT_ID = "PoetCoderJun";
 
 export const metadata: Metadata = {
-  title: "AI Cut 内测邀请",
-  description: "AI Cut 内测邀请页。",
+  title: "AI Cut 限时免费说明",
+  description: "AI Cut 当前阶段登录后限时免费使用，暂时不展示也不扣除额度。",
 };
 
 export default function BetaPage() {
@@ -43,18 +43,17 @@ export default function BetaPage() {
           <section className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm sm:rounded-3xl sm:p-6">
             <div className="space-y-2.5">
               <Badge className="rounded-full bg-foreground text-background hover:bg-foreground">
-                AI Cut 内测邀请
+                AI Cut 限时免费
               </Badge>
               <h1 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-                获取邀请码
+                登录账号，限时免费使用
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                由于算力资源限制，当前版本为邀请制内测，凭邀请码即可登录使用。右上角可直接注册 /
-                登录。
+                当前阶段需要登录账号后使用。限时免费期间可以完整剪辑并导出，暂时不展示额度，也不会扣除额度。
               </p>
-              <Link href="/sign-up">
+              <Link href="/">
                 <Button className="h-10 w-full rounded-full px-4 sm:h-10 sm:w-auto">
-                  去注册
+                  登录后免费上传
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>
@@ -66,7 +65,7 @@ export default function BetaPage() {
               <div className="space-y-3.5 p-4 sm:space-y-4 sm:p-5">
                 <h2 className="text-base font-semibold text-foreground sm:text-xl">添加微信</h2>
                 <p className="text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                  由于平台限制，我只能邀请大家添加我的微信，我会一个个把邀请码发给大家，回复可能慢多多见谅。
+                  如果你想反馈体验、交流剪口播需求，或者了解后续正式使用方式，可以添加微信。回复可能慢多多见谅。
                 </p>
                 <div className="mx-auto w-fit rounded-2xl border border-border bg-background p-2.5 shadow-sm sm:p-3">
                   <Image
@@ -81,7 +80,7 @@ export default function BetaPage() {
                 <div className="rounded-lg border border-dashed border-border bg-muted/30 px-3 py-2.5 text-sm sm:px-4 sm:py-3">
                   <p className="text-muted-foreground">微信号</p>
                   <p className="mt-1 font-semibold tracking-wide text-foreground">{WECHAT_ID}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">添加时请备注：内测</p>
+                  <p className="mt-1 text-xs text-muted-foreground">添加时请备注：AI Cut</p>
                 </div>
               </div>
             </div>

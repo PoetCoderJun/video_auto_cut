@@ -25,6 +25,7 @@ class DummyArgs:
         self.llm_temperature = 0.0
         self.llm_max_tokens = None
         self.auto_edit_llm_concurrency = 1
+        self.direct_prompt_cache = False
 
 
 def make_segments(texts: list[str]) -> list[dict[str, object]]:
@@ -44,13 +45,13 @@ def make_segments(texts: list[str]) -> list[dict[str, object]]:
     return segments
 
 
-class AutoEditPiRunnerE2ETest(unittest.TestCase):
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+class AutoEditDirectPromptRunnerE2ETest(unittest.TestCase):
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_non_chunked_flow_returns_test_lines_and_optimized_subtitles(self, mock_chat) -> None:
         segments = make_segments(["前面这句说错了", "后面这句是正确表达", "再补一句自然一点"])
 
         def fake_chat(cfg, messages):
-            if "# delete direct prompt" in messages[0]["content"]:
+            if "只输出需要删除的行号" in messages[0]["content"]:
                 return "1\n"
             return ""
 
@@ -68,17 +69,17 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         self.assertTrue(result["test_lines"][0]["ai_suggest_remove"])
         self.assertEqual(result["edl"], [{"start": 1.2, "end": 3.4}])
         self.assertFalse(result["debug"]["default_chunk_first"])
-        self.assertFalse(result["debug"]["pi_agent"])
+        self.assertNotIn("pi_agent", result["debug"])
         self.assertTrue(result["debug"]["direct_prompt_pipeline"])
         self.assertEqual(result["debug"]["task_contracts"], ["delete", "polish"])
         self.assertEqual(result["debug"]["downstream_contracts"], ["chapter", "highlight"])
 
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_low_speech_is_forced_removed(self, mock_chat) -> None:
         segments = make_segments(["< Low Speech >", "后面这一句保留"])
 
         def fake_chat(cfg, messages):
-            if "# delete direct prompt" in messages[0]["content"]:
+            if "只输出需要删除的行号" in messages[0]["content"]:
                 return ""
             return ""
 
@@ -92,7 +93,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         self.assertEqual(result["optimized_subs"][1].content, "后面这一句保留")
         self.assertEqual(result["edl"], [{"start": 1.2, "end": 2.2}])
 
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_all_removed_raises_runtime_error(self, mock_chat) -> None:
         segments = make_segments(["第一句", "第二句"])
         mock_chat.return_value = "1\n2\n"
@@ -100,7 +101,7 @@ class AutoEditPiRunnerE2ETest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "All segments removed"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(segments, total_length=5.0)
 
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_invalid_delete_output_fails_fast_without_repair_prompt(self, mock_chat) -> None:
         segments = make_segments(["第一句", "第二句"])
         mock_chat.return_value = "not valid output\n"

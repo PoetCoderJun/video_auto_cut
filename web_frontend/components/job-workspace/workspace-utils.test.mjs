@@ -71,7 +71,7 @@ test("buildPreviewRenderMeta keeps aspect ratio while capping preview resolution
   assert.deepEqual(previewMeta, {
     width: 960,
     height: 540,
-    fps: 20,
+    fps: 10,
     duration_sec: 120,
   });
 });
@@ -80,7 +80,7 @@ test("isPreviewRenderMetaReduced detects when preview can stay on original light
   const sourceMeta = {
     width: 640,
     height: 360,
-    fps: 15,
+    fps: 10,
     duration_sec: 30,
   };
   const previewMeta = buildPreviewRenderMeta(sourceMeta);

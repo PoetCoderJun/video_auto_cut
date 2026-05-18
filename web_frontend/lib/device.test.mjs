@@ -131,6 +131,27 @@ test("keeps desktop Chrome upload enabled", () => {
   );
 });
 
+test("keeps headless desktop Chrome upload enabled", () => {
+  withMockBrowserEnv(
+    {
+      navigatorValue: {
+        userAgent:
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 HeadlessChrome/147.0.0.0 Safari/537.36",
+        vendor: "Google Inc.",
+        platform: "MacIntel",
+        maxTouchPoints: 0,
+        userAgentData: {
+          mobile: false,
+          brands: [{ brand: "Chromium", version: "147" }],
+        },
+      },
+    },
+    () => {
+      assert.equal(isUnsupportedLocalVideoBrowser(), false);
+    }
+  );
+});
+
 test("blocks desktop Edge for local video processing", () => {
   withMockBrowserEnv(
     {

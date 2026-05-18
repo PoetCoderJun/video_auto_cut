@@ -10,6 +10,7 @@ from video_auto_cut.orchestration.pipeline_service import ASRProgressCallback, r
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
 from video_auto_cut.asr.word_timing_sidecar import sidecar_path_for_srt
 from video_auto_cut.shared.interfaces import PipelineOptions
+from video_auto_cut.shared.logging_config import configure_logging
 from video_auto_cut.shared.test_text_io import build_test_lines_from_srt, write_test_text
 
 
@@ -94,7 +95,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="[asr-transcribe] %(message)s")
+    configure_logging()
 
     media_path = Path(args.input).expanduser().resolve()
     options = build_pipeline_options_from_env(

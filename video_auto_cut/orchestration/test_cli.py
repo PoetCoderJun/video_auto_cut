@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +10,15 @@ import srt
 
 from video_auto_cut.asr.transcribe_stage import run_asr_transcription_stage
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_env
-from video_auto_cut.pi_agent_runner import (
+from video_auto_cut.direct_prompt_runner import (
     DEFAULT_MAX_LINES,
-    PROJECT_ROOT,
-    TestPiRequest,
+    TestPromptRequest,
     _render_chapters_text,
     _render_test_text_from_lines,
     _sort_runtime_lines,
     _write_json,
-    build_pi_command,
     build_subtitles_from_lines,
-    run_test_pi,
+    run_test_prompt,
 )
 from video_auto_cut.rendering.subtitle_render_contract import (
     build_subtitle_style_llm_config,
@@ -76,6 +73,7 @@ def _build_cli_llm_config(args: argparse.Namespace) -> dict[str, Any]:
         "api_key": (args.llm_api_key or os.environ.get("LLM_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or "").strip(),
         "timeout": int(args.llm_timeout),
         "max_tokens": args.llm_max_tokens,
+        "direct_prompt_cache": True,
     }
     if not cfg.get("base_url") or not cfg.get("model"):
         raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model.")
@@ -111,6 +109,11 @@ def _build_cli_highlight_llm_config(args: argparse.Namespace) -> dict[str, Any]:
         timeout=int(args.llm_timeout),
         max_tokens=args.llm_max_tokens,
     )
+
+
+def _resolve_polish_concurrency(args: argparse.Namespace) -> int:
+    raw = getattr(args, "polish_concurrency", os.environ.get("AUTO_EDIT_LLM_CONCURRENCY", "4"))
+    return max(1, int(raw or 1))
 
 
 def _write_highlight_contract(path: Path, *, captions: list[dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
@@ -177,15 +180,21 @@ def _run_cli_test(args: argparse.Namespace) -> int:
             for line in raw_lines
         ]
 
-    delete_artifacts = run_test_pi(
-        TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)
+    delete_artifacts = run_test_prompt(
+        TestPromptRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)
     )
-    polish_artifacts = run_test_pi(
-        TestPiRequest(task="polish", llm_config=llm_config, lines=delete_artifacts.lines, max_lines=args.max_lines)
+    polish_artifacts = run_test_prompt(
+        TestPromptRequest(
+            task="polish",
+            llm_config=llm_config,
+            lines=delete_artifacts.lines,
+            max_lines=args.max_lines,
+            polish_concurrency=_resolve_polish_concurrency(args),
+        )
     )
 
-    chapter_artifacts = run_test_pi(
-        TestPiRequest(
+    chapter_artifacts = run_test_prompt(
+        TestPromptRequest(
             task="chapter",
             llm_config=llm_config,
             lines=polish_artifacts.lines,
@@ -233,7 +242,6 @@ def _run_cli_test(args: argparse.Namespace) -> int:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the direct prompt subtitle pipeline tasks. The canonical main chain is delete -> polish; chapter/highlight are downstream sidecars.")
-    parser.add_argument("--pi-bin", default="pi")
     parser.add_argument("--input", default=None)
     parser.add_argument("--task", choices=["delete", "polish", "chapter", "highlight", "test"], default=None)
     parser.add_argument("--output", default=None)
@@ -243,11 +251,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--llm-api-key", default=None)
     parser.add_argument("--llm-timeout", type=int, default=300)
     parser.add_argument("--llm-max-tokens", type=int, default=None)
+    parser.add_argument("--polish-concurrency", type=int, default=int(os.environ.get("AUTO_EDIT_LLM_CONCURRENCY", "4") or 4))
     parser.add_argument("--title-max-chars", type=int, default=5)
     parser.add_argument("--max-lines", type=int, default=DEFAULT_MAX_LINES)
     parser.add_argument("--lang", default=None)
     parser.add_argument("--prompt", default="")
-    parser.add_argument("pi_args", nargs=argparse.REMAINDER)
     return parser.parse_args(argv)
 
 
@@ -261,7 +269,7 @@ def _run_cli_task(args: argparse.Namespace) -> int:
 
     if args.task == "delete":
         segments = _load_segments_from_path(input_path, args.encoding)
-        artifacts = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines))
+        artifacts = run_test_prompt(TestPromptRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines))
         output_path.write_text(_render_test_text_from_lines(artifacts.lines) + "\n", encoding="utf-8")
         return 0
 
@@ -270,8 +278,16 @@ def _run_cli_task(args: argparse.Namespace) -> int:
             lines = _load_lines_from_test_text(input_path)
         else:
             segments = _load_segments_from_path(input_path, args.encoding)
-            lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
-        artifacts = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines))
+            lines = run_test_prompt(TestPromptRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
+        artifacts = run_test_prompt(
+            TestPromptRequest(
+                task="polish",
+                llm_config=llm_config,
+                lines=lines,
+                max_lines=args.max_lines,
+                polish_concurrency=_resolve_polish_concurrency(args),
+            )
+        )
         output_path.write_text(_render_test_text_from_lines(artifacts.lines) + "\n", encoding="utf-8")
         return 0
 
@@ -292,8 +308,16 @@ def _run_cli_task(args: argparse.Namespace) -> int:
             ]
         else:
             segments = _load_segments_from_path(input_path, args.encoding)
-            lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
-            lines = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines)).lines
+            lines = run_test_prompt(TestPromptRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
+            lines = run_test_prompt(
+                TestPromptRequest(
+                    task="polish",
+                    llm_config=llm_config,
+                    lines=lines,
+                    max_lines=args.max_lines,
+                    polish_concurrency=_resolve_polish_concurrency(args),
+                )
+            ).lines
             captions = _build_kept_captions_from_lines(lines)
         payload = request_subtitle_style_contract(
             captions=captions,
@@ -306,10 +330,18 @@ def _run_cli_task(args: argparse.Namespace) -> int:
         lines = _load_lines_from_test_text(input_path)
     else:
         segments = _load_segments_from_path(input_path, args.encoding)
-        lines = run_test_pi(TestPiRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
-        lines = run_test_pi(TestPiRequest(task="polish", llm_config=llm_config, lines=lines, max_lines=args.max_lines)).lines
-    artifacts = run_test_pi(
-        TestPiRequest(task="chapter", llm_config=llm_config, lines=lines, title_max_chars=args.title_max_chars, max_lines=args.max_lines)
+        lines = run_test_prompt(TestPromptRequest(task="delete", llm_config=llm_config, segments=segments, max_lines=args.max_lines)).lines
+        lines = run_test_prompt(
+            TestPromptRequest(
+                task="polish",
+                llm_config=llm_config,
+                lines=lines,
+                max_lines=args.max_lines,
+                polish_concurrency=_resolve_polish_concurrency(args),
+            )
+        ).lines
+    artifacts = run_test_prompt(
+        TestPromptRequest(task="chapter", llm_config=llm_config, lines=lines, title_max_chars=args.title_max_chars, max_lines=args.max_lines)
     )
     output_path.write_text(_render_chapters_text(artifacts.chapters) + "\n", encoding="utf-8")
     return 0
@@ -317,14 +349,8 @@ def _run_cli_task(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if args.task:
-        if not args.input or not args.output:
-            raise RuntimeError("--input and --output are required when --task is used")
-        return _run_cli_task(args)
-    completed = subprocess.run(
-        build_pi_command(pi_bin=args.pi_bin, pi_args=list(args.pi_args or [])),
-        env=dict(os.environ),
-        cwd=str(PROJECT_ROOT),
-        check=False,
-    )
-    return int(completed.returncode)
+    if not args.task:
+        raise RuntimeError("--task is required for the direct prompt CLI")
+    if not args.input or not args.output:
+        raise RuntimeError("--input and --output are required when --task is used")
+    return _run_cli_task(args)

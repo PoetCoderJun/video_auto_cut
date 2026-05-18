@@ -1,6 +1,6 @@
 "use client";
 
-import {useCallback, useEffect, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 
 import {Chapter, getTest, TestLine} from "@/lib/api";
 import {STATUS} from "@/lib/workflow";
@@ -51,6 +51,7 @@ export function useTestDocumentPolling({
   const [documentRevision, setDocumentRevision] = useState("");
   const [testReadyHandoffActive, setTestReadyHandoffActive] = useState(false);
   const [testReadyLinesLoaded, setTestReadyLinesLoaded] = useState(false);
+  const userModifiedRef = useRef(false);
 
   useEffect(() => {
     if (status !== STATUS.TEST_READY) {
@@ -65,6 +66,7 @@ export function useTestDocumentPolling({
     }
 
     setTestReadyHandoffActive(true);
+    setDocumentRevision("");
     let cancelled = false;
     const pollTestDocument = () => {
       getTest(jobId)
@@ -104,11 +106,13 @@ export function useTestDocumentPolling({
         .then((document) => {
           if (cancelled || document.lines.length === 0) return;
           setTestDraftError("");
-          setLines((previous) =>
-            areTestLinesEqual(previous, document.lines) ? previous : document.lines,
-          );
-          if (document.chapters.length > 0) {
-            setChapters(document.chapters);
+          if (!userModifiedRef.current) {
+            setLines((previous) =>
+              areTestLinesEqual(previous, document.lines) ? previous : document.lines,
+            );
+            if (document.chapters.length > 0) {
+              setChapters(document.chapters);
+            }
           }
           setDocumentRevision(document.document_revision || "");
         })
@@ -144,10 +148,15 @@ export function useTestDocumentPolling({
     };
   }, [status, testReadyHandoffActive, testReadyLinesLoaded]);
 
+  const markUserModified = useCallback(() => {
+    userModifiedRef.current = true;
+  }, []);
+
   const handleRetryTestDraftLoad = useCallback(() => {
     if (status !== STATUS.TEST_READY) return;
     setTestDraftError("");
     setTestReadyLinesLoaded(false);
+    userModifiedRef.current = false;
   }, [status]);
 
   const resetTestDocument = useCallback(() => {
@@ -157,6 +166,7 @@ export function useTestDocumentPolling({
     setTestReadyLinesLoaded(false);
     setTestDraftError("");
     setTestReadyHandoffActive(false);
+    userModifiedRef.current = false;
   }, []);
 
   return {
@@ -164,6 +174,7 @@ export function useTestDocumentPolling({
     documentRevision,
     handleRetryTestDraftLoad,
     lines,
+    markUserModified,
     resetTestDocument,
     setChapters,
     setDocumentRevision,

@@ -1,15 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, FormEvent, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useState, FormEvent } from "react";
 import { toast } from "sonner";
 import { authClient } from "../lib/auth-client";
-import { activateInviteCode } from "../lib/api";
-import {
-  LEGACY_PENDING_INVITE_CODE_KEY,
-  pendingInviteCodeKeyForUser,
-} from "../lib/session";
 import { Video, ArrowRight, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,45 +24,10 @@ type AuthPageClientProps = {
 
 export default function AuthPageClient({ view }: AuthPageClientProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (view === "SIGN_UP") {
-      try {
-        const queryCode = String(
-          searchParams.get("invite") || searchParams.get("code") || ""
-        )
-          .trim()
-          .toUpperCase();
-        if (queryCode) {
-          setInviteCode(queryCode);
-          localStorage.setItem(LEGACY_PENDING_INVITE_CODE_KEY, queryCode);
-          return;
-        }
-        const savedCode = localStorage.getItem(LEGACY_PENDING_INVITE_CODE_KEY);
-        if (savedCode) setInviteCode(savedCode);
-      } catch {
-        // ignore
-      }
-    }
-  }, [searchParams, view]);
-
-  const resolveSignedInUserId = async (signupResult: any): Promise<string> => {
-    const fromSignup = String(signupResult?.data?.user?.id || "").trim();
-    if (fromSignup) return fromSignup;
-    const sessionResult = await (authClient as any).getSession();
-    return String(sessionResult?.data?.user?.id || "").trim();
-  };
-
-  const resolveAccessToken = async (): Promise<string> => {
-    const tokenResult = await (authClient as any).token();
-    return String(tokenResult?.data?.token || "").trim();
-  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -75,71 +35,18 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
       toast.error("请填写所有必填字段");
       return;
     }
-    if (view === "SIGN_UP" && !inviteCode.trim()) {
-      toast.error("请输入邀请码");
-      return;
-    }
 
     setLoading(true);
 
     try {
       if (view === "SIGN_UP") {
-        const code = inviteCode.trim().toUpperCase();
-
         const res = await authClient.signUp.email({
           email,
           password,
           name: email.split("@")[0] || "User",
-          inviteCode: code,
-        } as any);
+        });
         if (res.error) throw res.error;
-
-        let userId = "";
-        try {
-          userId = await resolveSignedInUserId(res);
-          if (userId) {
-            localStorage.setItem(pendingInviteCodeKeyForUser(userId), code);
-          }
-          localStorage.removeItem(LEGACY_PENDING_INVITE_CODE_KEY);
-        } catch {
-          // ignore local cache failures
-        }
-
-        let activated = false;
-        try {
-          const token = await resolveAccessToken();
-          if (token) {
-            const activation = await activateInviteCode(code, token);
-            activated = true;
-            try {
-              if (userId) {
-                localStorage.removeItem(pendingInviteCodeKeyForUser(userId));
-              }
-            } catch {
-              // ignore
-            }
-            if (activation.granted_credits > 0) {
-              toast.success(
-                `注册成功，已自动发放 ${activation.granted_credits} 次免费额度`
-              );
-            } else {
-              toast.success("注册成功");
-            }
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "邀请码激活失败";
-          const isPermanentInviteError =
-            message.includes("邀请码") &&
-            (message.includes("已被使用") ||
-              message.includes("无效") ||
-              message.includes("已过期"));
-          if (isPermanentInviteError) {
-            toast.error(`注册成功，但邀请码激活失败：${message}`);
-          }
-        }
-        if (!activated) {
-          toast.success("注册成功，正在自动激活邀请码...");
-        }
+        toast.success("注册成功！");
         router.push("/");
       } else {
         const res = await authClient.signIn.email({
@@ -195,8 +102,8 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
             </h1>
             <p className="text-sm text-muted-foreground">
               {isSignIn
-                ? "输入邮箱登录以继续使用"
-                : "注册账号开始体验智能剪辑工作流"}
+                ? "输入邮箱登录，继续限时免费使用"
+                : "注册账号后即可限时免费使用，暂时不消耗额度"}
             </p>
           </div>
           
@@ -231,22 +138,6 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
                     required
                   />
                 </div>
-                
-                {!isSignIn && (
-                  <div className="grid gap-2">
-                    <Label htmlFor="inviteCode">邀请码</Label>
-                    <Input
-                      id="inviteCode"
-                      placeholder="请输入注册邀请码"
-                      type="text"
-                      autoCapitalize="characters"
-                      disabled={loading}
-                      value={inviteCode}
-                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                      required
-                    />
-                  </div>
-                )}
                 
                 <Button disabled={loading} className="mt-2">
                   {loading ? (

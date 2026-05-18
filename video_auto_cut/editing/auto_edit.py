@@ -9,7 +9,7 @@ from typing import Any, Callable
 import srt
 
 from . import llm_client as llm_utils
-from video_auto_cut.pi_agent_runner import TestPiRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_pi
+from video_auto_cut.direct_prompt_runner import TestPromptRequest, build_edl_from_lines, build_subtitles_from_lines, run_test_prompt
 from video_auto_cut.shared.interfaces import PipelineOptions
 from video_auto_cut.shared.test_text_io import write_test_text
 
@@ -28,6 +28,8 @@ class AutoEditRuntime:
     inputs: tuple[str, ...]
     encoding: str = "utf-8"
     force: bool = False
+    auto_edit_llm_concurrency: int = 4
+    direct_prompt_cache: bool = True
     stage_callback: Callable[[str, str], None] | None = None
     preview_callback: Callable[[list[dict[str, Any]]], None] | None = None
 
@@ -113,7 +115,6 @@ def _build_auto_edit_llm_config(
         timeout=timeout,
         temperature=0.0,
         max_tokens=max_tokens,
-        enable_thinking=False,
     )
     if not llm_config.get("base_url") or not llm_config.get("model"):
         raise RuntimeError("LLM config missing. Set --llm-base-url and --llm-model to use auto-edit LLM.")
@@ -121,7 +122,7 @@ def _build_auto_edit_llm_config(
 
 
 class AutoEdit:
-    def __init__(self, runtime: AutoEditRuntime, *, cfg: AutoEditConfig, llm_config: dict[str, Any]):
+    def __init__(self, runtime: AutoEditRuntime, *, cfg: AutoEditConfig, llm_config: dict[str, Any], script: str = ""):
         self.inputs = list(runtime.inputs)
         self.force = runtime.force
         self.encoding = runtime.encoding
@@ -129,7 +130,10 @@ class AutoEdit:
         self.preview_callback = runtime.preview_callback
         self.last_result: dict[str, Any] | None = None
         self.cfg = cfg
-        self.llm_config = llm_config
+        self.llm_config = dict(llm_config)
+        self.llm_config["direct_prompt_cache"] = bool(runtime.direct_prompt_cache)
+        self.script = script
+        self.auto_edit_llm_concurrency = max(1, int(runtime.auto_edit_llm_concurrency or 1))
 
     @classmethod
     def from_args(cls, args: Any) -> "AutoEdit":
@@ -141,6 +145,8 @@ class AutoEdit:
             force=bool(getattr(args, "force", False)),
             stage_callback=getattr(args, "auto_edit_stage_callback", None),
             preview_callback=getattr(args, "auto_edit_preview_callback", None),
+            auto_edit_llm_concurrency=max(1, int(getattr(args, "auto_edit_llm_concurrency", 4) or 1)),
+            direct_prompt_cache=bool(getattr(args, "direct_prompt_cache", True)),
         )
         cfg = AutoEditConfig(
             merge_gap_s=float(getattr(args, "auto_edit_merge_gap", 0.5)),
@@ -171,6 +177,7 @@ class AutoEdit:
             force=bool(options.force),
             stage_callback=stage_callback,
             preview_callback=preview_callback,
+            auto_edit_llm_concurrency=max(1, int(options.auto_edit_llm_concurrency or 1)),
         )
         cfg = AutoEditConfig(
             merge_gap_s=float(options.auto_edit_merge_gap),
@@ -184,7 +191,7 @@ class AutoEdit:
             timeout=int(options.llm_timeout),
             max_tokens=options.llm_max_tokens,
         )
-        return cls(runtime, cfg=cfg, llm_config=llm_config)
+        return cls(runtime, cfg=cfg, llm_config=llm_config, script=options.script or "")
 
     def _emit_stage(self, code: str, message: str) -> None:
         if callable(self.stage_callback):
@@ -194,14 +201,23 @@ class AutoEdit:
         if callable(self.preview_callback):
             self.preview_callback(lines)
 
-    def _auto_edit_segments(self, segments: list[dict[str, Any]], total_length: float | None) -> dict[str, Any]:
+    def _auto_edit_segments(self, segments: list[dict[str, Any]], total_length: float | None, script: str = "") -> dict[str, Any]:
         self._emit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
-        delete_artifacts = run_test_pi(
-            TestPiRequest(
+        delete_artifacts = run_test_prompt(
+            TestPromptRequest(
                 task="delete",
                 llm_config=self.llm_config,
                 segments=segments,
+                script=script,
             )
+        )
+        delete_debug = delete_artifacts.debug or {}
+        logging.info(
+            "auto edit step done step=delete elapsed_seconds=%.2f input_lines=%s output_lines=%s cache_hit=%s",
+            float(delete_debug.get("elapsed_seconds") or 0.0),
+            delete_debug.get("input_lines"),
+            delete_debug.get("output_lines"),
+            delete_debug.get("cache_hit"),
         )
         kept_lines = [line for line in delete_artifacts.lines if not bool(line.get("user_final_remove", False))]
         if not kept_lines:
@@ -209,12 +225,24 @@ class AutoEdit:
         self._emit_preview(delete_artifacts.lines)
 
         self._emit_stage("POLISHING_EXPRESSION", "正在润色表达...")
-        polish_artifacts = run_test_pi(
-            TestPiRequest(
+        polish_artifacts = run_test_prompt(
+            TestPromptRequest(
                 task="polish",
                 llm_config=self.llm_config,
                 lines=delete_artifacts.lines,
+                script=script,
+                polish_concurrency=self.auto_edit_llm_concurrency,
             )
+        )
+        polish_debug = polish_artifacts.debug or {}
+        logging.info(
+            "auto edit step done step=polish elapsed_seconds=%.2f input_lines=%s output_lines=%s cache_hit=%s chunked=%s chunk_count=%s",
+            float(polish_debug.get("elapsed_seconds") or 0.0),
+            polish_debug.get("input_lines"),
+            polish_debug.get("output_lines"),
+            polish_debug.get("cache_hit"),
+            polish_debug.get("chunked", False),
+            polish_debug.get("chunk_count", 0),
         )
         self._emit_preview(polish_artifacts.lines)
 
@@ -230,7 +258,6 @@ class AutoEdit:
             "edl": edl,
             "test_lines": polish_artifacts.lines,
             "debug": {
-                "pi_agent": False,
                 "direct_prompt_pipeline": True,
                 "canonical_runner": True,
                 "task_contracts": ["delete", "polish"],
@@ -260,7 +287,7 @@ class AutoEdit:
             if _maybe_skip(optimized_srt, self.force):
                 continue
 
-            result = self._auto_edit_segments(segments, total_length)
+            result = self._auto_edit_segments(segments, total_length, script=self.script)
             _write_optimized_srt(optimized_srt, result["optimized_subs"], self.encoding)
             _write_optimized_srt(optimized_raw_srt, result["raw_optimized_subs"], self.encoding)
             _write_json(edl_json, result["edl"])

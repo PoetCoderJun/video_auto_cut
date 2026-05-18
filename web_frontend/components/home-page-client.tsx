@@ -8,13 +8,7 @@ import {
   CheckCircle2,
   ArrowRight,
   Play,
-  FileVideo,
   FileText,
-  Wand2,
-  Scissors,
-  Subtitles,
-  Clock,
-  Shield,
 } from "lucide-react";
 import Logo from "@/components/logo";
 import {
@@ -24,9 +18,6 @@ import {
 } from "@/components/step-illustrations";
 
 import {
-  ApiClientError,
-  activateInviteCode,
-  ensureGuestSessionForUpload,
   type ClientUploadIssueStage,
   getMe,
   invalidateTokenCache,
@@ -47,6 +38,11 @@ import {
   getUploadIssueErrorName,
 } from "../lib/upload-error";
 import {
+  getFileExtension,
+  getFileSizeMbBucket,
+  trackEvent,
+} from "../lib/analytics";
+import {
   getVideoDurationLimitMessage,
   MAX_VIDEO_DURATION_SEC,
   readVideoDurationSec,
@@ -54,11 +50,7 @@ import {
   UploadPipelineError,
 } from "../lib/upload-pipeline";
 import { authClient } from "../lib/auth-client";
-import {
-  ACTIVE_JOB_ID_KEY,
-  LEGACY_PENDING_INVITE_CODE_KEY,
-  pendingInviteCodeKeyForUser,
-} from "../lib/session";
+import { ACTIVE_JOB_ID_KEY } from "../lib/session";
 import JobWorkspace from "./job-workspace";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,7 +62,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import CouponRedeemEntry from "@/components/coupon-redeem-entry";
 import FounderCard from "@/components/founder-card";
 import HeroAnimation from "@/components/hero-animation";
 
@@ -91,9 +82,9 @@ const FAQ_ITEMS = [
       "视频上传至阿里云 OSS 用于云端 AI 语音转写与分析，分析完成后不会长期保留。最终视频导出渲染完全在您的本地浏览器中完成，成片不会上传至任何服务器。",
   },
   {
-    question: "如何获得使用额度？",
+    question: "现在怎么使用？",
     answer:
-      "首台新设备可免登录免费剪辑一次；之后注册/老用户继续通过邀请码或兑换码获取额度。",
+      "当前是限时免费阶段。登录账号后即可上传、处理并导出，暂时不展示额度，也不会扣除额度。",
   },
 ];
 
@@ -172,16 +163,12 @@ function StepCard({ step, index }: { step: typeof FLOW_STEPS[0]; index: number }
   );
 }
 
-type UserStatus = "UNKNOWN" | "ACTIVE" | "PENDING_COUPON";
-
 export default function HomePageClient() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [error, setError] = useState("");
-  const [creditBalance, setCreditBalance] = useState<number | null>(null);
-  const [userStatus, setUserStatus] = useState<UserStatus>("UNKNOWN");
-  const [inviteNotice, setInviteNotice] = useState("");
+  const [accountNotice, setAccountNotice] = useState("");
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authAccount, setAuthAccount] = useState("");
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
@@ -229,32 +216,6 @@ export default function HomePageClient() {
   }, []);
 
   useEffect(() => {
-    if (!isSignedIn) return;
-
-    let alive = true;
-    getMe()
-      .then((me) => {
-        if (!alive) return;
-        setCreditBalance(me.credits.balance);
-        const status = String(me.status || "PENDING_COUPON").toUpperCase();
-        setUserStatus(status === "ACTIVE" ? "ACTIVE" : "PENDING_COUPON");
-      })
-      .catch((err) => {
-        if (!alive) return;
-        if (err instanceof ApiClientError && err.status === 401) {
-          setIsSignedIn(false);
-          setAuthAccount("");
-          setCreditBalance(null);
-          setUserStatus("UNKNOWN");
-        }
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [isSignedIn]);
-
-  useEffect(() => {
     setMobileUploadBlocked(
       isUnsupportedMobileUploadDevice() || isUnsupportedLocalVideoBrowser()
     );
@@ -267,6 +228,7 @@ export default function HomePageClient() {
   }, []);
 
   const showMobileUploadError = useCallback(() => {
+    trackEvent("upload_blocked", { reason: "unsupported_browser" });
     setError("当前浏览器暂不支持上传视频，请使用桌面版 Chrome。");
   }, []);
 
@@ -295,10 +257,8 @@ export default function HomePageClient() {
       invalidateTokenCache();
       setIsSignedIn(false);
       setAuthAccount("");
-      setCreditBalance(null);
-      setUserStatus("UNKNOWN");
       setJobId(null);
-      setInviteNotice("");
+      setAccountNotice("");
       try {
         localStorage.removeItem(ACTIVE_JOB_ID_KEY);
       } catch {
@@ -309,23 +269,10 @@ export default function HomePageClient() {
     }
   };
 
-  const handleCouponRedeemed = useCallback(
-    (result: {
-      already_activated: boolean;
-      coupon_redeemed: boolean;
-      granted_credits: number;
-      balance: number;
-    }) => {
-      setCreditBalance(result.balance);
-      setUserStatus("ACTIVE");
-      setInviteNotice(
-        result.granted_credits > 0
-          ? `兑换成功，已到账 ${result.granted_credits} 次额度。`
-          : "兑换成功，账号已更新。"
-      );
-    },
-    []
-  );
+  const showLoginRequiredError = useCallback((source = "upload_entry") => {
+    trackEvent("upload_login_required", { source });
+    setError("当前限时免费需要先登录账号。登录后即可上传和导出，暂时不消耗额度。");
+  }, []);
 
   // Auth and profile checks happen here, only when user actually tries to upload.
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,11 +281,18 @@ export default function HomePageClient() {
     input.value = "";
     if (!file) return;
 
+    trackEvent("upload_file_selected", {
+      file_extension: getFileExtension(file.name),
+      file_type: file.type || "unknown",
+      file_size_mb_bucket: getFileSizeMbBucket(file.size),
+    });
+
     if (mobileUploadBlocked) {
       showMobileUploadError();
       return;
     }
     if (isLikelyAppExportFileName(file.name)) {
+      trackEvent("upload_rejected", { reason: "app_export_file_name" });
       setError(getLikelyAppExportFileMessage(file.name));
       return;
     }
@@ -350,98 +304,47 @@ export default function HomePageClient() {
       // 0. Check video duration — reject anything >= 10 minutes.
       const durationSec = await readVideoDurationSec(file);
       if (durationSec >= MAX_VIDEO_DURATION_SEC) {
+        trackEvent("upload_rejected", {
+          reason: "duration_too_long",
+          duration_sec: Math.round(durationSec),
+        });
         setError(getVideoDurationLimitMessage(durationSec));
         return;
       }
 
-      // 1. Verify session lazily at consumption time. If the visitor is not
-      // signed in, try the one-time guest flow first.
+      // 1. Verify session lazily at consumption time. The limited-time free
+      // period still requires a signed-in account.
       uploadStage = "session_check";
       const sessionResult = await (authClient as any).getSession();
       const user = sessionResult?.data?.user;
       if (!user?.id) {
-        await ensureGuestSessionForUpload();
-        setInviteNotice("已开启首台设备免登录体验，本次可免费完整剪辑并导出一次。");
-        const result = await runUploadPipeline({
-          file,
-          script,
-          onStageMessage: setUploadStageMessage,
-        });
-        saveJobId(result.job.job_id);
+        setIsSignedIn(false);
+        setAuthAccount("");
+        showLoginRequiredError("file_select");
         return;
       }
-      const userId = String(user.id);
       setIsSignedIn(true);
       setAuthAccount(String(user.email || user.name || user.id || "").trim());
 
-      // 2. Fetch profile to check account status and credits.
+      // 2. Reconcile the business user row before starting job I/O.
       uploadStage = "profile_check";
-      let me;
       try {
-        me = await getMe();
+        await getMe();
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "账号状态校验失败，请稍后重试。";
         setError(message);
         return;
       }
-      setCreditBalance(me.credits.balance);
-      const status = String(me.status || "PENDING_COUPON").toUpperCase();
-      let isActive = status === "ACTIVE";
-      setUserStatus(isActive ? "ACTIVE" : "PENDING_COUPON");
-
-      // 3. If not active, try to activate a pending invite code from localStorage.
-      if (!isActive) {
-        const scopedKey = pendingInviteCodeKeyForUser(userId);
-        let code = "";
-        try {
-          code = localStorage.getItem(scopedKey)?.trim().toUpperCase() || "";
-          localStorage.removeItem(LEGACY_PENDING_INVITE_CODE_KEY);
-        } catch {
-          code = "";
-        }
-        if (code) {
-          try {
-            const activation = await activateInviteCode(code);
-            setCreditBalance(activation.balance);
-            setUserStatus("ACTIVE");
-            setInviteNotice("注册成功，邀请码已激活。");
-            isActive = true;
-            try {
-              localStorage.removeItem(scopedKey);
-            } catch {
-              // Ignore storage failures.
-            }
-          } catch (err) {
-            const msg = err instanceof Error ? err.message : "";
-            const isPermanent =
-              msg.includes("邀请码") &&
-              (msg.includes("已被使用") ||
-                msg.includes("无效") ||
-                msg.includes("已过期"));
-            if (isPermanent) {
-              setInviteNotice(`邀请码激活失败：${msg}`);
-              try {
-                localStorage.removeItem(scopedKey);
-              } catch {
-                // Ignore storage failures.
-              }
-            } else {
-              setInviteNotice("检测到注册邀请码，正在后台自动激活，请稍后重试。");
-            }
-          }
-        }
-      }
-
-      if (!isActive) {
-        setError("账号尚未完成邀请码激活，请先完成激活。");
-        return;
-      }
+      setAccountNotice("限时免费已开启：本次处理和导出暂不消耗额度。");
 
       const result = await runUploadPipeline({
         file,
         script,
         onStageMessage: setUploadStageMessage,
+      });
+      trackEvent("upload_accepted", {
+        has_reference_script: script.trim().length > 0,
       });
       saveJobId(result.job.job_id);
     } catch (err) {
@@ -449,6 +352,10 @@ export default function HomePageClient() {
         uploadStage = err.stage;
       }
       const friendlyMessage = getFriendlyUploadErrorMessage(err);
+      trackEvent("upload_error", {
+        stage: uploadStage,
+        error_name: getUploadIssueErrorName(err),
+      });
         void reportClientUploadIssue({
           stage: uploadStage,
           page: "/",
@@ -469,9 +376,14 @@ export default function HomePageClient() {
   };
 
   const handleUploadAreaClick = useCallback(() => {
-    if (!mobileUploadBlocked) return;
-    showMobileUploadError();
-  }, [mobileUploadBlocked, showMobileUploadError]);
+    if (mobileUploadBlocked) {
+      showMobileUploadError();
+      return;
+    }
+    if (!isSignedIn) {
+      showLoginRequiredError();
+    }
+  }, [isSignedIn, mobileUploadBlocked, showLoginRequiredError, showMobileUploadError]);
 
   if (jobId) {
     return (
@@ -491,12 +403,9 @@ export default function HomePageClient() {
             <div className="flex items-center gap-3">
               {isSignedIn && (
                 <>
-                  <CouponRedeemEntry onRedeemed={handleCouponRedeemed} />
-                  {creditBalance !== null && (
-                    <Badge variant="secondary" className="px-3 py-1">
-                      额度: {creditBalance} 次
-                    </Badge>
-                  )}
+                  <Badge variant="secondary" className="px-3 py-1">
+                    限时免费
+                  </Badge>
                   <span className="hidden text-sm text-muted-foreground sm:inline-block">
                     {authAccount}
                   </span>
@@ -529,6 +438,9 @@ export default function HomePageClient() {
             <a href="#how-it-works" className="transition-colors hover:text-foreground">
               如何使用
             </a>
+            <Link href="/use-cases/koubo-video-editing" className="transition-colors hover:text-foreground">
+              适合谁用
+            </Link>
             <a href="#faq" className="transition-colors hover:text-foreground">
               常见问题
             </a>
@@ -540,17 +452,14 @@ export default function HomePageClient() {
                   <Button variant="ghost">登录</Button>
                 </Link>
                 <Link href="/sign-up">
-                  <Button className="rounded-full">注册体验</Button>
+                  <Button className="rounded-full">注册/登录</Button>
                 </Link>
               </>
             ) : (
               <>
-                <CouponRedeemEntry onRedeemed={handleCouponRedeemed} />
-                {creditBalance !== null && (
-                  <Badge variant="secondary" className="px-3 py-1">
-                    额度: {creditBalance} 次
-                  </Badge>
-                )}
+                <Badge variant="secondary" className="px-3 py-1">
+                  限时免费
+                </Badge>
                 <span className="hidden text-sm text-muted-foreground sm:inline-block">
                   {authAccount}
                 </span>
@@ -580,6 +489,12 @@ export default function HomePageClient() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:gap-10 xl:gap-14">
             {/* ── Left column: headline + upload card ── */}
             <div className="flex-1 lg:max-w-[56%] min-w-0">
+              <div className="mb-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+                <Badge className="rounded-full bg-emerald-600 text-white hover:bg-emerald-600">
+                  限时免费
+                </Badge>
+                <span>公测期间登录账号即可免费使用</span>
+              </div>
               {/* Headline */}
               <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-[3.25rem] lg:leading-[1.12]">
                 <span className="block text-muted-foreground font-semibold">
@@ -594,7 +509,7 @@ export default function HomePageClient() {
               </h1>
 
               {/* Highlights */}
-              <div className="mt-4 space-y-2 max-w-md lg:max-w-none">
+              <div className="mt-8 space-y-3 max-w-md lg:max-w-none">
                 <div className="flex items-start gap-3">
                   <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 mt-0.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
@@ -617,12 +532,16 @@ export default function HomePageClient() {
 
               {/* Upload + Script Card */}
               <div
-                className="mt-5"
+                className="mt-10"
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                 onDrop={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   if (mobileUploadBlocked || loading) return;
+                  if (!isSignedIn) {
+                    showLoginRequiredError();
+                    return;
+                  }
                   const file = e.dataTransfer.files?.[0];
                   if (!file) return;
                   const input = document.querySelector<HTMLInputElement>("input[type='file']");
@@ -638,8 +557,8 @@ export default function HomePageClient() {
                   <div
                     onClick={handleUploadAreaClick}
                     className={cn(
-                      "relative group px-5 py-4 transition-all duration-300 hover:bg-muted/30",
-                      mobileUploadBlocked || loading
+                      "relative group px-6 py-6 transition-all duration-300 hover:bg-muted/30",
+                      mobileUploadBlocked || loading || !isSignedIn
                         ? "cursor-not-allowed opacity-70"
                         : "cursor-pointer"
                     )}
@@ -648,32 +567,36 @@ export default function HomePageClient() {
                       type="file"
                       accept=".mp4,.mov,.mkv,.webm,.m4v,.ts,.m2ts,.mts"
                       onChange={handleFileSelect}
-                      disabled={loading || mobileUploadBlocked}
+                      disabled={loading || mobileUploadBlocked || !isSignedIn}
                       className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                     />
-                    <div className="flex items-center gap-4">
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-all duration-300 group-hover:bg-primary/15 group-hover:scale-105">
+                    <div className="flex items-center gap-5">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-all duration-300 group-hover:bg-primary/15 group-hover:scale-105">
                         {loading ? (
-                          <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
                         ) : (
-                          <UploadCloud className="h-6 w-6" />
+                          <UploadCloud className="h-7 w-7" />
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground">
+                        <p className="text-base font-medium text-foreground">
                           {loading
                             ? uploadStageMessage || "正在上传并分析..."
                             : mobileUploadBlocked
                             ? "当前浏览器暂不支持上传"
+                            : !isSignedIn
+                            ? "登录后即可限时免费上传"
                             : "拖拽文件到此处，或点击上传视频"}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {mobileUploadBlocked
                             ? "请使用桌面版 Chrome"
+                            : !isSignedIn
+                            ? "限时免费期间不消耗额度，请先登录账号"
                             : "支持 MP4, MOV, MKV 等 · 最长 10 分钟"}
                         </p>
                       </div>
-                      {!loading && !mobileUploadBlocked && (
+                      {!loading && !mobileUploadBlocked && isSignedIn && (
                         <span className="text-xs font-medium text-primary shrink-0 px-3 py-1.5 rounded-full bg-primary/5 ring-1 ring-primary/20 group-hover:bg-primary/10 transition-colors">
                           选择文件
                         </span>
@@ -688,7 +611,13 @@ export default function HomePageClient() {
                   <div className="px-5 py-3 bg-muted/20">
                     <button
                       type="button"
-                      onClick={() => setScriptExpanded((v) => !v)}
+                      onClick={() => {
+                        setScriptExpanded((v) => {
+                          const next = !v;
+                          trackEvent("reference_script_toggled", { expanded: next });
+                          return next;
+                        });
+                      }}
                       className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <FileText className="h-3.5 w-3.5" />
@@ -710,10 +639,10 @@ export default function HomePageClient() {
 
                 {/* Status messages */}
                 <div className="mt-3 space-y-2">
-                  {inviteNotice && (
+                  {accountNotice && (
                     <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 border border-emerald-200">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {inviteNotice}
+                      {accountNotice}
                     </div>
                   )}
                   {mobileUploadBlocked && (
@@ -737,6 +666,10 @@ export default function HomePageClient() {
                       showMobileUploadError();
                       return;
                     }
+                    if (!isSignedIn) {
+                      window.location.href = "/sign-in";
+                      return;
+                    }
                     const input = document.querySelector<HTMLInputElement>("input[type='file']");
                     input?.click();
                   }}
@@ -744,7 +677,7 @@ export default function HomePageClient() {
                   disabled={loading}
                 >
                   <UploadCloud className="mr-2 h-4 w-4" />
-                  立即上传
+                  {isSignedIn ? "立即上传" : "登录后上传"}
                 </Button>
                 <Button
                   variant="outline"
@@ -767,38 +700,6 @@ export default function HomePageClient() {
           </div>
         </section>
 
-        {/* Features honeycomb grid */}
-        <section className="py-14 lg:py-18 -mx-4 sm:-mx-6 px-4 sm:px-6 border-y border-border/40">
-          <div className="mx-auto max-w-4xl">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 lg:gap-4">
-              {[
-                { icon: Scissors, title: "自动剪废话", desc: "识别重复、口误、停顿，自动删除冗余片段" },
-                { icon: Wand2, title: "AI 润色字幕", desc: "修正 ASR 错词、同音字，让字幕更专业" },
-                { icon: Subtitles, title: "智能加字幕", desc: "自动生成带样式的字幕和章节标记" },
-                { icon: Clock, title: "进度条", desc: "自动渲染视频进度条，提升完播率" },
-                { icon: Shield, title: "本地导出", desc: "成片在浏览器本地渲染，不上传服务器" },
-                { icon: Zap, title: "几分钟出片", desc: "从上传到导出，全流程 AI 自动化处理" },
-              ].map((feat, i) => (
-                <div
-                  key={feat.title}
-                  className={cn(
-                    "group relative rounded-xl border border-border/60 bg-card p-4 lg:p-5 transition-all duration-300 hover:border-primary/30 hover:shadow-sm hover:-translate-y-0.5",
-                    i === 0 && "md:col-span-1",
-                    i === 3 && "md:col-span-1"
-                  )}
-                  style={{ transitionDelay: `${i * 50}ms` }}
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary mb-3 group-hover:bg-primary/15 transition-colors">
-                    <feat.icon className="h-[18px] w-[18px]" />
-                  </div>
-                  <h3 className="text-sm font-semibold text-foreground">{feat.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{feat.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
         <section id="how-it-works" className="bg-slate-50 dark:bg-slate-900/30 py-16 lg:py-20 -mx-4 sm:-mx-6 px-4 sm:px-6">
           <div className="mx-auto max-w-2xl mb-10 text-center">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
@@ -812,6 +713,39 @@ export default function HomePageClient() {
             {FLOW_STEPS.map((step, index) => (
               <StepCard key={step.title} step={step} index={index} />
             ))}
+          </div>
+        </section>
+
+        <section className="border-t border-border/60 py-14">
+          <div className="mx-auto max-w-4xl">
+            <div className="mb-7 text-center">
+              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                为口播创作者做的 AI 剪辑
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
+                从自动删废话、字幕驱动剪辑到小红书口播后期，PoetCut 更关注真实创作者每天都会遇到的剪辑负担。
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Link
+                href="/features/remove-filler-words"
+                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
+              >
+                AI 自动删除口播废话
+              </Link>
+              <Link
+                href="/features/subtitle-driven-editing"
+                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
+              >
+                字幕驱动的视频剪辑
+              </Link>
+              <Link
+                href="/use-cases/koubo-video-editing"
+                className="rounded-lg border bg-card p-4 text-sm font-medium text-foreground transition-colors hover:border-primary/50 hover:bg-muted/30"
+              >
+                小红书和知识口播场景
+              </Link>
+            </div>
           </div>
         </section>
 
@@ -865,13 +799,17 @@ export default function HomePageClient() {
                       showMobileUploadError();
                       return;
                     }
+                    if (!isSignedIn) {
+                      window.location.href = "/sign-in";
+                      return;
+                    }
                     const input = document.querySelector<HTMLInputElement>("input[type='file']");
                     input?.click();
                   }}
                   className="rounded-full"
                   disabled={loading}
                 >
-                  立即上传视频
+                  {isSignedIn ? "立即上传视频" : "登录后免费使用"}
                   <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
                 {!isSignedIn && (
@@ -888,7 +826,21 @@ export default function HomePageClient() {
       </main>
 
       <footer className="border-t border-border bg-muted/30 py-8 text-center text-xs text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} AI Cut. All rights reserved.</p>
+        <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+          <Link href="/features/remove-filler-words" className="hover:text-foreground">
+            自动删废话
+          </Link>
+          <Link href="/features/subtitle-driven-editing" className="hover:text-foreground">
+            字幕剪辑
+          </Link>
+          <Link href="/use-cases/koubo-video-editing" className="hover:text-foreground">
+            口播场景
+          </Link>
+          <Link href="/faq" className="hover:text-foreground">
+            常见问题
+          </Link>
+        </div>
+        <p className="mt-4">&copy; {new Date().getFullYear()} PoetCut. All rights reserved.</p>
       </footer>
     </div>
   );

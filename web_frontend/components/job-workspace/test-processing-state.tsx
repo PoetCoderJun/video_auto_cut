@@ -37,7 +37,7 @@ export function TestProcessingState({
 
   return (
     <div className="mx-auto max-w-5xl py-6 md:py-10">
-      <div className="relative min-h-[560px] overflow-hidden rounded-[30px] border border-slate-200/80 bg-white shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]">
+      <div className="relative min-h-[560px] overflow-hidden rounded-[30px] border border-border/80 bg-card shadow-[0_24px_80px_-40px_rgba(15,23,42,0.28)]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.28),_rgba(248,250,252,0.06)_48%,_rgba(241,245,249,0.16))]" />
         <div className="absolute inset-0 px-6 py-6 md:px-10 md:py-8">
           {showSubtitlePreview ? (
@@ -47,7 +47,7 @@ export function TestProcessingState({
                   {previewLines.map((line, index) => (
                     <div
                       key={`${line}-${index}`}
-                      className="font-mono text-[13px] leading-6 tracking-[0.01em] text-slate-700/80 md:text-[14px]"
+                      className="font-mono text-[13px] leading-6 tracking-[0.01em] text-foreground/80 md:text-[14px]"
                     >
                       {line}
                     </div>
@@ -76,23 +76,26 @@ export function TestProcessingState({
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
 
-            <h2 className="relative mt-3 text-[17px] font-semibold tracking-tight text-slate-900 md:text-[19px]">
+            <h2 className="relative mt-3 text-[17px] font-semibold tracking-tight text-foreground md:text-[19px]">
               {getTestProcessingTitle(job.stage?.code, job.stage?.message)}
             </h2>
-            <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-slate-500">
+            <p className="relative mx-auto mt-1.5 max-w-[240px] text-[12px] leading-5 text-muted-foreground">
               {getTestProcessingNote(job.stage?.code)}
             </p>
             {draftError && (
-              <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-red-600">
+              <p className="relative mt-2 max-w-[260px] text-[12px] leading-5 text-destructive">
                 {draftError}
               </p>
             )}
 
             <Progress
               value={visualProgress}
-              className="relative mx-auto mt-3 h-1 w-20 bg-slate-200/80"
+              className="relative mx-auto mt-3 h-1 w-20 bg-muted/80"
               indicatorClassName="bg-gradient-to-r from-[#60a5fa] via-[#2563eb] to-[#0f172a]"
             />
+            <p className="relative mx-auto mt-2 max-w-[260px] text-[11px] leading-4 text-muted-foreground/85">
+              这一步可能需要 3-10 分钟，喝杯茶等等回来看吧~
+            </p>
 
             {draftError && (
               <Button

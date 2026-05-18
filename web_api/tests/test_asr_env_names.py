@@ -39,14 +39,14 @@ class AsrEnvNamesTest(unittest.TestCase):
         self.assertFalse(settings.asr_dashscope_word_split_enabled)
         self.assertFalse(settings.asr_dashscope_insert_no_speech)
 
-    def test_legacy_aliases_no_longer_override_asr_settings(self) -> None:
+    def test_removed_aliases_no_longer_override_asr_settings(self) -> None:
         overrides = {
             "DASHSCOPE_ASR_ENABLE_WORDS": "",
             "ASR_WORD_SPLIT_ENABLED": "",
-            "ASR_DASHSCOPE_API_KEY": "legacy-key",
-            "ASR_DASHSCOPE_BASE_URL": "https://legacy.example.invalid",
-            "ASR_DASHSCOPE_MODEL": "legacy-model",
-            "ASR_DASHSCOPE_CONTEXT": "legacy-context",
+            "ASR_DASHSCOPE_API_KEY": "old-key",
+            "ASR_DASHSCOPE_BASE_URL": "https://old.example.invalid",
+            "ASR_DASHSCOPE_MODEL": "old-model",
+            "ASR_DASHSCOPE_CONTEXT": "old-context",
             "ASR_DASHSCOPE_ENABLE_WORDS": "0",
             "ASR_DASHSCOPE_WORD_SPLIT_ENABLED": "0",
         }
@@ -61,7 +61,7 @@ class AsrEnvNamesTest(unittest.TestCase):
         self.assertTrue(settings.asr_dashscope_enable_words)
         self.assertTrue(settings.asr_dashscope_word_split_enabled)
 
-    def test_legacy_asr_oss_env_names_no_longer_override_oss_settings(self) -> None:
+    def test_removed_asr_oss_env_names_no_longer_override_oss_settings(self) -> None:
         overrides = {
             "OSS_ENDPOINT": "",
             "OSS_BUCKET": "",
@@ -69,11 +69,11 @@ class AsrEnvNamesTest(unittest.TestCase):
             "OSS_ACCESS_KEY_SECRET": "",
             "OSS_PREFIX": "",
             "OSS_SIGNED_URL_TTL_SECONDS": "",
-            "ASR_OSS_ENDPOINT": "https://legacy-oss.example.invalid",
-            "ASR_OSS_BUCKET": "legacy-bucket",
-            "ASR_OSS_ACCESS_KEY_ID": "legacy-ak",
-            "ASR_OSS_ACCESS_KEY_SECRET": "legacy-sk",
-            "ASR_OSS_PREFIX": "legacy/prefix",
+            "ASR_OSS_ENDPOINT": "https://old-oss.example.invalid",
+            "ASR_OSS_BUCKET": "old-bucket",
+            "ASR_OSS_ACCESS_KEY_ID": "old-ak",
+            "ASR_OSS_ACCESS_KEY_SECRET": "old-sk",
+            "ASR_OSS_PREFIX": "old/prefix",
             "ASR_OSS_SIGNED_URL_TTL_SECONDS": "1200",
         }
         with patch.dict(os.environ, overrides, clear=False):

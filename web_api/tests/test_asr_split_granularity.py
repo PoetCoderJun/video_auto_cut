@@ -70,7 +70,7 @@ class AsrSplitGranularityTest(unittest.TestCase):
         payload = _client()._build_submit_payload(
             file_url="https://example.com/audio.wav",
             language="zh",
-            legacy_language_hints=["zh", "en"],
+            language_hints=["zh", "en"],
             text="香港签证续签",
             use_file_urls=False,
         )

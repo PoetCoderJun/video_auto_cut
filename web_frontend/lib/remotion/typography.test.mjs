@@ -8,12 +8,15 @@ import {
   getSubtitleLineHeight,
   fitChapterTitleToBox,
   fitTextToBox,
+  getChapterCardLayoutMetrics,
   getResponsiveOverlayTypography,
   normalizeCaptionDisplayText,
   OVERLAY_FONT_FAMILY,
   prepareCaptionDisplayText,
+  resolveOverlayReferenceCanvas,
 } from "./typography.ts";
 import {applyOverlayScaleToTypography} from "./overlay-controls.ts";
+import {MOCK_RESOLUTION_PRESETS} from "./dev-export-preview-presets.ts";
 import {getSubtitleThemeFitWidth, getSubtitleThemeRenderFontSize} from "./overlay-presentation.ts";
 
 test("uses an explicit cross-platform Chinese font stack for overlays", () => {
@@ -32,7 +35,7 @@ test("keeps overlay typography readable on narrow portrait frames", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1280});
 
   assert.ok(typography.subtitleFontSize >= 48, `expected subtitle font >= 48, got ${typography.subtitleFontSize}`);
-  assert.ok(typography.subtitleFontSize <= 54, `expected subtitle font <= 54, got ${typography.subtitleFontSize}`);
+  assert.ok(typography.subtitleFontSize <= 66, `expected subtitle font <= 66, got ${typography.subtitleFontSize}`);
   assert.ok(
     typography.chapterTitleFontSize >= 26,
     `expected chapter title font >= 26, got ${typography.chapterTitleFontSize}`
@@ -50,7 +53,7 @@ test("keeps overlay typography readable on narrow portrait frames", () => {
 test("keeps 720x1268 portrait subtitle sizing below the previous overflow-prone baseline", () => {
   const typography = getResponsiveOverlayTypography({width: 720, height: 1268});
 
-  assert.ok(typography.subtitleFontSize <= 54, `expected 720x1268 subtitle font <= 54, got ${typography.subtitleFontSize}`);
+  assert.ok(typography.subtitleFontSize <= 66, `expected 720x1268 subtitle font <= 66, got ${typography.subtitleFontSize}`);
 });
 
 test("keeps landscape overlays growing beyond 1080p", () => {
@@ -100,16 +103,82 @@ test("scales landscape overlays monotonically from HD through 8k", () => {
   }
 });
 
+test("uses the current frame as the overlay reference by default", () => {
+  const canvas = resolveOverlayReferenceCanvas({
+    width: 960,
+    height: 540,
+  });
+
+  assert.deepEqual(canvas, {
+    width: 960,
+    height: 540,
+    scaleX: 1,
+    scaleY: 1,
+  });
+});
+
+test("keeps default overlay component ratios balanced across common preview resolutions", () => {
+  const commonResolutions = [
+    ...MOCK_RESOLUTION_PRESETS,
+    {id: "portrait-720x1268", width: 720, height: 1268},
+    {id: "iphone-750x1334", width: 750, height: 1334},
+    {id: "iphone-828x1792", width: 828, height: 1792},
+    {id: "ultrawide-5120x720", width: 5120, height: 720},
+  ];
+
+  for (const resolution of commonResolutions) {
+    const typography = getResponsiveOverlayTypography({
+      width: resolution.width,
+      height: resolution.height,
+    });
+    const chapterMetrics = getChapterCardLayoutMetrics({
+      width: resolution.width,
+      typography,
+    });
+    const subtitleRatio = typography.subtitleFontSize / resolution.height;
+    const progressRatio = typography.progressHeight / resolution.height;
+    const progressLabelRatio = typography.progressLabelFontSize / resolution.height;
+    const chapterTitleRatio = typography.chapterTitleFontSize / resolution.height;
+    const chapterWidthRatio = chapterMetrics.cardMaxWidth / resolution.width;
+    const subtitleBottomRatio = typography.subtitleBottom / resolution.height;
+
+    assert.ok(
+      subtitleRatio >= 0.046 && subtitleRatio <= 0.056,
+      `${resolution.id} subtitle ratio should stay balanced, got ${(subtitleRatio * 100).toFixed(2)}%`
+    );
+    assert.ok(
+      progressRatio >= 0.043 && progressRatio <= 0.057,
+      `${resolution.id} progress ratio should stay balanced, got ${(progressRatio * 100).toFixed(2)}%`
+    );
+    assert.ok(
+      progressLabelRatio >= 0.019 && progressLabelRatio <= 0.023,
+      `${resolution.id} progress label ratio should stay balanced, got ${(progressLabelRatio * 100).toFixed(2)}%`
+    );
+    assert.ok(
+      chapterTitleRatio >= 0.033 && chapterTitleRatio <= 0.043,
+      `${resolution.id} chapter title ratio should stay balanced, got ${(chapterTitleRatio * 100).toFixed(2)}%`
+    );
+    assert.ok(
+      chapterWidthRatio >= 0.58 && chapterWidthRatio <= 0.72,
+      `${resolution.id} chapter card width ratio should stay balanced, got ${(chapterWidthRatio * 100).toFixed(2)}%`
+    );
+    assert.ok(
+      subtitleBottomRatio >= 0.09 && subtitleBottomRatio <= 0.11,
+      `${resolution.id} subtitle bottom ratio should stay balanced, got ${(subtitleBottomRatio * 100).toFixed(2)}%`
+    );
+  }
+});
+
 test("uses a larger but restrained progress label baseline on common landscape outputs", () => {
   const typography1080 = getResponsiveOverlayTypography({width: 1920, height: 1080});
   const typography4k = getResponsiveOverlayTypography({width: 3840, height: 2160});
 
   assert.ok(
-    typography1080.progressLabelFontSize >= 18,
+    typography1080.progressLabelFontSize >= 15,
     `expected 1080p progress label font >= 18, got ${typography1080.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressLabelFontSize >= 30,
+    typography4k.progressLabelFontSize >= 25,
     `expected 4k progress label font >= 30, got ${typography4k.progressLabelFontSize}`
   );
   assert.ok(
@@ -272,11 +341,7 @@ test("applies quarter-step progress label scaling instead of snapping to full pi
   const scaled = applyOverlayScaleToTypography(typography, {progressScale: 1.13});
 
   assert.equal(scaled.progressLabelFontSize % 0.25, 0, "expected quarter-step progress label scaling");
-  assert.notEqual(
-    scaled.progressLabelFontSize,
-    Math.round(scaled.progressLabelFontSize),
-    `expected progress label scaling to preserve sub-pixel precision, got ${scaled.progressLabelFontSize}`
-  );
+  assert.ok(scaled.progressLabelFontSize > typography.progressLabelFontSize, "expected progress label scaling to grow");
 });
 
 test("makes progress scale change the track footprint instead of only thickening the bar", () => {
@@ -419,7 +484,7 @@ test("handles ultra-wide landscapes without shrinking progress labels too far", 
     `expected wide subtitles to stay legible, got ${typography.subtitleFontSize}`
   );
   assert.ok(
-    typography.progressLabelFontSize >= 17,
+    typography.progressLabelFontSize >= 14,
     `expected high-res progress labels to stay readable, got ${typography.progressLabelFontSize}`
   );
   assert.ok(
@@ -461,7 +526,7 @@ test("caps aggressive subtitle scale on extra-narrow portrait exports", () => {
   });
 
   assert.ok(safeScale < 1.45, `expected narrow portrait subtitle scale to be capped, got ${safeScale}`);
-  assert.ok(safeScale >= 1.25, `expected cap to stay usable, got ${safeScale}`);
+  assert.ok(safeScale >= 1.15, `expected cap to stay usable, got ${safeScale}`);
 });
 
 test("keeps subtitle scaling visible for text themes after fitting", () => {

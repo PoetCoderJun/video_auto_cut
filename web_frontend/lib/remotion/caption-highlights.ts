@@ -13,6 +13,7 @@ export type NormalizedCaptionToken = {
   isEmphasized: boolean;
   highlightColor?: string;
   highlightFontScale?: number;
+  backgroundColor?: string;
 };
 
 export type CaptionRenderChunk = {
@@ -23,6 +24,7 @@ export type CaptionRenderChunk = {
   isEmphasized: boolean;
   highlightColor?: string;
   highlightFontScale?: number;
+  backgroundColor?: string;
 };
 
 const isCaptionTokenEmphasized = (
@@ -95,6 +97,7 @@ export const normalizeCaptionTokensForRender = (
         token.highlight.fontScale > 0
           ? token.highlight.fontScale
           : undefined,
+      backgroundColor: String(token.highlight?.backgroundColor || "").trim() || undefined,
     }));
 };
 
@@ -102,9 +105,10 @@ const sharesChunkStyle = (
   previous: CaptionRenderChunk,
   next: NormalizedCaptionToken,
 ): boolean =>
-  previous.isHighlighted === Boolean(next.hasHighlight || next.highlightColor || next.highlightFontScale || next.isEmphasized) &&
+  previous.isHighlighted === Boolean(next.hasHighlight || next.highlightColor || next.highlightFontScale || next.isEmphasized || next.backgroundColor) &&
   previous.isEmphasized === next.isEmphasized &&
   previous.highlightColor === next.highlightColor &&
+  previous.backgroundColor === next.backgroundColor &&
   (previous.highlightFontScale ?? null) === (next.highlightFontScale ?? null);
 
 export const buildCaptionRenderChunks = (
@@ -112,7 +116,7 @@ export const buildCaptionRenderChunks = (
 ): CaptionRenderChunk[] => {
   return tokens.reduce<CaptionRenderChunk[]>((chunks, token) => {
     const isHighlighted = Boolean(
-      token.hasHighlight || token.highlightColor || token.highlightFontScale || token.isEmphasized,
+      token.hasHighlight || token.highlightColor || token.highlightFontScale || token.isEmphasized || token.backgroundColor,
     );
     const previous = chunks[chunks.length - 1];
     if (previous && sharesChunkStyle(previous, token)) {
@@ -129,6 +133,7 @@ export const buildCaptionRenderChunks = (
       isEmphasized: token.isEmphasized,
       highlightColor: token.highlightColor,
       highlightFontScale: token.highlightFontScale,
+      backgroundColor: token.backgroundColor,
     });
     return chunks;
   }, []);
@@ -147,8 +152,8 @@ export const getCaptionChunkFontScale = (
     chunk.highlightFontScale > 0
       ? chunk.highlightFontScale
       : 1;
-  const amplifiedScale =
-    requestedScale > 1 ? 1 + (requestedScale - 1) * 2.2 : 1;
-  const minimumScale = 1.24;
-  return Math.max(minimumScale, Math.min(1.92, amplifiedScale));
+  const softenedScale =
+    requestedScale > 1 ? 1 + (requestedScale - 1) * 0.85 : 1;
+  const minimumScale = 1.16;
+  return Math.max(minimumScale, Math.min(1.3, softenedScale));
 };

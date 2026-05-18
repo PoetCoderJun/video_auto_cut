@@ -16,7 +16,6 @@
 
 - Python 3.9
 - `uv`
-- `pi`（可选；用于代理式协作，依赖 Node.js 20+）
 
 安装 `uv`：
 
@@ -26,12 +25,6 @@ brew install uv
 
 # macOS / Linux 通用官方安装脚本
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-安装 `pi`：
-
-```bash
-npm install -g @mariozechner/pi-coding-agent
 ```
 
 如果当前 shell 需要加载仓库里的本地凭证：
@@ -44,51 +37,42 @@ set +a
 
 项目默认约定：
 
-- **PI/Test agent 默认优先走 `PI_PROVIDER=kimi-coding`**
-- 只要配置了 `KIMI_API_KEY`，项目里的 PI runner 会默认使用 Kimi Coding
-- 如果没有 `KIMI_API_KEY`，才回退到 `.env` 中的 `LLM_BASE_URL` / `LLM_MODEL` / `DASHSCOPE_API_KEY` 这条阿里云兼容链路
+- Test 编辑链路已经收口为 Python direct prompt runner：`asr -> delete -> polish`，`chapter/highlight` 作为 sidecar 产物。
+- 运行时直接使用 `.env` 中的 `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY`（或 `DASHSCOPE_API_KEY` fallback），不再依赖 PI provider、`.pi/settings.json` 或 repo-local PI extension。
+- 模型调用默认关闭 thinking；如需开启，在 `.env` 设置 `LLM_ENABLE_THINKING=1`。
 
 当前仓库的 Python 依赖仍通过 `requirements.txt` 安装，尚未切换到 `uv sync` 项目结构。
 
-## 本地启动 PI 并直接执行四步剪辑
-
-仓库已经通过 `.pi/settings.json` 配好自动加载 `skills/`，所以只要从仓库根目录启动，PI 会自动发现本地 skills。
+## 本地启动 direct prompt Test 流程
 
 最简单的命令是：
 
 ```bash
-./scripts/run_pi_test.sh test_data/media/1.wav
+./scripts/run_direct_prompt_test.sh test_data/media/1.wav
 ```
 
-默认情况下：
+它会自动加载 `.env`，并执行：
 
-- 若 `.env` 里有 `KIMI_API_KEY`，脚本会自动按 `kimi-coding/k2p5` 跑 PI
-- 若没有 `KIMI_API_KEY`，脚本会自动回退到现有 `LLM_BASE_URL + LLM_MODEL` provider
+1. ASR 转写
+2. delete
+3. polish
+4. chapter sidecar
+5. highlight sidecar
 
-它会自动执行：
-
-1. `asr-transcribe`
-2. `delete`
-3. `polish`
-4. `chapter`
-
-输出默认落到 `workdir/pi_runs/<时间戳>_<文件名>/`，其中：
+输出默认落到 `workdir/direct_prompt_runs/<时间戳>_<文件名>/`，其中：
 
 - `test.summary.json`：本次运行汇总
-- `*.raw.test.json`：原始转录后的 Test 行
-- `*.test.json`：最终字幕行
+- `*.raw.test.txt`：原始转录后的 Test 行
+- `*.test.txt`：最终字幕行
 - `*.test.srt`：最终字幕 SRT
-- `*.chapters.json`：最终章节
+- `*.chapters.txt`：最终章节
+- `*.highlights.json`：高亮合同
 
-如果要直接进 PI 交互模式，也可以：
+也可以直接调用模块：
 
 ```bash
-cd /path/to/video_auto_cut
-set -a && source .env && set +a
-pi
+python -m video_auto_cut.direct_prompt_runner --task test --input test_data/media/1.wav --output workdir/direct_prompt_runs/manual/test.summary.json
 ```
-
-然后让它按项目里的 `test-agent-editing` 工作流做四步剪辑。
 
 ## 本地开发
 
@@ -148,6 +132,17 @@ Railway 不会读取本地 `.env`，必须在服务 Variables 中配置。
 - `BETTER_AUTH_URL`
 - `WEB_CORS_ALLOWED_ORIGINS`
 - `NEXT_PUBLIC_API_BASE`
+
+## SEO / Analytics
+
+- `NEXT_PUBLIC_GA_MEASUREMENT_ID`：Google Analytics 4 衡量 ID。当前生产代码默认使用 `G-5NFPXTC63E`；如需切换属性，在 Railway Frontend Variables 中覆盖该变量后重新部署。
+- `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`：Google Search Console 的站点验证 meta 值，可选。填入后会输出 `google-site-verification`。
+
+上线后建议在 Google Search Console 中提交：
+
+```text
+https://poetcut.online/sitemap.xml
+```
 
 ## CORS / 互通检查
 

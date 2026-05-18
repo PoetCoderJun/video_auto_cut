@@ -9,6 +9,7 @@ export type OverlayScaleControls = {
   progressYPercent?: number;
   chapterScale?: number;
   showSubtitles?: boolean;
+  showHighlights?: boolean;
   showProgress?: boolean;
   showChapter?: boolean;
   progressLabelMode?: ProgressLabelMode;
@@ -32,6 +33,7 @@ export const DEFAULT_OVERLAY_CONTROLS: Required<OverlayScaleControls> = {
   progressYPercent: OVERLAY_POSITION_LIMITS.progressY.defaultValue,
   chapterScale: OVERLAY_SCALE_LIMITS.chapter.defaultValue,
   showSubtitles: true,
+  showHighlights: true,
   showProgress: true,
   showChapter: true,
   progressLabelMode: "auto",
@@ -105,6 +107,10 @@ export const normalizeOverlayScaleControls = (
     typeof controls.showSubtitles === "boolean"
       ? controls.showSubtitles
       : DEFAULT_OVERLAY_CONTROLS.showSubtitles,
+  showHighlights:
+    typeof controls.showHighlights === "boolean"
+      ? controls.showHighlights
+      : DEFAULT_OVERLAY_CONTROLS.showHighlights,
   showProgress:
     typeof controls.showProgress === "boolean"
       ? controls.showProgress

@@ -6,16 +6,16 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import patch
 
-from video_auto_cut.pi_agent_runner import TestPiArtifacts
+from video_auto_cut.direct_prompt_runner import TestPromptArtifacts
 from video_auto_cut.orchestration.test_cli import _run_cli_test
 
 
 class TestCliPipelineContractTest(unittest.TestCase):
     @patch("video_auto_cut.orchestration.test_cli._write_highlight_contract")
-    @patch("video_auto_cut.orchestration.test_cli.run_test_pi")
+    @patch("video_auto_cut.orchestration.test_cli.run_test_prompt")
     def test_cli_test_runs_delete_then_polish_then_chapter_then_highlight(
         self,
-        mock_run_test_pi,
+        mock_run_test_prompt,
         mock_write_highlight_contract,
     ) -> None:
         order: list[str] = []
@@ -51,15 +51,15 @@ class TestCliPipelineContractTest(unittest.TestCase):
             }
         ]
 
-        def fake_run_test_pi(request):
+        def fake_run_test_prompt(request):
             order.append(request.task)
             if request.task == "delete":
-                return TestPiArtifacts(task="delete", lines=delete_lines, debug={"task": "delete"})
+                return TestPromptArtifacts(task="delete", lines=delete_lines, debug={"task": "delete"})
             if request.task == "polish":
-                return TestPiArtifacts(task="polish", lines=polish_lines, debug={"task": "polish"})
+                return TestPromptArtifacts(task="polish", lines=polish_lines, debug={"task": "polish"})
             if request.task == "chapter":
                 self.assertEqual(request.lines, polish_lines)
-                return TestPiArtifacts(
+                return TestPromptArtifacts(
                     task="chapter",
                     lines=polish_lines,
                     chapters=[{"chapter_id": 1, "title": "开场", "block_range": "1"}],
@@ -73,7 +73,7 @@ class TestCliPipelineContractTest(unittest.TestCase):
             Path(path).write_text('{"captions":[]}\n', encoding="utf-8")
             return {"captions": []}
 
-        mock_run_test_pi.side_effect = fake_run_test_pi
+        mock_run_test_prompt.side_effect = fake_run_test_prompt
         mock_write_highlight_contract.side_effect = fake_highlight_contract
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,9 +97,7 @@ class TestCliPipelineContractTest(unittest.TestCase):
                 max_lines=200,
                 lang=None,
                 prompt="",
-                pi_bin="pi",
-                pi_args=[],
-            )
+                            )
 
             exit_code = _run_cli_test(args)
 

@@ -121,7 +121,7 @@ class TestBackgroundRunnerTests(_TempWorkDirTestCase):
         self,
         mock_update_job,
     ) -> None:
-        with patch("web_api.services.test_runner.run_test", side_effect=RuntimeError("额度不足，请先兑换邀请码后重试")):
+        with patch("web_api.services.test_runner.run_test", side_effect=RuntimeError("额度不足，请先兑换码后重试")):
             run_test_job_background("job-456")
 
         mock_update_job.assert_called_once_with(

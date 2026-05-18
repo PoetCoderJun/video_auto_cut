@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from video_auto_cut.editing import llm_client
 from video_auto_cut.editing.auto_edit import AutoEdit
+from video_auto_cut.direct_prompt_runner import _direct_llm_config
 
 
 class DummyAutoEditArgs:
@@ -115,6 +116,29 @@ class LlmClientThinkingTest(unittest.TestCase):
         self.assertEqual(kwargs["model"], "kimi-k2.5")
         self.assertEqual(kwargs["messages"], [{"role": "user", "content": "hello"}])
         self.assertEqual(kwargs["extra_body"], {"enable_thinking": True})
+
+    def test_chat_completion_explicitly_disables_dashscope_thinking(self) -> None:
+        cfg = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen3.6-max-preview",
+            "api_key": "secret",
+            "timeout": 60,
+            "temperature": 0.0,
+            "max_tokens": None,
+            "request_retries": 1,
+            "enable_thinking": False,
+        }
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="ok"))]
+        client = MagicMock()
+        client.chat.completions.create.return_value = response
+
+        with patch("video_auto_cut.editing.llm_client.OpenAI", return_value=client):
+            result = llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
+
+        self.assertEqual(result, "ok")
+        kwargs = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(kwargs["extra_body"], {"enable_thinking": False})
 
     def test_chat_completion_uses_moonshot_thinking_payload_and_omits_temperature(self) -> None:
         cfg = {
@@ -278,7 +302,26 @@ class LlmClientThinkingTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "pip install -r requirements.txt"):
                 llm_client.chat_completion(cfg, [{"role": "user", "content": "hello"}])
 
-    def test_auto_edit_disables_thinking_by_default(self) -> None:
+    def test_direct_prompt_config_reads_enable_thinking_env(self) -> None:
+        llm_config = {
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "kimi-k2.5",
+            "api_key": "secret",
+            "timeout": 60,
+        }
+
+        with patch.dict(os.environ, {"LLM_ENABLE_THINKING": "1"}, clear=False):
+            cfg = _direct_llm_config(llm_config)
+
+        self.assertTrue(cfg["enable_thinking"])
+
+    def test_auto_edit_uses_env_configurable_thinking(self) -> None:
+        with patch.dict(os.environ, {"LLM_ENABLE_THINKING": "1"}, clear=False):
+            auto_edit = AutoEdit.from_args(DummyAutoEditArgs())
+
+        self.assertTrue(auto_edit.llm_config["enable_thinking"])
+
+    def test_auto_edit_does_not_hardcode_thinking_override(self) -> None:
         with patch(
             "video_auto_cut.editing.auto_edit.llm_utils.build_llm_config",
             return_value={
@@ -297,7 +340,6 @@ class LlmClientThinkingTest(unittest.TestCase):
             timeout=60,
             temperature=0.0,
             max_tokens=None,
-            enable_thinking=False,
         )
 
 if __name__ == "__main__":

@@ -102,7 +102,7 @@ export type RenderTopic = {
   end: number;
 };
 
-export type SubtitleTheme = "black" | "white";
+export type SubtitleTheme = "stroke" | "stroke-white";
 
 export type ProgressLabelMode = "auto" | "single" | "double";
 
@@ -122,6 +122,8 @@ export type RenderInputProps = {
   fps: number;
   width: number;
   height: number;
+  overlayReferenceWidth?: number;
+  overlayReferenceHeight?: number;
   subtitleTheme?: SubtitleTheme;
   subtitleScale?: number;
   subtitleYPercent?: number;
@@ -129,6 +131,7 @@ export type RenderInputProps = {
   progressYPercent?: number;
   chapterScale?: number;
   showSubtitles?: boolean;
+  showHighlights?: boolean;
   showProgress?: boolean;
   showChapter?: boolean;
   progressLabelMode?: ProgressLabelMode;
@@ -411,20 +414,15 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
     if (normalizedExplicitToken) {
       token = normalizedExplicitToken;
     } else if (requireAuth) {
-      guestToken = readStoredGuestToken();
-      if (guestToken) {
-        headers.set("X-Guest-Token", guestToken);
-      } else {
-        throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
-      }
+      throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
     }
   } else {
     token = await resolveAuthToken();
-    if (!token) {
-      guestToken = readStoredGuestToken();
+    if (requireAuth && !token) {
+      throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
     }
-    if (requireAuth && !token && !guestToken) {
-      throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+    if (!requireAuth && !token) {
+      guestToken = readStoredGuestToken();
     }
   }
 
@@ -464,9 +462,8 @@ export async function transcodeSourceVideoToBrowserCompatibleMp4(
   file: File
 ): Promise<File> {
   const token = await resolveAuthToken();
-  const guestToken = token ? null : readStoredGuestToken();
-  if (!token && !guestToken) {
-    throw new ApiClientError("登录状态初始化中，请稍后重试。", "UNAUTHORIZED", 401);
+  if (!token) {
+    throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
   }
 
   const formData = new FormData();
@@ -477,8 +474,7 @@ export async function transcodeSourceVideoToBrowserCompatibleMp4(
     response = await fetch(`${base}/source/browser-compatible`, {
       method: "POST",
       headers: {
-        ...(token ? {Authorization: `Bearer ${token}`} : {}),
-        ...(guestToken ? {"X-Guest-Token": guestToken} : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: formData,
       cache: "no-store",
@@ -634,7 +630,7 @@ export async function reportClientUploadIssue(
   });
 }
 
-export async function activateInviteCode(
+export async function redeemCouponCode(
   code: string,
   explicitToken?: string,
 ): Promise<{already_activated: boolean; coupon_redeemed: boolean; granted_credits: number; balance: number}> {
@@ -654,16 +650,6 @@ export async function activateInviteCode(
   );
 
   return data.coupon;
-}
-
-export async function claimPublicInviteCode(): Promise<{code: string; credits: number; already_claimed: boolean}> {
-  const data = await request<{invite: {code: string; credits: number; already_claimed: boolean}}>(
-    "/public/invites/claim",
-    {
-      method: "POST",
-    }
-  );
-  return data.invite;
 }
 
 export async function claimGuestSession(
@@ -801,6 +787,27 @@ export async function uploadSourceVideo(jobId: string, file: File): Promise<Job>
   return data.job;
 }
 
+export async function saveSourceVideoMetadata(
+  jobId: string,
+  meta: RenderMeta,
+  file: File
+): Promise<Job> {
+  const data = await requestAuthed<{job: Job}>(`/jobs/${jobId}/source-metadata`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      width: meta.width,
+      height: meta.height,
+      fps: meta.fps,
+      duration_sec: meta.duration_sec,
+      file_name: file.name || "source.mp4",
+      file_type: file.type || "",
+      file_size_bytes: file.size,
+    }),
+  });
+  return data.job;
+}
+
 export async function runTest(jobId: string): Promise<TestRunAccepted> {
   return requestAuthed<TestRunAccepted>(`/jobs/${jobId}/test/run`, {method: "POST"});
 }
@@ -835,6 +842,14 @@ export async function confirmTest(
     }),
   });
   return data.status;
+}
+
+export async function reopenTestForEditing(jobId: string): Promise<Job> {
+  const data = await requestAuthed<{reopened: boolean; job: Job}>(
+    `/jobs/${jobId}/test/reopen`,
+    {method: "POST"},
+  );
+  return data.job;
 }
 
 export type RenderMeta = {

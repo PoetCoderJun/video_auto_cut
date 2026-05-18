@@ -116,7 +116,7 @@ class RenderWebConfigTest(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             render_dir = Path(temp_dir)
-            mock_get_job_files.return_value = {"subtitle_theme": "white"}
+            mock_get_job_files.return_value = {"subtitle_theme": "stroke-white"}
             mock_ensure_job_dirs.return_value = {"render": render_dir}
             mock_request_style_contract.return_value = {
                 "version": "subtitle-style.v1",
@@ -195,7 +195,7 @@ class RenderWebConfigTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            mock_get_job_files.return_value = {"subtitle_theme": "white"}
+            mock_get_job_files.return_value = {"subtitle_theme": "stroke-white"}
             mock_get_settings.return_value = type("Settings", (), {"cut_merge_gap": 0.0})()
             mock_ensure_job_dirs.return_value = {"render": render_dir}
             mock_build_cut_srt.return_value = {
@@ -259,7 +259,7 @@ class RenderWebConfigTest(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             render_dir = Path(temp_dir)
-            mock_get_job_files.return_value = {"subtitle_theme": "white"}
+            mock_get_job_files.return_value = {"subtitle_theme": "stroke-white"}
             mock_get_settings.return_value = type("Settings", (), {"cut_merge_gap": 0.0})()
             mock_ensure_job_dirs.return_value = {"render": render_dir}
             mock_build_cut_srt.return_value = {
@@ -318,7 +318,6 @@ class RenderWebConfigTest(unittest.TestCase):
         mock_upsert_job_files.assert_called_once_with(
             "job-editor",
             subtitle_render_v1_path=str(render_dir / "subtitle-render.v1.json"),
-            render_source_video_path=None,
         )
 
     @patch("web_api.services.render_web.list_final_test_chapters")
@@ -371,45 +370,6 @@ class RenderWebConfigTest(unittest.TestCase):
                 "第四部分：最后把这套方法落回每天都能执行的创作流程",
             ],
         )
-
-    @patch("web_api.services.render_web._ensure_render_source_video_path")
-    @patch("web_api.services.render_web.list_final_test_chapters")
-    @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
-    @patch("web_api.services.render_web.ensure_job_dirs")
-    @patch("web_api.services.render_web.get_settings")
-    @patch("web_api.services.render_web.get_job_files")
-    def test_ensure_subtitle_render_v1_contract_points_preview_export_at_cut_proxy(
-        self,
-        mock_get_job_files,
-        mock_get_settings,
-        mock_ensure_job_dirs,
-        mock_build_cut_srt,
-        mock_list_final_test_chapters,
-        mock_ensure_render_source_video_path,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            render_dir = Path(temp_dir)
-            mock_get_job_files.return_value = {
-                "final_test_srt_path": render_dir / "final_test.srt",
-                "video_path": str(render_dir / "source.mov"),
-            }
-            mock_get_settings.return_value = type("Settings", (), {"cut_merge_gap": 0.0})()
-            mock_ensure_job_dirs.return_value = {"render": render_dir}
-            mock_ensure_render_source_video_path.return_value = str(render_dir / "cut_source.browser.mp4")
-            mock_build_cut_srt.return_value = {
-                "captions": [
-                    {"index": 1, "start": 0.0, "end": 8.0, "text": "讲创作者在节奏与效率之间失衡"},
-                ],
-                "segments": [
-                    {"start": 0.0, "end": 8.0},
-                ],
-            }
-            mock_list_final_test_chapters.return_value = []
-
-            contract = ensure_subtitle_render_v1_contract("job-render-proxy")
-
-        self.assertEqual(contract["sourceKind"], "cut-proxy")
-        self.assertEqual(contract["src"], "/api/v1/jobs/job-render-proxy/render/source-video")
 
     @patch("web_api.services.render_web.list_final_test_chapters")
     @patch("web_api.services.render_web.build_cut_srt_from_optimized_srt")
@@ -546,7 +506,6 @@ class RenderWebConfigTest(unittest.TestCase):
         mock_upsert_job_files.assert_called_once_with(
             "job-render-label-test",
             subtitle_render_v1_path=str(render_dir / "subtitle-render.v1.json"),
-            render_source_video_path=None,
         )
 
     @patch("web_api.services.render_web.list_final_test_chapters")
@@ -673,7 +632,7 @@ class RenderWebConfigTest(unittest.TestCase):
         self.assertEqual(config["input_props"]["captions"][0]["label"]["badgeText"], "重点")
         self.assertEqual(config["input_props"]["captions"][0]["label"]["highlights"][0]["text"], "先")
         self.assertEqual(config["input_props"]["captions"][0]["alignmentMode"], "exact")
-        self.assertEqual(config["input_props"]["subtitleTheme"], "black")
+        self.assertEqual(config["input_props"]["subtitleTheme"], "stroke")
 
     @patch("web_api.services.render_web.get_job_files")
     def test_build_web_render_config_accepts_timed_string_highlights_without_segments(
@@ -707,7 +666,7 @@ class RenderWebConfigTest(unittest.TestCase):
         config = build_web_render_config("job-render-highlight-contract")
 
         self.assertEqual(config["input_props"]["segments"], [{"start": 0.0, "end": 1.2}])
-        self.assertEqual(config["input_props"]["subtitleTheme"], "white")
+        self.assertEqual(config["input_props"]["subtitleTheme"], "stroke-white")
         self.assertEqual(config["input_props"]["captions"][0]["tokens"][0]["text"], "重")
         self.assertEqual(
             config["input_props"]["captions"][0]["label"]["highlights"][0],

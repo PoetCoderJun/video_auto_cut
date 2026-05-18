@@ -7,6 +7,20 @@ export type OverlayTypographyInput = {
   height: number;
 };
 
+export type OverlayReferenceCanvasInput = {
+  width: number;
+  height: number;
+  referenceWidth?: number;
+  referenceHeight?: number;
+};
+
+export type OverlayReferenceCanvas = {
+  width: number;
+  height: number;
+  scaleX: number;
+  scaleY: number;
+};
+
 export type OverlayTypography = {
   subtitleFontSize: number;
   subtitleBottom: number;
@@ -95,10 +109,6 @@ export type ChapterCardLayoutMetrics = {
   titleMaxWidth: number;
 };
 
-const REFERENCE_WIDTH = 1920;
-const REFERENCE_HEIGHT = 1080;
-const SUBTITLE_SIZE_MULTIPLIER = 1.45 * 0.65;
-const SCALE_EXPONENT = 0.72;
 export const OVERLAY_FONT_FAMILY = [
   '"Noto Sans SC"',
   '"Noto Sans CJK SC"',
@@ -128,15 +138,43 @@ const floorToStep = (value: number, step = 1): number => {
   return Math.floor(value / resolvedStep) * resolvedStep;
 };
 
-const scaleFromReference = (value: number, reference: number): number =>
-  Math.pow(Math.max(1, value) / reference, SCALE_EXPONENT);
-
-const scaleDimension = (base: number, scale: number, min: number, precisionStep = 1): number =>
-  Math.max(min, roundToStep(base * scale, precisionStep));
+const ratioDimension = (
+  size: number,
+  ratio: number,
+  min: number,
+  precisionStep = 1,
+  max = Number.POSITIVE_INFINITY
+): number =>
+  Math.min(max, Math.max(min, roundToStep(size * ratio, precisionStep)));
 
 const canUseRemotionLayoutUtils = (): boolean => typeof document !== "undefined";
 
 export const CHAPTER_TITLE_LINE_HEIGHT = 1.16;
+
+export const resolveOverlayReferenceCanvas = ({
+  width,
+  height,
+  referenceWidth,
+  referenceHeight,
+}: OverlayReferenceCanvasInput): OverlayReferenceCanvas => {
+  const frameWidth = Math.max(1, Number.isFinite(width) ? width : 1);
+  const frameHeight = Math.max(1, Number.isFinite(height) ? height : 1);
+  const resolvedReferenceWidth =
+    typeof referenceWidth === "number" && Number.isFinite(referenceWidth) && referenceWidth > 0
+      ? referenceWidth
+      : frameWidth;
+  const resolvedReferenceHeight =
+    typeof referenceHeight === "number" && Number.isFinite(referenceHeight) && referenceHeight > 0
+      ? referenceHeight
+      : frameHeight;
+
+  return {
+    width: resolvedReferenceWidth,
+    height: resolvedReferenceHeight,
+    scaleX: frameWidth / resolvedReferenceWidth,
+    scaleY: frameHeight / resolvedReferenceHeight,
+  };
+};
 
 let measurementContext:
   | CanvasRenderingContext2D
@@ -451,45 +489,47 @@ export const getResponsiveOverlayTypography = ({
   const resolvedHeight = Math.max(1, height);
   const aspectRatio = resolvedWidth / resolvedHeight;
   const portraitStrength = clamp((0.82 - aspectRatio) / 0.32, 0, 1);
-  const verticalScale = scaleFromReference(resolvedHeight, REFERENCE_HEIGHT);
-  const horizontalScale = scaleFromReference(resolvedWidth, REFERENCE_WIDTH);
-
-  // Subtitle size still scales with frame height, but portrait exports need a
-  // gentler boost than before. Otherwise narrow frames like 720x1268 can end
-  // up with oversized captions that only fit after browser layout overflow.
-  const subtitleScale = verticalScale * (1 + portraitStrength * 0.18);
-  const subtitleVerticalScale = subtitleScale * (1 + portraitStrength * 0.8);
-  const chapterScale = verticalScale * (1 + portraitStrength * 0.14);
-  const progressScale = verticalScale * (1 + portraitStrength * 0.18);
-  const chapterWidthScale = horizontalScale * (1 + portraitStrength * 0.18);
-  const progressLabelFontSize = scaleDimension(18.2, progressScale, 17);
-  const progressHeight = atLeast(scaleDimension(40, progressScale, 34), round(progressLabelFontSize * 2.15));
-  const progressRadius = atLeast(scaleDimension(12, progressScale, 10), round(progressHeight * 0.28));
+  const subtitleFontSize = ratioDimension(
+    resolvedHeight,
+    0.048 + portraitStrength * 0.002,
+    26,
+    1,
+    resolvedWidth * 0.15
+  );
+  const progressLabelFontSize = ratioDimension(resolvedHeight, 0.02 + portraitStrength * 0.001, 11, 0.25);
+  const progressHeight = atLeast(
+    ratioDimension(resolvedHeight, 0.044 + portraitStrength * 0.002, 26, 0.25),
+    round(progressLabelFontSize * 2.25)
+  );
+  const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.034 + portraitStrength * 0.001, 20, 0.25);
+  const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.016, 11, 0.25);
+  const chapterTop = ratioDimension(resolvedHeight, 0.032, 16);
+  const progressRadius = atLeast(ratioDimension(progressHeight, 0.3, 8, 0.25), round(progressHeight * 0.28));
 
   return {
-    subtitleFontSize: scaleDimension(44 * SUBTITLE_SIZE_MULTIPLIER, subtitleScale, 30),
-    subtitleBottom: atLeast(round(resolvedHeight * (0.06 + portraitStrength * 0.018)), 52),
-    subtitleSidePadding: scaleDimension(42, horizontalScale, 18),
-    subtitlePaddingX: scaleDimension(14, subtitleScale, 16),
-    subtitlePaddingY: scaleDimension(8, subtitleVerticalScale, 10),
-    subtitleRadius: scaleDimension(10, subtitleScale, 10),
+    subtitleFontSize,
+    subtitleBottom: ratioDimension(resolvedHeight, 0.096 + portraitStrength * 0.01, 44),
+    subtitleSidePadding: ratioDimension(resolvedWidth, 0.035, 18),
+    subtitlePaddingX: ratioDimension(subtitleFontSize, 0.34, 12),
+    subtitlePaddingY: ratioDimension(subtitleFontSize, 0.22, 8),
+    subtitleRadius: ratioDimension(subtitleFontSize, 0.24, 8),
     subtitleMaxWidthRatio: clamp(0.88 + portraitStrength * 0.06, 0.88, 0.94),
     subtitleSafeWidthRatio: clamp(0.85 + portraitStrength * 0.05, 0.85, 0.9),
-    chapterTop: atLeast(round(resolvedHeight * 0.028), 22),
-    chapterInsetX: scaleDimension(44, horizontalScale, 20),
-    chapterGap: scaleDimension(5.5, chapterScale, 4.5, 0.25),
-    chapterCardMinWidth: scaleDimension(360, chapterWidthScale, 240, 0.5),
+    chapterTop,
+    chapterInsetX: ratioDimension(resolvedWidth, 0.022, 16),
+    chapterGap: ratioDimension(chapterTitleFontSize, 0.18, 4.5, 0.25),
+    chapterCardMinWidth: ratioDimension(resolvedWidth, 0.2 + portraitStrength * 0.04, 160, 0.5),
     chapterCardMaxWidthRatio: clamp(0.64 + portraitStrength * 0.08, 0.64, 0.72),
-    chapterCardPaddingX: scaleDimension(11.5, chapterScale, 9.5, 0.25),
-    chapterCardPaddingY: scaleDimension(9.5, chapterScale, 7.5, 0.25),
-    chapterCardRadius: scaleDimension(11, chapterScale, 9, 0.25),
-    chapterMetaFontSize: scaleDimension(17, chapterScale, 14, 0.25),
-    chapterTitleFontSize: scaleDimension(30, chapterScale, 24, 0.25),
-    progressInsetX: scaleDimension(44, horizontalScale, 20),
-    progressBottom: atLeast(round(resolvedHeight * 0.022), 18),
+    chapterCardPaddingX: ratioDimension(chapterTitleFontSize, 0.38, 8, 0.25),
+    chapterCardPaddingY: ratioDimension(chapterTitleFontSize, 0.28, 7, 0.25),
+    chapterCardRadius: ratioDimension(chapterTitleFontSize, 0.32, 8, 0.25),
+    chapterMetaFontSize,
+    chapterTitleFontSize,
+    progressInsetX: ratioDimension(resolvedWidth, 0.024, 16, 0.25),
+    progressBottom: ratioDimension(resolvedHeight, 0.024, 14, 0.25),
     progressHeight,
     progressRadius,
-    progressLabelPaddingX: scaleDimension(4, progressScale, 3),
+    progressLabelPaddingX: ratioDimension(progressLabelFontSize, 0.24, 3, 0.25),
     progressLabelFontSize,
   };
 };

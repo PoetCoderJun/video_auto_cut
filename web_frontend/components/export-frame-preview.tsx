@@ -31,6 +31,17 @@ const formatClockTime = (timeSec: number): string => {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${tenths}`;
 };
 
+const parseClockTime = (text: string): number | null => {
+  const clean = text.trim();
+  const match = clean.match(/^(\d{1,2}):(\d{2})(?:\.(\d))?$/);
+  if (!match) return null;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  const tenths = match[3] ? Number(match[3]) : 0;
+  if (seconds >= 60) return null;
+  return minutes * 60 + seconds + tenths * 0.1;
+};
+
 function ExportFramePreview({
   config,
   sourceFile,
@@ -46,7 +57,11 @@ function ExportFramePreview({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubTimeSec, setScrubTimeSec] = useState(previewTimeSec);
+  const [isSourcePreloading, setIsSourcePreloading] = useState(false);
+  const [isSourceBuffered, setIsSourceBuffered] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
   const playerRef = useRef<PlayerRef>(null);
+  const bufferVideoRef = useRef<HTMLVideoElement | null>(null);
   const wasPlayingBeforeScrubRef = useRef(false);
   const rafRef = useRef<number | null>(null);
 
@@ -92,6 +107,91 @@ function ExportFramePreview({
 
   const fps = config?.composition.fps ?? 30;
 
+  const primeBrowserBuffer = useCallback(
+    (timeSec: number) => {
+      const video = bufferVideoRef.current;
+      if (!video || !sourceUrl) return;
+      const targetTimeSec = clamp(timeSec, 0, Math.max(totalDuration - 0.1, 0));
+      const seekWhenReady = () => {
+        try {
+          if (Number.isFinite(targetTimeSec)) {
+            video.currentTime = targetTimeSec;
+          }
+        } catch {
+          // Early seeks can fail while metadata is still loading.
+        }
+        try {
+          void video.play().then(() => video.pause()).catch(() => undefined);
+        } catch {
+          // preload=auto still warms the browser media cache if autoplay is rejected.
+        }
+      };
+
+      if (video.readyState >= HTMLMediaElement.HAVE_METADATA) {
+        seekWhenReady();
+        return;
+      }
+      video.addEventListener("loadedmetadata", seekWhenReady, {once: true});
+      try {
+        video.load();
+      } catch {
+        // ignore preload failures; the visible player can still try playback.
+      }
+    },
+    [sourceUrl, totalDuration],
+  );
+
+  useEffect(() => {
+    if (!sourceUrl) {
+      setIsSourcePreloading(false);
+      setIsSourceBuffered(false);
+      return;
+    }
+
+    const video = bufferVideoRef.current;
+    if (!video) return;
+
+    let cancelled = false;
+    setIsSourcePreloading(true);
+    setIsSourceBuffered(false);
+
+    const markBuffered = () => {
+      if (cancelled) return;
+      setIsSourceBuffered(true);
+      setIsSourcePreloading(false);
+    };
+    const evaluateBuffer = () => {
+      if (cancelled) return;
+      const hasDecodedFrame = video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+      const hasBufferedRange = video.buffered.length > 0 && video.buffered.end(0) > 0;
+      if (hasDecodedFrame || hasBufferedRange) {
+        markBuffered();
+      }
+    };
+
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.addEventListener("loadeddata", markBuffered);
+    video.addEventListener("canplay", markBuffered);
+    video.addEventListener("canplaythrough", markBuffered);
+    video.addEventListener("progress", evaluateBuffer);
+    video.addEventListener("error", markBuffered);
+    evaluateBuffer();
+    primeBrowserBuffer(clampedPreviewTime);
+
+    const fallbackTimer = window.setTimeout(markBuffered, 3000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackTimer);
+      video.removeEventListener("loadeddata", markBuffered);
+      video.removeEventListener("canplay", markBuffered);
+      video.removeEventListener("canplaythrough", markBuffered);
+      video.removeEventListener("progress", evaluateBuffer);
+      video.removeEventListener("error", markBuffered);
+    };
+  }, [primeBrowserBuffer, sourceUrl]);
+
   const commitPreviewTime = useCallback(
     (nextTimeSec: number) => {
       const clamped = clamp(nextTimeSec, 0, totalDuration);
@@ -116,6 +216,9 @@ function ExportFramePreview({
 
   // Poll Player frame to update displayed time and detect end-of-playback
   useEffect(() => {
+    let prevFrame = -1;
+    let stuckFrames = 0;
+
     const tick = () => {
       if (!playerRef.current) {
         rafRef.current = requestAnimationFrame(tick);
@@ -143,6 +246,23 @@ function ExportFramePreview({
           setIsPlaying(false);
         }
       }
+
+      // Detect buffering: same frame for > 6 ticks (~100ms) while playing
+      if (isPlaying) {
+        if (frame === prevFrame) {
+          stuckFrames++;
+          if (stuckFrames > 6) {
+            setIsBuffering(true);
+          }
+        } else {
+          stuckFrames = 0;
+          setIsBuffering(false);
+        }
+      } else {
+        stuckFrames = 0;
+        setIsBuffering(false);
+      }
+      prevFrame = frame;
 
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -172,6 +292,7 @@ function ExportFramePreview({
       player.seekTo(0);
       commitPreviewTime(0);
     }
+    primeBrowserBuffer(player.getCurrentFrame() / fps);
     player.play();
     setIsPlaying(true);
   };
@@ -196,11 +317,38 @@ function ExportFramePreview({
 
   const handleScrubEnd = () => {
     setIsScrubbing(false);
+    primeBrowserBuffer(scrubTimeSec);
     if (wasPlayingBeforeScrubRef.current) {
       playerRef.current?.play();
       setIsPlaying(true);
     }
     wasPlayingBeforeScrubRef.current = false;
+  };
+
+  const [timeInput, setTimeInput] = useState(formatClockTime(displayedPreviewTime));
+
+  useEffect(() => {
+    setTimeInput(formatClockTime(displayedPreviewTime));
+  }, [displayedPreviewTime]);
+
+  const handleTimeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTimeInput(e.target.value);
+  };
+
+  const handleTimeInputBlur = () => {
+    const parsed = parseClockTime(timeInput);
+    if (parsed !== null && parsed <= totalDuration) {
+      commitPreviewTime(parsed);
+      playerRef.current?.seekTo(Math.round(parsed * fps));
+    } else {
+      setTimeInput(formatClockTime(displayedPreviewTime));
+    }
+  };
+
+  const handleTimeInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.currentTarget.blur();
+    }
   };
 
   const inputProps = useMemo(() => {
@@ -213,6 +361,8 @@ function ExportFramePreview({
       fps: config.composition.fps,
       width: config.composition.width,
       height: config.composition.height,
+      overlayReferenceWidth: config.input_props.overlayReferenceWidth,
+      overlayReferenceHeight: config.input_props.overlayReferenceHeight,
       subtitleTheme,
       subtitleScale: overlayControls.subtitleScale,
       subtitleYPercent: overlayControls.subtitleYPercent,
@@ -220,6 +370,7 @@ function ExportFramePreview({
       progressYPercent: overlayControls.progressYPercent,
       chapterScale: overlayControls.chapterScale,
       showSubtitles: overlayControls.showSubtitles,
+      showHighlights: overlayControls.showHighlights,
       showProgress: overlayControls.showProgress,
       showChapter: overlayControls.showChapter,
       progressLabelMode: overlayControls.progressLabelMode,
@@ -230,8 +381,8 @@ function ExportFramePreview({
 
   if (!config) {
     return (
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">
-        正在准备导出预览...
+      <div className="rounded-2xl border border-dashed border-muted bg-muted/50 px-6 py-10 text-center text-sm text-muted-foreground">
+        正在准备导出预览…
       </div>
     );
   }
@@ -241,7 +392,7 @@ function ExportFramePreview({
   if (!showPlayer) {
     return (
       <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl bg-black">
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#111827_0%,#0f172a_100%)] text-sm text-slate-300">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#111827_0%,#0f172a_100%)] text-sm text-muted-foreground">
           当前会话缺少本地原视频，预览不可用
         </div>
       </div>
@@ -251,6 +402,17 @@ function ExportFramePreview({
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-xl bg-black">
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+        {sourceUrl && (
+          <video
+            ref={bufferVideoRef}
+            src={sourceUrl}
+            preload="auto"
+            muted
+            playsInline
+            aria-hidden="true"
+            className="hidden"
+          />
+        )}
         <Player
           ref={playerRef}
           component={StitchVideoWeb}
@@ -262,14 +424,23 @@ function ExportFramePreview({
           controls={false}
           style={playerStyle}
         />
+        {(isSourcePreloading || (isPlaying && isBuffering)) && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
+            <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur-sm">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              {isSourceBuffered ? "缓冲中…" : "正在预读…"}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="border-t border-slate-800 bg-black px-4 py-3">
+      <div className="border-t border-border/80 bg-black px-4 py-3">
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={togglePlayback}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black transition hover:bg-slate-200"
+            disabled={isSourcePreloading || isBuffering}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             aria-label={isPlaying ? "Pause" : "Play"}
           >
             {isPlaying ? (
@@ -278,9 +449,22 @@ function ExportFramePreview({
               <Play className="h-4 w-4 fill-current" />
             )}
           </button>
-          <div className="min-w-[96px] text-[12px] font-mono text-slate-300">
-            {formatClockTime(displayedPreviewTime)} / {formatClockTime(totalDuration)}
+
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={timeInput}
+              onChange={handleTimeInputChange}
+              onBlur={handleTimeInputBlur}
+              onKeyDown={handleTimeInputKeyDown}
+              className="w-[72px] rounded border border-white/20 bg-transparent px-1.5 py-0.5 text-center text-[12px] font-mono text-white outline-none focus:border-primary"
+              aria-label="当前时间"
+            />
+            <span className="text-[12px] font-mono text-muted-foreground">
+              / {formatClockTime(totalDuration)}
+            </span>
           </div>
+
           <input
             type="range"
             min={0}

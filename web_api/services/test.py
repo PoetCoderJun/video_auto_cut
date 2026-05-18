@@ -6,6 +6,7 @@ import logging
 import math
 import subprocess
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +26,7 @@ from video_auto_cut.asr.oss_uploader import create_oss_uploader_from_config
 from video_auto_cut.asr.transcribe_stage import run_asr_transcription_stage
 from video_auto_cut.orchestration.pipeline_options_builder import build_pipeline_options_from_settings
 from video_auto_cut.orchestration.pipeline_service import run_auto_edit
-from video_auto_cut.pi_agent_runner import TestPiRequest, run_test_pi
+from video_auto_cut.direct_prompt_runner import TestPromptRequest, run_test_prompt
 from video_auto_cut.shared.test_text_io import (
     write_chapters_v2_json,
     write_final_test_srt,
@@ -47,6 +48,7 @@ from ..job_file_repository import (
     get_job_script,
     list_test_chapters,
     list_test_lines,
+    reopen_test_artifacts_for_editing,
     replace_test_chapters,
     replace_test_lines,
     update_job,
@@ -61,6 +63,7 @@ class TestRunContext:
     dirs: dict[str, Path]
     media_path: Path
     video_path: Path | None
+    source_orientation: str | None
     asr_oss_key: str | None
     options: Any
 
@@ -71,6 +74,7 @@ def generate_test_chapters(
     lines: list[dict[str, Any]] | None = None,
     kept_lines: list[dict[str, Any]] | None = None,
     video_path: Path | None = None,
+    source_orientation: str | None = None,
 ) -> list[dict[str, Any]]:
     source_lines = lines if lines is not None else kept_lines
     if not source_lines:
@@ -86,14 +90,14 @@ def generate_test_chapters(
         timeout=options.llm_timeout,
         temperature=0.0,
         max_tokens=options.llm_max_tokens,
-        enable_thinking=False,
     )
     max_chapters, chapter_policy_hint = _resolve_test_chapter_policy(
         kept_lines=filtered_kept_lines,
         video_path=video_path,
+        source_orientation=source_orientation,
     )
-    artifacts = run_test_pi(
-        TestPiRequest(
+    artifacts = run_test_prompt(
+        TestPromptRequest(
             task="chapter",
             llm_config=llm_config,
             lines=filtered_kept_lines,
@@ -117,7 +121,7 @@ def generate_test_chapters(
 
 
 def _resolve_topic_title_max_chars(options: Any) -> int:
-    raw = getattr(options, "topic_title_max_chars", 5)
+    raw = getattr(options, "topic_title_max_chars", 4)
     if isinstance(raw, bool):
         return 5
     if not isinstance(raw, (int, float, str)):
@@ -168,7 +172,27 @@ def _probe_video_orientation(video_path: Path | None) -> str | None:
         if width > height:
             return "landscape"
     except (OSError, subprocess.SubprocessError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        logging.info("[web_api] chapter orientation probe skipped for %s: %s", candidate, exc)
+        logging.info("chapter orientation probe skipped for %s: %s", candidate, exc)
+    return None
+
+
+def _normalize_source_orientation(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"portrait", "landscape"} else None
+
+
+def _resolve_source_orientation_from_files(files: dict[str, Any]) -> str | None:
+    try:
+        width = int(files.get("source_width") or 0)
+        height = int(files.get("source_height") or 0)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    if height > width:
+        return "portrait"
+    if width > height:
+        return "landscape"
     return None
 
 
@@ -176,11 +200,12 @@ def _resolve_test_chapter_policy(
     *,
     kept_lines: list[dict[str, Any]],
     video_path: Path | None,
+    source_orientation: str | None = None,
 ) -> tuple[int, str]:
     if not kept_lines:
         raise RuntimeError("kept test lines missing")
 
-    orientation = _probe_video_orientation(video_path)
+    orientation = _normalize_source_orientation(source_orientation) or _probe_video_orientation(video_path)
     layout_cap = 4 if orientation == "portrait" else 6
     density_cap = max(1, math.ceil(len(kept_lines) / 3))
     max_chapters = max(1, min(layout_cap, density_cap))
@@ -324,7 +349,7 @@ class TestJobStateManager:
         replace_test_lines(self.job_id, lines)
         first_text = str(lines[0].get("optimized_text") or lines[0].get("original_text") or "").strip()
         logging.info(
-            "[web_api] test preview sync job=%s stage=%s line_count=%s first_line=%s",
+            "test preview sync job=%s stage=%s line_count=%s first_line=%s",
             self.job_id,
             self.current_stage_code,
             len(lines),
@@ -336,7 +361,7 @@ class TestJobStateManager:
             return
         replace_test_lines(self.job_id, lines)
         logging.info(
-            "[web_api] test flow transcribe done job=%s raw_line_count=%s",
+            "test flow transcribe done job=%s raw_line_count=%s",
             self.job_id,
             len(lines),
         )
@@ -374,6 +399,7 @@ class TestJobStateManager:
 
 
 def run_test(job_id: str) -> None:
+    run_start = time.perf_counter()
     state = TestJobStateManager(job_id)
     context = _build_test_run_context(job_id)
     state.reset_lines()
@@ -399,6 +425,13 @@ def run_test(job_id: str) -> None:
     )
     state.mark_ready()
     schedule_editor_highlight_warmup(job_id, lines=lines, chapters=chapters)
+    logging.info(
+        "test flow step done job=%s step=total elapsed_seconds=%.2f line_count=%s chapter_count=%s",
+        job_id,
+        time.perf_counter() - run_start,
+        len(lines),
+        len(chapters),
+    )
 
 
 def _build_test_run_context(job_id: str) -> TestRunContext:
@@ -406,12 +439,13 @@ def _build_test_run_context(job_id: str) -> TestRunContext:
     files = _load_required_paths(job_id)
     asr_oss_key = files.get("asr_oss_key")
     video_path = Path(files["video_path"]) if files.get("video_path") else None
+    source_orientation = _resolve_source_orientation_from_files(files)
     media_path = _resolve_test_media_path(job_id, dirs, files, asr_oss_key)
-    logging.info("[web_api] test flow transcribe using: %s", media_path)
+    logging.info("test flow transcribe using: %s", media_path)
     script = get_job_script(job_id)
     options = build_pipeline_options_from_settings(get_settings(), script=script)
     logging.info(
-        "[web_api] test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s script_present=%s)",
+        "test flow asr backend: %s (enable_words=%s sentence_rule_with_punc=%s script_present=%s)",
         options.asr_backend,
         getattr(options, "asr_dashscope_enable_words", None),
         getattr(options, "asr_dashscope_sentence_rule_with_punc", None),
@@ -422,6 +456,7 @@ def _build_test_run_context(job_id: str) -> TestRunContext:
         dirs=dirs,
         media_path=media_path,
         video_path=video_path,
+        source_orientation=source_orientation,
         asr_oss_key=asr_oss_key,
         options=options,
     )
@@ -436,7 +471,7 @@ def _resolve_test_media_path(
     if asr_oss_key:
         media_path = dirs["input"] / "audio.mp3"
         logging.info(
-            "[web_api] test inputs job=%s asr_oss_key=%s (direct OSS, skip upload)",
+            "test inputs job=%s asr_oss_key=%s (direct OSS, skip upload)",
             job_id,
             asr_oss_key[:50] + "..." if len(asr_oss_key) > 50 else asr_oss_key,
         )
@@ -444,7 +479,7 @@ def _resolve_test_media_path(
 
     media_path = Path(files["audio_path"])
     logging.info(
-        "[web_api] test inputs job=%s audio_path=%s video_path=%s",
+        "test inputs job=%s audio_path=%s video_path=%s",
         job_id,
         files.get("audio_path"),
         files.get("video_path"),
@@ -457,11 +492,12 @@ def _ensure_test_credit(job_id: str) -> None:
     if not owner_user_id:
         raise RuntimeError("job owner not found")
     if not has_available_credits(owner_user_id):
-        raise RuntimeError("额度不足，请先兑换邀请码后重试")
+        raise RuntimeError("额度不足，请先兑换码后重试")
 
 
 def _run_test_transcription(context: TestRunContext, state: TestJobStateManager) -> Any:
-    logging.info("[web_api] test flow transcribe start: %s", context.media_path)
+    step_start = time.perf_counter()
+    logging.info("test flow transcribe start: %s", context.media_path)
     state.mark_transcribing()
     asr_artifacts = run_asr_transcription_stage(
         context.media_path,
@@ -470,6 +506,13 @@ def _run_test_transcription(context: TestRunContext, state: TestJobStateManager)
     )
     raw_lines = list(getattr(asr_artifacts, "test_lines", None) or [])
     state.sync_raw_lines(raw_lines)
+    logging.info(
+        "test flow step done job=%s step=transcribe elapsed_seconds=%.2f raw_line_count=%s srt_path=%s",
+        state.job_id,
+        time.perf_counter() - step_start,
+        len(raw_lines),
+        getattr(asr_artifacts, "srt_path", None),
+    )
     return asr_artifacts
 
 
@@ -478,13 +521,22 @@ def _run_test_auto_edit(
     srt_path: Path,
     state: TestJobStateManager,
 ) -> Any:
-    logging.info("[web_api] test flow editor start: %s", srt_path)
+    step_start = time.perf_counter()
+    logging.info("test flow editor start: %s", srt_path)
     state.mark_auto_edit_stage("REMOVING_REDUNDANT_LINES", "正在判断哪些字幕需要删除...")
     auto_edit_artifacts = run_auto_edit(
         srt_path,
         context.options,
         stage_callback=state.mark_auto_edit_stage,
         preview_callback=state.sync_preview_lines,
+    )
+    lines = list(getattr(auto_edit_artifacts, "test_lines", None) or [])
+    logging.info(
+        "test flow step done job=%s step=auto_edit elapsed_seconds=%.2f line_count=%s optimized_srt_path=%s",
+        state.job_id,
+        time.perf_counter() - step_start,
+        len(lines),
+        getattr(auto_edit_artifacts, "optimized_srt_path", None),
     )
     return auto_edit_artifacts
 
@@ -494,6 +546,7 @@ def _generate_test_chapters_draft(
     lines: list[dict[str, Any]],
     state: TestJobStateManager,
 ) -> tuple[list[dict[str, Any]], Path]:
+    step_start = time.perf_counter()
     state.mark_generating_chapters()
     test_dir = context.dirs["base"] / "test"
     test_dir.mkdir(parents=True, exist_ok=True)
@@ -502,6 +555,14 @@ def _generate_test_chapters_draft(
         output_path=chapters_draft_path,
         lines=lines,
         video_path=context.video_path,
+        source_orientation=context.source_orientation,
+    )
+    logging.info(
+        "test flow step done job=%s step=chapter elapsed_seconds=%.2f chapter_count=%s chapters_draft_path=%s",
+        state.job_id,
+        time.perf_counter() - step_start,
+        len(chapters),
+        chapters_draft_path,
     )
     return chapters, chapters_draft_path
 
@@ -559,7 +620,7 @@ def _upload_optimized_srt_to_oss(job_id: str, optimized_srt_path: Path) -> dict[
         uploader = create_oss_uploader_from_config(settings, prefix=debug_prefix)
     except Exception as exc:
         logging.warning(
-            "[web_api] test skip optimized.srt OSS upload job=%s (uploader init failed): %s",
+            "test skip optimized.srt OSS upload job=%s (uploader init failed): %s",
             job_id,
             exc,
         )
@@ -569,7 +630,7 @@ def _upload_optimized_srt_to_oss(job_id: str, optimized_srt_path: Path) -> dict[
         uploaded = uploader.upload_audio(optimized_srt_path)
     except Exception as exc:
         logging.warning(
-            "[web_api] test optimized.srt OSS upload failed job=%s path=%s: %s",
+            "test optimized.srt OSS upload failed job=%s path=%s: %s",
             job_id,
             optimized_srt_path,
             exc,
@@ -577,7 +638,7 @@ def _upload_optimized_srt_to_oss(job_id: str, optimized_srt_path: Path) -> dict[
         return None
 
     logging.info(
-        "[web_api] test optimized.srt OSS upload done job=%s key=%s size=%s",
+        "test optimized.srt OSS upload done job=%s key=%s size=%s",
         job_id,
         uploaded.object_key,
         uploaded.size_bytes,
@@ -595,6 +656,31 @@ def get_test_document(job_id: str) -> dict[str, Any]:
         "lines": lines,
         "chapters": chapters,
         "document_revision": build_document_revision(lines, chapters),
+    }
+
+
+def reopen_test_for_editing(job_id: str) -> dict[str, Any]:
+    dirs = ensure_job_dirs(job_id)
+    test_dir = dirs["base"] / "test"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    with _test_confirm_lock(test_dir / ".confirm.lock"):
+        lines, chapters = reopen_test_artifacts_for_editing(job_id)
+        if not lines:
+            raise RuntimeError("test lines not found")
+        if not chapters:
+            raise RuntimeError("test chapters not found")
+        revision = build_document_revision(lines, chapters)
+        update_job(
+            job_id,
+            status=JOB_STATUS_TEST_READY,
+            progress=PROGRESS_TEST_READY,
+            stage_code="TEST_READY",
+            stage_message="已返回编辑步骤，可以继续修改字幕和章节。",
+        )
+    return {
+        "lines": lines,
+        "chapters": chapters,
+        "document_revision": revision,
     }
 
 
@@ -663,7 +749,7 @@ def confirm_test(
         )
     except Exception:
         logging.exception(
-            "[web_api] ensure_subtitle_render_v1_contract failed after confirm job=%s",
+            "ensure_subtitle_render_v1_contract failed after confirm job=%s",
             job_id,
         )
 
@@ -683,7 +769,7 @@ def schedule_editor_highlight_warmup(
     source_lines = lines or list_test_lines(job_id)
     source_chapters = chapters or list_test_chapters(job_id)
     if not source_lines or not source_chapters:
-        logging.info("[web_api] editor highlight warmup skipped job=%s reason=missing-draft-data", job_id)
+        logging.info("editor highlight warmup skipped job=%s reason=missing-draft-data", job_id)
         return
 
     draft_lines = [dict(item) for item in source_lines]
@@ -698,13 +784,13 @@ def schedule_editor_highlight_warmup(
                 document_revision=draft_revision,
             )
             logging.info(
-                "[web_api] editor highlight style warmup ready job=%s revision=%s",
+                "editor highlight style warmup ready job=%s revision=%s",
                 job_id,
                 draft_revision[:12],
             )
         except Exception as exc:
             logging.warning(
-                "[web_api] editor highlight style warmup skipped job=%s revision=%s error=%s",
+                "editor highlight style warmup skipped job=%s revision=%s error=%s",
                 job_id,
                 draft_revision[:12],
                 exc,

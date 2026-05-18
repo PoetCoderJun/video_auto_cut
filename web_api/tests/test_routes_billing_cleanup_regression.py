@@ -50,13 +50,11 @@ class BillingRoutesCleanupRegressionTest(unittest.TestCase):
         self.assertEqual(user["credits"]["balance"], 0)
         self.assertEqual(user["credits"]["recent_ledger"], [])
 
-    def test_public_coupon_verify_returns_translated_invalid_error(self) -> None:
+    def test_public_coupon_verify_endpoint_is_removed(self) -> None:
         with TestClient(create_app()) as client:
             response = client.post("/api/v1/public/coupons/verify", json={"code": "CPN-NOT-FOUND"})
 
-        self.assertEqual(response.status_code, 422)
-        self.assertEqual(response.json()["error"]["code"], "COUPON_CODE_INVALID")
-        self.assertEqual(response.json()["error"]["message"], "邀请码无效，请检查后重试")
+        self.assertEqual(response.status_code, 404)
 
     def test_coupon_redeem_returns_translated_invalid_error(self) -> None:
         with TestClient(create_app()) as client:

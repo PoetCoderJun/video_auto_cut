@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from video_auto_cut.shared.dotenv import auto_load_dotenv
+from video_auto_cut.shared.logging_config import configure_logging
 
 from .pipeline_options_builder import build_pipeline_options_from_env
 from .pipeline_service import (
@@ -25,10 +26,7 @@ def _ensure_local_package_import() -> None:
 
 
 def _setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[pipeline] %(levelname)s %(message)s",
-    )
+    configure_logging()
 
 
 def _parse_args() -> argparse.Namespace:

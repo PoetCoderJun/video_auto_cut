@@ -101,7 +101,7 @@ class TestRunDraftSyncTests(unittest.TestCase):
                     return_value=SimpleNamespace(asr_backend="test", encoding="utf-8"),
                 ),
                 patch("web_api.services.test.get_job_owner_user_id", return_value="user-1"),
-                patch("web_api.services.test.get_credit_balance", return_value=1),
+                patch("web_api.services.test.has_available_credits", return_value=True),
                 patch(
                     "web_api.services.test.run_asr_transcription_stage",
                     return_value=SimpleNamespace(srt_path=srt_path, test_lines=raw_lines),
@@ -115,7 +115,8 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 patch("web_api.services.test.update_job") as mock_update_job,
                 patch("web_api.services.test.replace_test_lines") as mock_replace_test_lines,
             ):
-                run_test("job-1")
+                with self.assertLogs(level="INFO") as captured_logs:
+                    run_test("job-1")
 
         self.assertEqual(
             mock_replace_test_lines.call_args_list,
@@ -139,6 +140,11 @@ class TestRunDraftSyncTests(unittest.TestCase):
                 "TEST_READY",
             ],
         )
+        joined_logs = "\n".join(captured_logs.output)
+        self.assertIn("test flow step done job=job-1 step=transcribe elapsed_seconds=", joined_logs)
+        self.assertIn("test flow step done job=job-1 step=auto_edit elapsed_seconds=", joined_logs)
+        self.assertIn("test flow step done job=job-1 step=chapter elapsed_seconds=", joined_logs)
+        self.assertIn("test flow step done job=job-1 step=total elapsed_seconds=", joined_logs)
 
 
 if __name__ == "__main__":

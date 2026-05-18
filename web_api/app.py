@@ -15,6 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes import _resolve_client_ip, router
+from video_auto_cut.shared.logging_config import configure_logging
+from video_auto_cut.shared.log_context import set_request_id, get_request_id
+
 from .config import ensure_work_dirs, get_settings
 from .db import init_db
 from .errors import ApiError
@@ -88,12 +91,8 @@ def _public_rate_limit_for_request(method: str, path: str) -> str | None:
     normalized_method = method.upper()
     if normalized_method != "POST":
         return None
-    if normalized_path == "/api/v1/public/invites/claim":
-        return "invite_claim"
     if normalized_path == "/api/v1/public/guest/session":
-        return "invite_claim"
-    if normalized_path == "/api/v1/public/coupons/verify":
-        return "coupon_verify"
+        return "guest_session"
     return None
 
 
@@ -101,7 +100,7 @@ def _rate_limited_response() -> JSONResponse:
     return JSONResponse(
         status_code=429,
         content={
-            "request_id": new_request_id(),
+            "request_id": get_request_id() or new_request_id(),
             "error": {"code": "RATE_LIMITED", "message": "请求过于频繁，请稍后再试"},
         },
     )
@@ -111,7 +110,7 @@ def _payload_too_large_response() -> JSONResponse:
     return JSONResponse(
         status_code=413,
         content={
-            "request_id": new_request_id(),
+            "request_id": get_request_id() or new_request_id(),
             "error": {"code": "PAYLOAD_TOO_LARGE", "message": "请求内容过大，请精简后重试"},
         },
     )
@@ -139,7 +138,7 @@ class _RequestGuardMiddleware:
         if limit_key is not None:
             limit = (
                 self._settings.public_invite_rate_limit
-                if limit_key == "invite_claim"
+                if limit_key == "guest_session"
                 else self._settings.public_coupon_verify_rate_limit
             )
             client_host = ""
@@ -209,15 +208,7 @@ class _RequestGuardMiddleware:
 
 
 def _configure_logging() -> None:
-    root_logger = logging.getLogger()
-    if not root_logger.handlers:
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        )
-    root_logger.setLevel(logging.INFO)
-    logging.getLogger("web_api").setLevel(logging.INFO)
-    logging.getLogger("video_auto_cut").setLevel(logging.INFO)
+    configure_logging()
     access_logger = logging.getLogger("uvicorn.access")
     if not any(isinstance(log_filter, _SuppressPollingAccessFilter) for log_filter in access_logger.filters):
         access_logger.addFilter(_SuppressPollingAccessFilter())
@@ -231,7 +222,7 @@ async def _app_lifespan(_: FastAPI):
     try:
         cleanup_on_startup()
     except Exception:
-        logging.exception("[web_api] startup cleanup failed")
+        logging.exception("startup cleanup failed")
     yield
 
 
@@ -242,9 +233,9 @@ def create_app() -> FastAPI:
     app = FastAPI(title="video_auto_cut web api", version="0.1.0", lifespan=_app_lifespan)
     allow_origins = list(settings.web_cors_allowed_origins)
     allow_credentials = settings.web_cors_allow_credentials
-    logging.info("[web_api] CORS allow_origins=%s allow_credentials=%s", allow_origins, allow_credentials)
+    logging.info("CORS allow_origins=%s allow_credentials=%s", allow_origins, allow_credentials)
     if allow_credentials and "*" in allow_origins:
-        logging.warning("[web_api] WEB_CORS_ALLOWED_ORIGINS contains '*' so credentials are disabled")
+        logging.warning("WEB_CORS_ALLOWED_ORIGINS contains '*' so credentials are disabled")
         allow_credentials = False
 
     app.add_middleware(
@@ -263,12 +254,16 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def log_http_requests(request: Request, call_next):
+        request_id = new_request_id()
+        set_request_id(request_id)
+        request.state.request_id = request_id
+
         started_at = time.perf_counter()
         suppress_request_log = _should_suppress_request_log(request.method, request.url.path)
         client_host = getattr(request.client, "host", "") if request.client else ""
         if not suppress_request_log:
             logging.info(
-                "[web_api] request start method=%s path=%s query=%s client=%s",
+                "request start method=%s path=%s query=%s client=%s",
                 request.method,
                 request.url.path,
                 request.url.query,
@@ -279,7 +274,7 @@ def create_app() -> FastAPI:
         except Exception:
             elapsed_ms = (time.perf_counter() - started_at) * 1000.0
             logging.exception(
-                "[web_api] request failed method=%s path=%s duration_ms=%.1f",
+                "request failed method=%s path=%s duration_ms=%.1f",
                 request.method,
                 request.url.path,
                 elapsed_ms,
@@ -289,7 +284,7 @@ def create_app() -> FastAPI:
         elapsed_ms = (time.perf_counter() - started_at) * 1000.0
         if not suppress_request_log:
             logging.info(
-                "[web_api] request done method=%s path=%s status=%s duration_ms=%.1f",
+                "request done method=%s path=%s status=%s duration_ms=%.1f",
                 request.method,
                 request.url.path,
                 response.status_code,
@@ -302,7 +297,7 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content={
-                "request_id": new_request_id(),
+                "request_id": get_request_id() or new_request_id(),
                 "error": {"code": exc.code, "message": exc.message},
             },
         )
@@ -314,18 +309,18 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=400,
             content={
-                "request_id": new_request_id(),
+                "request_id": get_request_id() or new_request_id(),
                 "error": {"code": "BAD_REQUEST", "message": message},
             },
         )
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(_: Request, exc: Exception) -> JSONResponse:
-        logging.exception("[web_api] unhandled exception")
+        logging.exception("unhandled exception")
         return JSONResponse(
             status_code=500,
             content={
-                "request_id": new_request_id(),
+                "request_id": get_request_id() or new_request_id(),
                 "error": {"code": "INTERNAL_ERROR", "message": "服务内部错误，请稍后重试"},
             },
         )

@@ -1,3 +1,6 @@
+import type {RenderMeta} from "./api.ts";
+import {coerceStoredRenderMeta} from "./render-source-meta.ts";
+
 const DB_NAME = "video_auto_cut_local_cache";
 const DB_VERSION = 1;
 const STORE_NAME = "job_source_videos";
@@ -9,7 +12,13 @@ type CachedVideoRecord = {
   type: string;
   lastModified: number;
   file: Blob;
+  renderMeta?: RenderMeta | null;
   updatedAt: number;
+};
+
+export type CachedJobSourceVideo = {
+  file: File;
+  renderMeta: RenderMeta | null;
 };
 
 function openDb(): Promise<IDBDatabase> {
@@ -64,21 +73,34 @@ async function pruneExpired(db: IDBDatabase): Promise<void> {
   });
 }
 
-export async function saveCachedJobSourceVideo(jobId: string, file: File): Promise<void> {
+export async function saveCachedJobSourceVideo(
+  jobId: string,
+  file: File,
+  options?: {renderMeta?: RenderMeta | null}
+): Promise<void> {
   const db = await openDb();
   try {
     await runTx<void>(db, "readwrite", (store, resolve, reject) => {
-      const record: CachedVideoRecord = {
-        jobId,
-        name: file.name || "source.mp4",
-        type: file.type || "video/mp4",
-        lastModified: Number.isFinite(file.lastModified) ? file.lastModified : Date.now(),
-        file,
-        updatedAt: Date.now(),
+      const existingReq = store.get(jobId);
+      existingReq.onsuccess = () => {
+        const existing = (existingReq.result as CachedVideoRecord | undefined) || null;
+        const record: CachedVideoRecord = {
+          jobId,
+          name: file.name || "source.mp4",
+          type: file.type || "video/mp4",
+          lastModified: Number.isFinite(file.lastModified) ? file.lastModified : Date.now(),
+          file,
+          renderMeta:
+            options && Object.prototype.hasOwnProperty.call(options, "renderMeta")
+              ? options.renderMeta ?? null
+              : existing?.renderMeta ?? null,
+          updatedAt: Date.now(),
+        };
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error || new Error("indexeddb_put_failed"));
       };
-      const req = store.put(record);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error || new Error("indexeddb_put_failed"));
+      existingReq.onerror = () => reject(existingReq.error || new Error("indexeddb_get_failed"));
     });
     await pruneExpired(db);
   } finally {
@@ -86,7 +108,7 @@ export async function saveCachedJobSourceVideo(jobId: string, file: File): Promi
   }
 }
 
-export async function loadCachedJobSourceVideo(jobId: string): Promise<File | null> {
+export async function loadCachedJobSourceVideoRecord(jobId: string): Promise<CachedJobSourceVideo | null> {
   const db = await openDb();
   try {
     const record = await runTx<CachedVideoRecord | null>(db, "readonly", (store, resolve, reject) => {
@@ -99,13 +121,37 @@ export async function loadCachedJobSourceVideo(jobId: string): Promise<File | nu
       await removeCachedJobSourceVideo(jobId);
       return null;
     }
-    return new File([record.file], record.name || "source.mp4", {
-      type: record.type || "video/mp4",
-      lastModified: record.lastModified || Date.now(),
-    });
+    return {
+      file: new File([record.file], record.name || "source.mp4", {
+        type: record.type || "video/mp4",
+        lastModified: record.lastModified || Date.now(),
+      }),
+      renderMeta: coerceStoredRenderMeta(record.renderMeta),
+    };
   } finally {
     db.close();
   }
+}
+
+export async function loadCachedJobSourceVideo(jobId: string): Promise<File | null> {
+  const record = await loadCachedJobSourceVideoRecord(jobId);
+  return record?.file ?? null;
+}
+
+export async function loadCachedJobSourceVideoMeta(jobId: string): Promise<RenderMeta | null> {
+  const record = await loadCachedJobSourceVideoRecord(jobId);
+  return record?.renderMeta ?? null;
+}
+
+export async function updateCachedJobSourceVideoMeta(
+  jobId: string,
+  renderMeta: RenderMeta
+): Promise<void> {
+  const cached = await loadCachedJobSourceVideoRecord(jobId);
+  if (!cached) {
+    return;
+  }
+  await saveCachedJobSourceVideo(jobId, cached.file, {renderMeta});
 }
 
 export async function removeCachedJobSourceVideo(jobId: string): Promise<void> {
@@ -120,4 +166,3 @@ export async function removeCachedJobSourceVideo(jobId: string): Promise<void> {
     db.close();
   }
 }
-

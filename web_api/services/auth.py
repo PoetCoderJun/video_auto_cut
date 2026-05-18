@@ -14,6 +14,8 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.algorithms import RSAAlgorithm
 
+from video_auto_cut.shared.log_context import set_user_id
+
 from ..db_repository import get_guest_session_by_token
 from ..config import get_settings
 from ..errors import unauthorized
@@ -69,7 +71,7 @@ def require_current_user(
 
     token = credentials.credentials.strip() if credentials else ""
     if not token:
-        logging.warning("[auth] 401: no Authorization Bearer token")
+        logging.warning("401: no Authorization Bearer token")
         raise unauthorized("请先登录后再继续")
 
     claims = _decode_auth_token(token)
@@ -79,6 +81,7 @@ def require_current_user(
 
     email = _extract_email(claims)
     account = _extract_account(claims)
+    set_user_id(user_id)
     return CurrentUser(user_id=user_id, email=email, account=account)
 
 
@@ -115,17 +118,19 @@ def require_request_actor(
             status = str(session.get("status") or "ACTIVE").upper()
             guest_id = str(session.get("guest_id") or "").strip()
             if guest_id and status in {"ACTIVE", "CONSUMED"}:
+                actor_id = guest_actor_id(guest_id)
+                set_user_id(actor_id)
                 return RequestActor(
-                    actor_id=guest_actor_id(guest_id),
+                    actor_id=actor_id,
                     kind="guest",
                     email=None,
                     account=None,
                     guest_id=guest_id,
                 )
-        raise unauthorized("免登录体验已失效，请登录后继续")
+        raise unauthorized("登录状态已失效，请重新登录后继续")
 
-    logging.warning("[auth] 401: no Authorization Bearer token or guest token")
-    raise unauthorized("请先登录，或使用首台设备免登录体验一次")
+    logging.warning("401: no Authorization Bearer token or guest token")
+    raise unauthorized("当前限时免费需要先登录账号")
 
 
 def _decode_auth_token(token: str) -> dict[str, Any]:
@@ -165,7 +170,7 @@ def _decode_auth_token(token: str) -> dict[str, Any]:
     try:
         payload = jwt.decode(token, public_key, **decode_kwargs)
     except Exception as exc:
-        logging.warning("[auth] 401: JWT decode failed: %s (issuer=%s audience=%s)", exc, decode_kwargs.get("issuer"), decode_kwargs.get("audience"))
+        logging.warning("401: JWT decode failed: %s (issuer=%s audience=%s)", exc, decode_kwargs.get("issuer"), decode_kwargs.get("audience"))
         raise unauthorized(f"登录令牌校验失败：{exc}") from exc
 
     if not isinstance(payload, dict):
@@ -211,7 +216,7 @@ def _get_jwk_by_kid(jwks_url: str, kid: str) -> dict[str, Any] | None:
             except Exception:
                 if cached is None and not _JWKS_CACHE_BY_KID:
                     raise
-                logging.warning("[auth] JWKS refresh failed, reusing stale cache")
+                logging.warning("JWKS refresh failed, reusing stale cache")
                 _JWKS_CACHE_EXPIRES_AT = now + _JWKS_STALE_CACHE_RETRY_SECONDS
                 return cached
         cached = _JWKS_CACHE_BY_KID.get(kid)

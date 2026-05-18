@@ -89,6 +89,41 @@ test("createBetterAuthLibsqlClient falls back to local replica when sync connect
   assert.equal(calls[1].syncUrl, undefined);
 });
 
+test("createBetterAuthLibsqlClient removes db-only replica before sync connect", async () => {
+  const tempReplicaPath = path.resolve("./workdir/test-better-auth-db-only-replica.db");
+  for (const filePath of [
+    tempReplicaPath,
+    `${tempReplicaPath}-info`,
+    `${tempReplicaPath}-wal`,
+    `${tempReplicaPath}-shm`,
+  ]) {
+    await import("node:fs/promises").then((fs) => fs.rm(filePath, {force: true}));
+  }
+  await import("node:fs/promises").then((fs) => fs.writeFile(tempReplicaPath, "x"));
+
+  const calls = [];
+  const createClientStub = (config) => {
+    calls.push(config);
+    return {kind: "preflight-reset"};
+  };
+
+  const client = createBetterAuthLibsqlClient(
+    {
+      url: `file:${tempReplicaPath}`,
+      syncUrl: "libsql://example.turso.io",
+      authToken: "token",
+    },
+    createClientStub,
+  );
+
+  assert.deepEqual(client, {kind: "preflight-reset"});
+  assert.equal(calls.length, 1);
+  assert.equal(
+    await import("node:fs/promises").then((fs) => fs.access(tempReplicaPath).then(() => true).catch(() => false)),
+    false,
+  );
+});
+
 test("createBetterAuthLibsqlClient resets invalid local replica state and retries", async () => {
   const tempReplicaPath = path.resolve("./workdir/test-better-auth-invalid-replica.db");
   const tempReplicaInfoPath = `${tempReplicaPath}-info`;

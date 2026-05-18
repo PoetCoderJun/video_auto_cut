@@ -56,6 +56,16 @@ class AudioOssReadyRequest(BaseModel):
     object_key: str = Field(..., min_length=1, max_length=MAX_OBJECT_KEY_LENGTH)
 
 
+class SourceMetadataRequest(BaseModel):
+    width: int = Field(..., ge=1, le=16384)
+    height: int = Field(..., ge=1, le=16384)
+    fps: float | None = Field(default=None, ge=1, le=240)
+    duration_sec: float | None = Field(default=None, ge=0)
+    file_name: str = Field(default="", max_length=255)
+    file_type: str = Field(default="", max_length=128)
+    file_size_bytes: int = Field(default=0, ge=0)
+
+
 class ClientUploadIssueReportRequest(BaseModel):
     stage: str = Field(..., min_length=1, max_length=64)
     page: str = Field(default="", max_length=128)

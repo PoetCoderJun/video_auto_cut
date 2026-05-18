@@ -3,8 +3,15 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_OVERLAY_CONTROLS,
+  normalizeOverlayScaleControls,
   resolveOverlayAnchorBottom,
 } from "./overlay-controls.ts";
+
+test("defaults keep highlight rendering enabled", () => {
+  assert.equal(DEFAULT_OVERLAY_CONTROLS.showHighlights, true);
+  assert.equal(normalizeOverlayScaleControls({}).showHighlights, true);
+  assert.equal(normalizeOverlayScaleControls({showHighlights: false}).showHighlights, false);
+});
 
 test("keeps overlay bottom anchors at their baseline when controls stay at defaults", () => {
   assert.equal(

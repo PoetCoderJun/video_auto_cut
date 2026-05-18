@@ -134,10 +134,11 @@ export function useJobLifecycle({
         const isUnauthorized =
           (err instanceof ApiClientError && err.code === "UNAUTHORIZED") ||
           message.includes("请先登录") ||
-          message.includes("登录状态无效");
+          message.includes("登录状态无效") ||
+          message.includes("限时免费需要");
         if (isUnauthorized) {
           if (isMountedRef.current) {
-            setJobLoadError("登录状态已失效，请重新登录。");
+            setJobLoadError("当前限时免费需要先登录账号，请登录后继续。");
           }
           return;
         }

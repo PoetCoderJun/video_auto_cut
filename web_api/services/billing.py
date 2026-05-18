@@ -8,6 +8,8 @@ from ..db_repository import (
 )
 from ..job_file_repository import get_job_owner_user_id
 
+LIMITED_TIME_FREE_ENABLED = True
+
 
 class BillingServiceError(Exception):
     """Base class for billing-domain service failures."""
@@ -29,8 +31,14 @@ def _guest_id_from_actor_id(actor_id: str | None) -> str | None:
     return guest_id or None
 
 
+def is_limited_time_free_enabled() -> bool:
+    return LIMITED_TIME_FREE_ENABLED
+
+
 def has_available_credits(user_id: str) -> bool:
     guest_id = _guest_id_from_actor_id(user_id)
+    if is_limited_time_free_enabled() and not guest_id:
+        return True
     if guest_id:
         session = get_guest_session(guest_id)
         if not session:
@@ -52,6 +60,12 @@ def consume_export_credit(job_id: str) -> dict[str, object]:
         raise JobOwnerNotFoundError
 
     guest_id = _guest_id_from_actor_id(owner_user_id)
+    if is_limited_time_free_enabled() and not guest_id:
+        return {
+            "consumed": False,
+            "balance": get_credit_balance(owner_user_id),
+        }
+
     try:
         if guest_id:
             result = consume_guest_session_free_use(guest_id, job_id)

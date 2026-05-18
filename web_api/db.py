@@ -75,7 +75,7 @@ def _extract_column_names(rows: list[Any]) -> set[str]:
             columns.add(str(row[1]))
             continue
         except Exception:
-            logging.debug("[web_api] failed to parse PRAGMA row: %r", row)
+            logging.debug("failed to parse PRAGMA row: %r", row)
     return columns
 
 
@@ -184,7 +184,7 @@ def retry_turso_operation(
                     if attempt >= max(1, int(max_attempts)) or not is_retryable_turso_error(exc):
                         raise
                     logging.warning(
-                        "[web_api] transient Turso error during %s attempt=%s/%s: %s",
+                        "transient Turso error during %s attempt=%s/%s: %s",
                         operation_name,
                         attempt,
                         max_attempts,
@@ -337,7 +337,7 @@ def _create_conn() -> Any:
         except Exception as exc:
             if is_retryable_turso_connect_error(exc):
                 logging.warning(
-                    "[web_api] Turso sync unavailable at open; continuing with local replica %s: %s",
+                    "Turso sync unavailable at open; continuing with local replica %s: %s",
                     settings.turso_local_replica_path,
                     exc,
                 )
@@ -352,7 +352,7 @@ def _create_conn() -> Any:
         reset_reason = "WAL conflict" if _is_wal_conflict_error(exc) else "invalid local replica state"
 
     logging.warning(
-        "[web_api] detected %s for local replica %s, resetting and retrying once",
+        "detected %s for local replica %s, resetting and retrying once",
         reset_reason,
         settings.turso_local_replica_path,
     )
@@ -371,7 +371,7 @@ def _sync_best_effort(conn: Any, *, stage: str, raise_on_error: bool = False) ->
     try:
         conn.sync()
     except Exception as exc:
-        logging.warning("[web_api] turso sync failed at %s: %s", stage, exc)
+        logging.warning("turso sync failed at %s: %s", stage, exc)
         if raise_on_error:
             raise
 

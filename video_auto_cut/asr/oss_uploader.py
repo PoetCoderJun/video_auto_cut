@@ -87,7 +87,7 @@ class OSSAudioUploader:
                 if attempt < UPLOAD_MAX_RETRIES - 1:
                     delay = UPLOAD_RETRY_BASE_DELAY_SEC * (2**attempt)
                     logger.warning(
-                        "[oss] upload attempt %d/%d failed (%s), retrying in %.1fs: %s",
+                        "upload attempt %d/%d failed (%s), retrying in %.1fs: %s",
                         attempt + 1,
                         UPLOAD_MAX_RETRIES,
                         type(e).__name__,

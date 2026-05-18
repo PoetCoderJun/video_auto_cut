@@ -16,6 +16,9 @@ const sourceFile = path.resolve(
   repoRoot,
   process.env.E2E_SOURCE_FILE || "test_data/raw/AI1.MOV",
 );
+const referenceScriptFile = process.env.E2E_REFERENCE_SCRIPT_FILE
+  ? path.resolve(repoRoot, process.env.E2E_REFERENCE_SCRIPT_FILE)
+  : "";
 const downloadDir = path.resolve(
   repoRoot,
   process.env.E2E_DOWNLOAD_DIR || "workdir/e2e_browser_downloads",
@@ -35,6 +38,7 @@ const headed = String(process.env.E2E_HEADLESS || "").trim() !== "1";
 
 const timeouts = {
   navigationMs: 60_000,
+  confirmMs: 2 * 60_000,
   uploadMs: 15 * 60_000,
   processingMs: 45 * 60_000,
   exportMs: 20 * 60_000,
@@ -221,6 +225,27 @@ async function setInputValue(cdp, selector, value) {
   );
 }
 
+async function setTextareaValue(cdp, selector, value) {
+  const applied = await evalExpression(
+    cdp,
+    `
+      (() => {
+        const textarea = document.querySelector(${JSON.stringify(selector)});
+        if (!textarea) return false;
+        const value = ${JSON.stringify(value)};
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+        setter?.call(textarea, value);
+        textarea.dispatchEvent(new Event("input", {bubbles: true}));
+        textarea.dispatchEvent(new Event("change", {bubbles: true}));
+        return textarea.value === value;
+      })()
+    `,
+  );
+  if (!applied) {
+    fail(`Textarea value could not be set for selector ${selector}`);
+  }
+}
+
 async function clickSelector(cdp, selector) {
   const expression = `
     (() => {
@@ -244,9 +269,12 @@ async function waitForButtonSelector(cdp, label, timeoutMs, markerAttr) {
           cdp,
           `
             (() => {
-              const button = Array.from(document.querySelectorAll('button')).find((item) =>
+              const buttons = Array.from(document.querySelectorAll('button')).filter((item) =>
                 (item.innerText || '').includes(${JSON.stringify(label)})
               );
+              const button =
+                buttons.find((item) => (item.innerText || '').trim() === ${JSON.stringify(label)}) ||
+                buttons[0];
               if (!button) return null;
               button.setAttribute(${JSON.stringify(markerAttr)}, '1');
               return '[' + ${JSON.stringify(markerAttr)} + '="1"]';
@@ -277,6 +305,17 @@ async function waitForText(cdp, text, timeoutMs) {
       return bodyText.includes(text) ? bodyText : null;
     },
     `text "${text}"`,
+    timeoutMs,
+  );
+}
+
+async function waitForAnyText(cdp, texts, timeoutMs) {
+  return waitFor(
+    async () => {
+      const bodyText = await getBodyText(cdp);
+      return texts.some((text) => bodyText.includes(text)) ? bodyText : null;
+    },
+    `any text "${texts.join('" / "')}"`,
     timeoutMs,
   );
 }
@@ -407,7 +446,11 @@ async function waitForEditorConfirmResult(cdp, timeoutMs) {
   return waitFor(
     async () => {
       const bodyText = await getBodyText(cdp);
-      if (bodyText.includes("导出设置")) {
+      if (
+        bodyText.includes("导出设置") ||
+        bodyText.includes("准备导出") ||
+        bodyText.includes("源视频检测通过")
+      ) {
         return "export";
       }
       if (
@@ -522,9 +565,15 @@ async function main() {
   if (!fs.existsSync(sourceFile)) {
     fail(`Source file not found: ${sourceFile}`);
   }
+  if (referenceScriptFile && !fs.existsSync(referenceScriptFile)) {
+    fail(`Reference script file not found: ${referenceScriptFile}`);
+  }
   if (!fs.existsSync(chromeBinary)) {
     fail(`Chrome binary not found: ${chromeBinary}`);
   }
+  const referenceScript = referenceScriptFile
+    ? fs.readFileSync(referenceScriptFile, "utf8").trim()
+    : "";
 
   const chromeProcess = await startChrome();
   let cdp = null;
@@ -533,6 +582,7 @@ async function main() {
     startedAt: startedAtIso,
     email,
     sourceFile,
+    referenceScriptFile,
     downloadDir,
     artifactsDir,
     steps: [],
@@ -585,7 +635,11 @@ async function main() {
       url: `${baseUrl}/`,
     });
     await initialLoad;
-    await waitForText(cdp, "点击或拖拽上传视频", timeouts.navigationMs);
+    await waitForAnyText(
+      cdp,
+      ["点击或拖拽上传视频", "拖拽文件到此处，或点击上传视频"],
+      timeouts.navigationMs,
+    );
     await waitFor(
       async () => {
         const bodyText = await getBodyText(cdp);
@@ -597,9 +651,51 @@ async function main() {
     report.steps.push({name: "signed-in"});
     await waitForFileInput(cdp, "input[type='file']", timeouts.navigationMs);
 
+    if (referenceScript) {
+      const scriptToggleSelector = await waitForButtonSelector(
+        cdp,
+        "已有口播脚本",
+        timeouts.navigationMs,
+        "data-e2e-script-toggle",
+      );
+      await clickSelector(cdp, scriptToggleSelector);
+      await waitFor(
+        async () => {
+          const count = await evalExpression(
+            cdp,
+            "document.querySelectorAll('textarea').length",
+          );
+          return Number(count) > 0 ? count : null;
+        },
+        "reference script textarea",
+        timeouts.navigationMs,
+        200,
+      );
+      await setTextareaValue(cdp, "textarea", referenceScript);
+      const stored = await evalExpression(
+        cdp,
+        "document.querySelector('textarea')?.value || ''",
+      );
+      if (String(stored).trim() !== referenceScript) {
+        fail("Reference script was not retained in the browser textarea", {
+          expectedLength: referenceScript.length,
+          actualLength: String(stored).trim().length,
+        });
+      }
+      report.steps.push({
+        name: "reference-script-filled",
+        length: referenceScript.length,
+      });
+      await captureScreenshot(cdp, "reference-script-filled.png");
+    }
+
     await setFileInputFiles(cdp, "input[type='file']", [sourceFile]);
     report.steps.push({name: "upload-started"});
-    await waitForText(cdp, "请保持页面开启，我们会自动继续处理。", timeouts.uploadMs);
+    await waitForAnyText(
+      cdp,
+      ["请保持页面开启，我们会自动继续处理。", "保存并进入导出", "导出设置"],
+      timeouts.uploadMs,
+    );
     report.steps.push({
       name: "job-workspace-mounted",
       path: await evalExpression(cdp, "location.pathname"),
@@ -628,7 +724,9 @@ async function main() {
       `
         (() => {
           const bodyText = document.body ? document.body.innerText : "";
-          return bodyText.includes("导出设置");
+          return bodyText.includes("导出设置") ||
+            bodyText.includes("准备导出") ||
+            bodyText.includes("源视频检测通过");
         })()
       `,
     );
@@ -642,7 +740,7 @@ async function main() {
           "data-e2e-confirm",
         );
         await clickSelector(cdp, confirmSelector);
-        const result = await waitForEditorConfirmResult(cdp, timeouts.navigationMs);
+        const result = await waitForEditorConfirmResult(cdp, timeouts.confirmMs);
         if (result === "export") {
           enteredExport = true;
           break;

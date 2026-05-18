@@ -125,10 +125,24 @@ function resetLocalReplica(replicaPath: string): void {
   }
 }
 
+function shouldResetReplicaBeforeConnect(config: Config): boolean {
+  if (!config.syncUrl || !config.authToken) return false;
+  const replicaPath = replicaPathFromConfig(config);
+  if (!replicaPath) return false;
+  const resolvedPath = path.resolve(replicaPath);
+  return fs.existsSync(resolvedPath) && !fs.existsSync(`${resolvedPath}-info`);
+}
+
 export function createBetterAuthLibsqlClient(
   config: Config,
   createClientImpl: (config: Config) => Client = createClient,
 ): Client {
+  if (shouldResetReplicaBeforeConnect(config)) {
+    const replicaPath = replicaPathFromConfig(config);
+    if (replicaPath) {
+      resetLocalReplica(replicaPath);
+    }
+  }
   try {
     return createClientImpl(config);
   } catch (error) {

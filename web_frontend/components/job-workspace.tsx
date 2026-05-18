@@ -70,12 +70,18 @@ export default function JobWorkspace({
 
   const job = lifecycle.state.job;
   const activeStep = getActiveStep(job.status);
-  const view = getJobWorkspaceView(job.status, editor.state.testReadyHandoffActive);
+  const view = getJobWorkspaceView(job.status, editor.state.isEditorVisible);
 
   return (
     <main className="container mx-auto max-w-6xl px-4 py-8">
       <JobWorkspaceStepper
         activeStep={activeStep}
+        canReopenEditor={exportController.state.canReopenEditor}
+        onReopenEditor={exportController.actions.handleReopenEditor}
+        reopenEditorBusy={exportController.state.reopenEditorBusy}
+        reopenEditorDisabled={
+          lifecycle.state.busy || exportController.state.renderActionBusy
+        }
         succeeded={job.status === STATUS.SUCCEEDED}
         onBackHome={onBackHome}
       />
@@ -89,12 +95,6 @@ export default function JobWorkspace({
       {exportController.state.renderCompletionMarkerMessage && (
         <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
           {exportController.state.renderCompletionMarkerMessage}
-        </div>
-      )}
-
-      {exportController.state.renderNote && (
-        <div className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800">
-          {exportController.state.renderNote}
         </div>
       )}
 
@@ -139,9 +139,11 @@ export default function JobWorkspace({
           state={{
             ...exportController.state,
             busy: lifecycle.state.busy,
-            supportedUploadAccept: SUPPORTED_UPLOAD_ACCEPT,
           }}
-          actions={exportController.actions}
+          actions={{
+            ...exportController.actions,
+            onBackHome,
+          }}
         />
       )}
     </main>

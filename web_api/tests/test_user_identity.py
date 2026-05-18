@@ -41,7 +41,7 @@ class UserIdentityTests(unittest.TestCase):
 
     def test_ensure_user_merges_duplicate_email_rows_and_job_ownership(self) -> None:
         job_id = "job_duplicate_owner"
-        create_job(job_id, "CREATED", "legacy-user")
+        create_job(job_id, "CREATED", "source-user")
 
         db_path = get_settings().turso_local_replica_path
         with sqlite3.connect(db_path) as conn:
@@ -51,7 +51,7 @@ class UserIdentityTests(unittest.TestCase):
                 """
                 INSERT INTO users(user_id, email, status, activated_at, created_at, updated_at)
                 VALUES
-                    ('legacy-user', 'same@example.com', 'ACTIVE', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z'),
+                    ('source-user', 'same@example.com', 'ACTIVE', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z'),
                     ('duplicate-user', 'same@example.com', 'PENDING_COUPON', NULL, '2026-03-02T00:00:00Z', '2026-03-02T00:00:00Z')
                 """
             )
@@ -59,7 +59,7 @@ class UserIdentityTests(unittest.TestCase):
                 """
                 INSERT INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
                 VALUES
-                    ('legacy-user', 20, 'ADMIN_MANUAL_CREDIT', NULL, 'grant:legacy', '2026-03-03T00:00:00Z'),
+                    ('source-user', 20, 'ADMIN_MANUAL_CREDIT', NULL, 'grant:source', '2026-03-03T00:00:00Z'),
                     ('duplicate-user', 3, 'COUPON_REDEEM', NULL, 'coupon:dup', '2026-03-04T00:00:00Z')
                 """
             )

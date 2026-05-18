@@ -218,6 +218,12 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
             self.assertIsNotNone(job)
             self.assertEqual(job["status"], "CREATED")
             self.assertIsNone(job["error"])
+            files = get_job_files(job_id)
+            self.assertIsNotNone(files)
+            self.assertIsNone(files["video_path"])
+            self.assertEqual(files["source_file_name"], "source.mov")
+            self.assertEqual(files["source_file_size_bytes"], len(b"valid video bytes"))
+            self.assertFalse((Path(self.tmpdir.name) / "jobs" / job_id / "input" / "source.mov").exists())
 
             upload_url_response = client.post(f"/api/v1/jobs/{job_id}/oss-upload-url")
 
@@ -225,6 +231,38 @@ class RoutesJobCleanupRegressionTest(unittest.TestCase):
         upload_payload = upload_url_response.json()["data"]
         self.assertEqual(upload_payload["put_url"], "https://upload.example.test/audio.mp3")
         self.assertEqual(upload_payload["object_key"], "video-auto-cut/asr/job/audio.mp3")
+
+    def test_source_metadata_persists_dimensions_without_video_file(self) -> None:
+        with (
+            patch("web_api.api.routes.ensure_active_user", return_value=None),
+            TestClient(create_app()) as client,
+        ):
+            create_response = client.post("/api/v1/jobs", json={})
+            self.assertEqual(create_response.status_code, 200)
+            job_id = create_response.json()["data"]["job"]["job_id"]
+
+            response = client.post(
+                f"/api/v1/jobs/{job_id}/source-metadata",
+                json={
+                    "width": 1080,
+                    "height": 1920,
+                    "fps": 30,
+                    "duration_sec": 12.5,
+                    "file_name": "source.mov",
+                    "file_type": "video/quicktime",
+                    "file_size_bytes": 123456,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        files = get_job_files(job_id)
+        self.assertIsNotNone(files)
+        self.assertIsNone(files["video_path"])
+        self.assertEqual(files["source_width"], 1080)
+        self.assertEqual(files["source_height"], 1920)
+        self.assertEqual(files["source_fps"], 30.0)
+        self.assertEqual(files["source_duration_sec"], 12.5)
+        self.assertFalse((Path(self.tmpdir.name) / "jobs" / job_id / "input" / "source.mov").exists())
 
 
 

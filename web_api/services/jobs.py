@@ -109,7 +109,7 @@ def mark_audio_oss_ready(job_id: str, object_key: str) -> dict:
     )
     update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
     logging.info(
-        "[web_api] audio OSS upload ready job=%s object_key=%s",
+        "audio OSS upload ready job=%s object_key=%s",
         job_id,
         normalized_object_key,
     )
@@ -128,7 +128,7 @@ def mark_audio_local_ready(job_id: str, audio_path: str) -> dict:
     )
     update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
     logging.info(
-        "[web_api] local audio upload ready job=%s audio_path=%s",
+        "local audio upload ready job=%s audio_path=%s",
         job_id,
         normalized_audio_path,
     )
@@ -178,42 +178,71 @@ def save_local_uploaded_audio(job_id: str, audio_file: UploadFile) -> dict[str, 
 
 
 def save_local_uploaded_video(job_id: str, source_file: UploadFile) -> dict[str, Any]:
-    dirs = ensure_job_dirs(job_id)
     raw_name = Path(source_file.filename or "source.mp4").name
     suffix = Path(raw_name).suffix.lower() or ".mp4"
     if suffix not in ALLOWED_VIDEO_EXTENSIONS:
         raise invalid_step_state("当前文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。")
 
-    video_path = dirs["input"] / f"source{suffix}"
     total = 0
-    try:
-        with video_path.open("wb") as output:
-            while True:
-                chunk = source_file.file.read(_LOCAL_AUDIO_UPLOAD_CHUNK_SIZE)
-                if not chunk:
-                    break
-                total += len(chunk)
-                output.write(chunk)
-    except Exception:
-        try:
-            video_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+    while True:
+        chunk = source_file.file.read(_LOCAL_AUDIO_UPLOAD_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
 
     if total <= 0:
-        try:
-            video_path.unlink(missing_ok=True)
-        except OSError:
-            pass
         raise invalid_step_state("上传文件为空")
 
-    upsert_job_files(job_id, video_path=str(video_path))
+    upsert_job_files(
+        job_id,
+        video_path=None,
+        source_file_name=raw_name,
+        source_file_type=str(source_file.content_type or "").strip() or None,
+        source_file_size_bytes=total,
+    )
     if _has_uploaded_audio(get_job_files(job_id)):
         update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
     return {
-        "video_path": str(video_path),
+        "video_path": None,
         "filename": raw_name,
-        "stored_as": video_path.name,
+        "stored_as": None,
         "size_bytes": total,
     }
+
+
+def save_source_video_metadata(
+    job_id: str,
+    *,
+    width: int,
+    height: int,
+    fps: float | None = None,
+    duration_sec: float | None = None,
+    file_name: str = "",
+    file_type: str = "",
+    file_size_bytes: int = 0,
+) -> dict[str, Any]:
+    normalized_width = int(width)
+    normalized_height = int(height)
+    if normalized_width <= 0 or normalized_height <= 0:
+        raise invalid_step_state("无法读取源视频分辨率，请重新选择文件后重试")
+
+    normalized_fps = float(fps) if fps is not None else None
+    if normalized_fps is not None and normalized_fps <= 0:
+        normalized_fps = None
+    normalized_duration = float(duration_sec) if duration_sec is not None else None
+    if normalized_duration is not None and normalized_duration <= 0:
+        normalized_duration = None
+
+    payload = {
+        "source_width": normalized_width,
+        "source_height": normalized_height,
+        "source_fps": normalized_fps,
+        "source_duration_sec": normalized_duration,
+        "source_file_name": str(file_name or "").strip() or None,
+        "source_file_type": str(file_type or "").strip() or None,
+        "source_file_size_bytes": max(0, int(file_size_bytes or 0)) or None,
+    }
+    upsert_job_files(job_id, video_path=None, **payload)
+    if _has_uploaded_audio(get_job_files(job_id)):
+        update_job(job_id, status=JOB_STATUS_UPLOAD_READY, progress=PROGRESS_UPLOAD_READY)
+    return payload

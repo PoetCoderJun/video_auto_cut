@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -10,11 +11,12 @@ import {
 
 import {
   clearRenderCompletionPending,
-  downloadRenderSourceVideo,
   getRenderCompletionPending,
   getWebRenderConfig,
   getWebRenderConfigWithMeta,
   markRenderSucceeded,
+  reopenTestForEditing,
+  ApiClientError,
   type Job,
   type RenderMeta,
   type WebRenderConfig,
@@ -58,7 +60,6 @@ import {STATUS} from "../../lib/workflow";
 import {
   RENDER_COMPLETE_RETRY_BASE_MS,
   RENDER_COMPLETE_RETRY_MAX_MS,
-  SUPPORTED_UPLOAD_EXTENSIONS,
 } from "./constants";
 import {useRenderSourceCompatibility} from "./use-render-source-compatibility";
 import {
@@ -75,6 +76,41 @@ import {buildSrtDownloadFromRenderConfig} from "./export-subtitles";
 
 const RENDER_META_TIMEOUT_MS = 60_000;
 const RENDER_CONFIG_TIMEOUT_MS = 90_000;
+const EXPORT_SETTINGS_KEY = "ac_export_settings_v1";
+const MISSING_RENDER_SOURCE_MESSAGE = "本地渲染所需源视频缓存已丢失，请重新上传视频生成新的导出。";
+const REOPEN_ROUTE_NOT_READY_MESSAGE =
+  "返回编辑接口暂时不可用，请刷新页面或重启后端服务后再试。";
+
+function loadSavedExportSettings(): {
+  overlayControls: OverlayScaleControls | null;
+  subtitleTheme: SubtitleTheme | null;
+} {
+  try {
+    const raw = localStorage.getItem(EXPORT_SETTINGS_KEY);
+    if (!raw) return {overlayControls: null, subtitleTheme: null};
+    const parsed = JSON.parse(raw);
+    return {
+      overlayControls: parsed.overlayControls ?? null,
+      subtitleTheme: parsed.subtitleTheme ?? null,
+    };
+  } catch {
+    return {overlayControls: null, subtitleTheme: null};
+  }
+}
+
+function saveExportSettings(
+  overlayControls: OverlayScaleControls,
+  subtitleTheme: SubtitleTheme,
+) {
+  try {
+    localStorage.setItem(
+      EXPORT_SETTINGS_KEY,
+      JSON.stringify({overlayControls, subtitleTheme}),
+    );
+  } catch {
+    // ignore
+  }
+}
 
 export function useExportStepController({
   busy,
@@ -111,17 +147,36 @@ export function useExportStepController({
   const [subtitleFileName, setSubtitleFileName] = useState("output.txt");
   const [renderConfig, setRenderConfig] = useState<WebRenderConfig | null>(null);
   const [renderConfigBusy, setRenderConfigBusy] = useState(false);
-  const [renderSourceFile, setRenderSourceFile] = useState<File | null>(null);
   const [renderSetupError, setRenderSetupError] = useState("");
+  const [reopenEditorBusy, setReopenEditorBusy] = useState(false);
   const [previewTimeSec, setPreviewTimeSec] = useState(0);
   const [cachedRenderMeta, setCachedRenderMeta] = useState<RenderMeta | null>(null);
-  const [subtitleTheme, setSubtitleTheme] =
-    useState<SubtitleTheme>("white");
-  const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>({
-    ...DEFAULT_OVERLAY_CONTROLS,
-  });
+
+  const savedSettings = useRef(loadSavedExportSettings());
+  const [subtitleTheme, setSubtitleTheme] = useState<SubtitleTheme>(
+    savedSettings.current.subtitleTheme ?? "stroke-white",
+  );
+  const [overlayControls, setOverlayControls] = useState<OverlayScaleControls>(
+    savedSettings.current.overlayControls ?? {...DEFAULT_OVERLAY_CONTROLS},
+  );
   const {renderSourceCompatibility, setRenderSourceCompatibility} =
     useRenderSourceCompatibility(selectedFile);
+
+  // Persist settings to localStorage whenever they change
+  useEffect(() => {
+    saveExportSettings(overlayControls, subtitleTheme);
+  }, [overlayControls, subtitleTheme]);
+
+  // beforeunload guard during render
+  useEffect(() => {
+    if (!renderBusy) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "正在导出视频中，离开页面将丢失进度。";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [renderBusy]);
 
   const loadRenderConfigWithMeta = useCallback(
     async (
@@ -155,16 +210,6 @@ export function useExportStepController({
     sourceFile: File | null;
     renderMeta: RenderMeta | null;
   }> => {
-    if (renderSourceFile) {
-      return {sourceFile: renderSourceFile, renderMeta: null};
-    }
-
-    if (renderConfig?.input_props.sourceKind === "cut-proxy") {
-      const downloaded = await downloadRenderSourceVideo(jobId);
-      setRenderSourceFile(downloaded);
-      return {sourceFile: downloaded, renderMeta: null};
-    }
-
     if (selectedFile && cachedRenderMeta) {
       return {sourceFile: selectedFile, renderMeta: cachedRenderMeta};
     }
@@ -195,10 +240,7 @@ export function useExportStepController({
     };
   }, [
     cachedRenderMeta,
-    downloadRenderSourceVideo,
     jobId,
-    renderConfig?.input_props.sourceKind,
-    renderSourceFile,
     selectedFile,
     setSelectedFile,
   ]);
@@ -229,7 +271,7 @@ export function useExportStepController({
       const resolvedMeta = await withTimeout(
         resolveRenderMetaFromFile(sourceFile),
         RENDER_META_TIMEOUT_MS,
-        "读取本地视频元数据超时。当前源片较大，请稍后重试，或重新选择文件后再试。",
+        "读取本地视频元数据超时。当前源片较大，请稍后重试，或重新上传视频后再试。",
       );
       if (options.persistCache !== false) {
         setCachedRenderMeta(resolvedMeta);
@@ -261,10 +303,6 @@ export function useExportStepController({
         const config = await loadRenderConfigWithMeta(sourceFile, previewMeta, {
           timeoutMs: {config: RENDER_CONFIG_TIMEOUT_MS},
         });
-        if (config.input_props.sourceKind === "cut-proxy") {
-          const proxyFile = await downloadRenderSourceVideo(jobId);
-          setRenderSourceFile(proxyFile);
-        }
         return applyRenderPreviewConfig(config);
       } catch (err) {
         setRenderConfig(null);
@@ -277,7 +315,7 @@ export function useExportStepController({
         setRenderConfigBusy(false);
       }
     },
-    [applyRenderPreviewConfig, downloadRenderSourceVideo, jobId, loadRenderConfigWithMeta, resolveSourceRenderMeta],
+    [applyRenderPreviewConfig, loadRenderConfigWithMeta, resolveSourceRenderMeta],
   );
 
   const prepareRenderPreview = useCallback(async (): Promise<WebRenderConfig | null> => {
@@ -289,24 +327,12 @@ export function useExportStepController({
       if (!selectedFile) {
         const config = await getWebRenderConfig(jobId);
         applyRenderPreviewConfig(config);
-        if (config.input_props.sourceKind === "cut-proxy") {
-          const sourceFile = await downloadRenderSourceVideo(jobId);
-          setRenderSourceFile(sourceFile);
-          const meta = await resolveSourceRenderMeta(sourceFile, null, {persistCache: false});
-          const previewMeta = buildPreviewRenderMeta(meta);
-          setRenderPreviewProfile({
-            width: previewMeta.width,
-            height: previewMeta.height,
-            fps: previewMeta.fps,
-            isReduced: isPreviewRenderMetaReduced(meta, previewMeta),
-          });
-        }
         return config;
       }
 
       const {sourceFile, renderMeta} = await loadRenderSourceAsset();
       if (!sourceFile) {
-        throw new Error("当前会话缺少本地原始视频，请先重新选择当前任务对应的源文件。");
+        throw new Error(MISSING_RENDER_SOURCE_MESSAGE);
       }
       return await prepareRenderPreviewForFile(sourceFile, renderMeta);
     } catch (err) {
@@ -319,13 +345,11 @@ export function useExportStepController({
     }
   }, [
     applyRenderPreviewConfig,
-    downloadRenderSourceVideo,
     getWebRenderConfig,
     jobId,
     loadRenderSourceAsset,
     prepareRenderPreviewForFile,
     renderBusy,
-    resolveSourceRenderMeta,
     selectedFile,
   ]);
 
@@ -346,7 +370,6 @@ export function useExportStepController({
     setRenderConfig(null);
     setRenderPreviewProfile(null);
     setRenderConfigBusy(false);
-    setRenderSourceFile(null);
     setRenderSetupError("");
     setRenderCompletionMarkerMessage("");
     setPreviewTimeSec(0);
@@ -367,8 +390,7 @@ export function useExportStepController({
       return null;
     });
     setSubtitleFileName("output.txt");
-    setSubtitleTheme("white");
-    setOverlayControls({...DEFAULT_OVERLAY_CONTROLS});
+    // Do NOT reset subtitleTheme/overlayControls here so user preferences survive job switches
     setSelectedFile(null);
   }, [jobId, setSelectedFile]);
 
@@ -388,38 +410,7 @@ export function useExportStepController({
     };
   }, [jobId, setSelectedFile]);
 
-  const handleSourceFileChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const input = event.currentTarget;
-      const file = input.files?.[0];
-      input.value = "";
-      if (!file) {
-        return;
-      }
 
-      const lowerName = file.name.toLowerCase();
-      const hasSupportedExt = SUPPORTED_UPLOAD_EXTENSIONS.some((ext) =>
-        lowerName.endsWith(ext),
-      );
-      if (!hasSupportedExt) {
-        setRenderSetupError(
-          "这个文件格式暂不支持。请上传 MP4、MOV、MKV、WebM、M4V、TS、M2TS 或 MTS 视频。",
-        );
-        return;
-      }
-
-      setSelectedFile(file);
-      setCachedRenderMeta(null);
-      setRenderSetupError("");
-      setRenderCompletionMarkerMessage("");
-      if (selectedFile?.name !== file.name || selectedFile?.size !== file.size) {
-        setRenderFileName("output.mp4");
-      }
-      void saveCachedJobSourceVideo(jobId, file).catch(() => undefined);
-      void prepareRenderPreviewForFile(file, null);
-    },
-    [jobId, prepareRenderPreviewForFile, selectedFile, setSelectedFile],
-  );
 
   useEffect(() => {
     if (!job) {
@@ -503,7 +494,7 @@ export function useExportStepController({
 
   const handleStartRender = useCallback(async () => {
     setError("");
-    setRenderNote("");
+    setRenderNote("正在准备导出…");
     setRenderSetupError("");
     setRenderBusy(true);
     setRenderProgress(0);
@@ -515,41 +506,32 @@ export function useExportStepController({
         renderMeta: initialRenderMeta,
       } = await loadRenderSourceAsset();
       if (!initialSourceFile) {
-        throw new Error("当前会话缺少本地原始视频，请先选择对应的源文件后再导出。");
+        throw new Error(MISSING_RENDER_SOURCE_MESSAGE);
       }
 
       const sourceFile = initialSourceFile;
-      const config =
-        renderConfig?.input_props.sourceKind === "cut-proxy"
-          ? renderConfig ?? (await getWebRenderConfig(jobId))
-          : null;
       const sourceMeta = await resolveSourceRenderMeta(
         sourceFile,
         initialRenderMeta,
-        {persistCache: config?.input_props.sourceKind !== "cut-proxy"},
       );
-      const resolvedConfig =
-        config ?? (await loadRenderConfigWithMeta(sourceFile, sourceMeta));
+      const resolvedConfig = await loadRenderConfigWithMeta(sourceFile, sourceMeta);
 
-      if (resolvedConfig.input_props.sourceKind !== "cut-proxy") {
-        const compatibility =
-          await inspectRenderSourceCompatibility(initialSourceFile);
-        setRenderSourceCompatibility(compatibility);
-        const compatibilityError = getRenderSourceDirectExportErrorMessage(
-          compatibility,
-        );
-        if (compatibilityError) {
-          throw new Error(compatibilityError);
-        }
+      const compatibility =
+        await inspectRenderSourceCompatibility(initialSourceFile);
+      setRenderSourceCompatibility(compatibility);
+      const compatibilityError = getRenderSourceDirectExportErrorMessage(
+        compatibility,
+      );
+      if (compatibilityError) {
+        throw new Error(compatibilityError);
       }
 
-      sourceObjectUrl =
-        resolvedConfig.input_props.sourceKind === "cut-proxy"
-          ? null
-          : URL.createObjectURL(sourceFile);
+      setRenderNote("正在检测浏览器编码能力…");
+
+      sourceObjectUrl = URL.createObjectURL(sourceFile);
       const inputProps = {
         ...resolvedConfig.input_props,
-        src: sourceObjectUrl || resolvedConfig.input_props.src,
+        src: sourceObjectUrl,
         subtitleTheme,
         subtitleScale: overlayControls.subtitleScale,
         subtitleYPercent: overlayControls.subtitleYPercent,
@@ -557,6 +539,7 @@ export function useExportStepController({
         progressYPercent: overlayControls.progressYPercent,
         chapterScale: overlayControls.chapterScale,
         showSubtitles: overlayControls.showSubtitles,
+        showHighlights: overlayControls.showHighlights,
         showProgress: overlayControls.showProgress,
         showChapter: overlayControls.showChapter,
         progressLabelMode: overlayControls.progressLabelMode,
@@ -652,6 +635,8 @@ export function useExportStepController({
         );
       }
 
+      setRenderNote("正在渲染视频…");
+
       const renderOptions: Parameters<typeof renderMediaOnWeb>[0] = {
         composition: composition as Parameters<typeof renderMediaOnWeb>[0]["composition"],
         inputProps,
@@ -670,9 +655,17 @@ export function useExportStepController({
             Number.isFinite(progress.encodedFrames)
               ? progress.encodedFrames
               : progress.renderedFrames;
-          setRenderProgress((previous) =>
-            Math.max(previous, clampPercent((doneFrames / totalFrames) * 100)),
-          );
+          const percent = clampPercent((doneFrames / totalFrames) * 100);
+          setRenderProgress((previous) => Math.max(previous, percent));
+          if (percent < 30) {
+            setRenderNote("正在渲染视频…");
+          } else if (percent < 70) {
+            setRenderNote("正在编码画面…");
+          } else if (percent < 95) {
+            setRenderNote("正在封装视频…");
+          } else {
+            setRenderNote("即将完成…");
+          }
         },
       };
 
@@ -691,6 +684,8 @@ export function useExportStepController({
             resolvedAudioBitrate / 1_000,
           )} kbps。`,
         );
+      } else {
+        setRenderNote("导出完成");
       }
       setRenderFileName(outputName);
       const blob = await result.getBlob();
@@ -718,6 +713,7 @@ export function useExportStepController({
       }
     } catch (err) {
       setError(getFriendlyWebRenderErrorMessage(err));
+      setRenderNote("");
     } finally {
       if (sourceObjectUrl) {
         URL.revokeObjectURL(sourceObjectUrl);
@@ -763,6 +759,43 @@ export function useExportStepController({
     }
   }, [applyRenderPreviewConfig, getWebRenderConfig, jobId, renderConfig, setError]);
 
+  const handleReopenEditor = useCallback(async () => {
+    if (
+      renderBusy ||
+      reopenEditorBusy ||
+      job?.status !== STATUS.TEST_CONFIRMED
+    ) {
+      return;
+    }
+    setError("");
+    setRenderSetupError("");
+    setReopenEditorBusy(true);
+    try {
+      const reopenedJob = await reopenTestForEditing(jobId);
+      setRenderConfig(null);
+      setRenderPreviewProfile(null);
+      setRenderDownloadUrl(null);
+      setSubtitleDownloadUrl(null);
+      setRenderNote("");
+      setJob(reopenedJob);
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError && err.status === 404
+          ? REOPEN_ROUTE_NOT_READY_MESSAGE
+          : getFriendlyError(err);
+      setError(message || "返回编辑步骤失败，请重试。");
+    } finally {
+      setReopenEditorBusy(false);
+    }
+  }, [
+    job?.status,
+    jobId,
+    reopenEditorBusy,
+    renderBusy,
+    setError,
+    setJob,
+  ]);
+
   useEffect(() => {
     if (renderBusy) {
       return;
@@ -770,24 +803,52 @@ export function useExportStepController({
     setRenderProgress(0);
   }, [overlayControls, renderBusy, subtitleTheme]);
 
-  const effectiveRenderSourceFile = renderSourceFile ?? selectedFile;
-  const hasRenderSource = Boolean(effectiveRenderSourceFile || renderConfig?.input_props.sourceKind === "cut-proxy");
+  const effectiveRenderSourceFile = selectedFile;
+  const hasRenderSource = Boolean(effectiveRenderSourceFile);
+  const canReopenEditor = job?.status === STATUS.TEST_CONFIRMED;
   const renderActionBusy = renderBusy;
-  const canStartRender =
-    hasRenderSource &&
-    !busy &&
-    !renderActionBusy &&
-    (renderConfig?.input_props.sourceKind === "cut-proxy" ||
-      (renderSourceCompatibility.status !== "checking" &&
-        renderSourceCompatibility.status !== "blocked"));
+  const renderDisabledReason = (() => {
+    if (renderConfigBusy) return "正在生成预览配置，请稍等。";
+    if (!hasRenderSource) return MISSING_RENDER_SOURCE_MESSAGE;
+    if (busy) return "当前步骤仍在处理中，完成后才能导出。";
+    if (renderActionBusy) return "视频正在导出，请保持页面开启。";
+    if (renderSourceCompatibility.status === "checking") {
+      return "正在检测原始视频是否可直接导出。";
+    }
+    if (
+      renderSourceCompatibility.status === "blocked" ||
+      renderSourceCompatibility.status === "incompatible"
+    ) {
+      return renderSourceCompatibility.message || "当前原始视频暂不能直接导出。";
+    }
+    return "";
+  })();
+  const canStartRender = !renderDisabledReason;
   const renderPrimaryButtonLabel = "导出视频";
+
+  // Estimate output file size (very rough)
+  const estimatedFileSize = (() => {
+    if (!renderConfig || !cachedRenderMeta) return null;
+    const duration = getRenderConfigTotalDuration(renderConfig);
+    if (!duration || !Number.isFinite(duration)) return null;
+    // rough estimate: 4 Mbps default for h264 1080p
+    const estBitrate = 4_000_000;
+    const bytes = (duration * estBitrate) / 8;
+    if (bytes < 1024 * 1024) {
+      return `${Math.round(bytes / 1024)} KB`;
+    }
+    return `${Math.round(bytes / (1024 * 1024))} MB`;
+  })();
 
   return {
     state: {
       canStartRender,
+      canReopenEditor,
+      estimatedFileSize,
       hasRenderSource,
       overlayControls,
       previewTimeSec,
+      reopenEditorBusy,
       progressLabelModeOptions: PROGRESS_LABEL_MODE_OPTIONS,
       renderActionBusy,
       renderBusy,
@@ -796,6 +857,7 @@ export function useExportStepController({
       renderConfigBusy,
       renderDownloadUrl,
       renderFileName,
+      renderDisabledReason,
       renderNote,
       renderPreviewProfile,
       renderPrimaryButtonLabel,
@@ -803,20 +865,21 @@ export function useExportStepController({
       renderSetupError,
       renderSourceCompatibility,
       renderSourceFile: effectiveRenderSourceFile,
+      renderSourceMeta: cachedRenderMeta,
       selectedFile,
       subtitleDownloadUrl,
       subtitleExportBusy,
       subtitleFileName,
-      supportedUploadAccept: SUPPORTED_UPLOAD_EXTENSIONS.join(","),
       subtitleTheme,
       subtitleThemeOptions: SUBTITLE_THEME_OPTIONS,
     },
     actions: {
       clearRenderMessage: () => setRenderCompletionMarkerMessage(""),
       handleExportSubtitles,
-      handleSourceFileChange,
+      handleReopenEditor,
       handleStartRender,
       prepareRenderPreview,
+      resetOverlayControls: () => setOverlayControls({...DEFAULT_OVERLAY_CONTROLS}),
       setOverlayControls,
       setSelectedFile,
       setSubtitleTheme,

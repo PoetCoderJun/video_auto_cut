@@ -1,8 +1,10 @@
+import { transcodeSourceVideoToBrowserCompatibleMp4 as transcodeSourceVideoOnServer } from "./api.ts";
 import { isUnsupportedLocalVideoBrowser } from "./device.ts";
 import {
   inspectRenderSourceCompatibility,
   type RenderSourceCompatibility,
 } from "./video-render-compatibility.ts";
+import { transcodeVideoToBrowserCompatibleMp4 } from "./video-transcode.ts";
 
 export type UploadSourcePreflightErrorCode =
   | "BROWSER_UNSUPPORTED"
@@ -29,7 +31,7 @@ export class UploadSourcePreflightError extends Error {
   }
 }
 
-export type UploadSourcePreflightStage = "checking";
+export type UploadSourcePreflightStage = "checking" | "transcoding";
 
 export type PrepareUploadSourceFileOptions = {
   onStageChange?: (
@@ -40,7 +42,7 @@ export type PrepareUploadSourceFileOptions = {
 
 export type PreparedUploadSourceFile = {
   file: File;
-  transcoded: false;
+  transcoded: boolean;
   originalCompatibility: RenderSourceCompatibility;
   finalCompatibility: RenderSourceCompatibility;
 };
@@ -86,9 +88,35 @@ export async function prepareUploadSourceFile(
   const originalCompatibility = await inspectRenderSourceCompatibility(sourceFile);
   options.onStageChange?.(null, originalCompatibility);
 
-  const preflightError = getUploadSourcePreflightError(originalCompatibility);
-  if (preflightError) {
-    throw preflightError;
+  if (originalCompatibility.status === "blocked") {
+    const preflightError = getUploadSourcePreflightError(originalCompatibility);
+    if (preflightError) {
+      throw preflightError;
+    }
+  }
+
+  if (originalCompatibility.status === "incompatible") {
+    options.onStageChange?.("transcoding", originalCompatibility);
+    let transcodedFile: File;
+    try {
+      transcodedFile = await transcodeSourceVideoOnServer(sourceFile);
+    } catch {
+      transcodedFile = await transcodeVideoToBrowserCompatibleMp4(sourceFile);
+    }
+    const finalCompatibility = await inspectRenderSourceCompatibility(transcodedFile);
+    options.onStageChange?.(null, finalCompatibility);
+
+    const finalError = getUploadSourcePreflightError(finalCompatibility);
+    if (finalError) {
+      throw finalError;
+    }
+
+    return {
+      file: transcodedFile,
+      transcoded: true,
+      originalCompatibility,
+      finalCompatibility,
+    };
   }
 
   return {

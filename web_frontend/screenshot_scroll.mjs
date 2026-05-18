@@ -1,0 +1,12 @@
+const { chromium } = await import('playwright');
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+await page.goto('http://localhost:3000');
+await page.waitForTimeout(2000);
+await page.evaluate(() => window.scrollTo(0, 700));
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/homepage-scroll1.png' });
+await page.evaluate(() => window.scrollTo(0, 1300));
+await page.waitForTimeout(500);
+await page.screenshot({ path: '/tmp/homepage-scroll2.png' });
+await browser.close();

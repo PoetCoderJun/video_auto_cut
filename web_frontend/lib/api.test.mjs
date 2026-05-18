@@ -9,6 +9,7 @@ import {
   createJob,
   getRenderCompletionPending,
   invalidateTokenCache,
+  saveSourceVideoMetadata,
   setApiAuthTokenProvider,
   setRenderCompletionPending,
   uploadAudio,
@@ -198,6 +199,66 @@ test("uploadAudio uses frontend direct OSS upload flow", async () => {
     assert.match(calls[2].url, /\/jobs\/job-1\/audio-oss-ready$/);
     assert.deepEqual(JSON.parse(String(calls[2].init?.body)), {
       object_key: "video-auto-cut/asr/job-1/audio.mp3",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    setApiAuthTokenProvider(null);
+    invalidateTokenCache();
+  }
+});
+
+test("saveSourceVideoMetadata posts dimensions without source video body", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+
+  setApiAuthTokenProvider(async () => "test-token");
+  invalidateTokenCache();
+
+  globalThis.fetch = async (url, init) => {
+    calls.push({url: String(url), init});
+    return new Response(
+      JSON.stringify({
+        request_id: "req-source-meta",
+        data: {
+          job: {
+            job_id: "job-1",
+            status: "CREATED",
+            progress: 0,
+            stage: null,
+            error: null,
+          },
+        },
+      }),
+      {
+        status: 200,
+        headers: {"Content-Type": "application/json"},
+      }
+    );
+  };
+
+  try {
+    const sourceFile = new File([new Uint8Array([1, 2, 3])], "source.mov", {
+      type: "video/quicktime",
+    });
+
+    const job = await saveSourceVideoMetadata(
+      "job-1",
+      {width: 1080, height: 1920, fps: 30, duration_sec: 12.5},
+      sourceFile,
+    );
+
+    assert.equal(job.job_id, "job-1");
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/jobs\/job-1\/source-metadata$/);
+    assert.equal(new Headers(calls[0].init?.headers).get("Authorization"), "Bearer test-token");
+    assert.deepEqual(JSON.parse(String(calls[0].init?.body)), {
+      width: 1080,
+      height: 1920,
+      fps: 30,
+      duration_sec: 12.5,
+      file_name: "source.mov",
+      file_type: "video/quicktime",
+      file_size_bytes: 3,
     });
   } finally {
     globalThis.fetch = originalFetch;
@@ -406,7 +467,7 @@ test("createJob waits briefly for auth token initialization before failing", asy
   }
 });
 
-test("createJob uses stored guest token when login token is unavailable", async () => {
+test("createJob requires a login token during limited-time free period", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const restoreWindow = withMockWindowStorage();
@@ -439,43 +500,18 @@ test("createJob uses stored guest token when login token is unavailable", async 
       );
     }
 
-    if (calls.length === 2) {
-      return new Response(
-        JSON.stringify({
-          request_id: "req-guest-job",
-          data: {
-            job: {
-              job_id: "job-guest-1",
-              status: "CREATED",
-              progress: 0,
-              stage: null,
-              error: null,
-            },
-          },
-        }),
-        {
-          status: 200,
-          headers: {"Content-Type": "application/json"},
-        }
-      );
-    }
-
     throw new Error(`unexpected fetch call ${calls.length}`);
   };
 
   try {
     await claimGuestSession("device-fingerprint-test");
-    const job = await createJob();
-
-    assert.equal(job.job_id, "job-guest-1");
-    assert.equal(calls.length, 2);
-    assert.match(calls[0].url, /\/public\/guest\/session$/);
-    assert.match(calls[1].url, /\/jobs$/);
-    assert.equal(new Headers(calls[1].init?.headers).get("Authorization"), null);
-    assert.equal(
-      new Headers(calls[1].init?.headers).get("X-Guest-Token"),
-      "guest-token-1"
+    await assert.rejects(
+      () => createJob(),
+      /当前限时免费需要先登录账号/
     );
+
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/public\/guest\/session$/);
   } finally {
     globalThis.fetch = originalFetch;
     clearGuestSessionToken();

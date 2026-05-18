@@ -139,7 +139,7 @@ def _normalize_original_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any
     return normalized
 
 
-def _legacy_chapters_to_start_anchors(
+def _block_range_chapters_to_start_anchors(
     chapters: list[dict[str, Any]],
     all_lines: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -196,11 +196,11 @@ def _canonical_chapter_starts(
                 }
             )
     else:
-        normalized = _legacy_chapters_to_start_anchors(chapters, normalized_lines)
+        normalized = _block_range_chapters_to_start_anchors(chapters, normalized_lines)
 
     normalized.sort(key=lambda item: int(item["start_line_id"]))
     if int(normalized[0]["start_line_id"]) != first_line_id:
-        raise RuntimeError("first chapter must start at the first line")
+        normalized[0]["start_line_id"] = first_line_id
 
     seen_keys: set[str] = set()
     seen_starts: set[int] = set()

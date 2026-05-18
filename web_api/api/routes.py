@@ -21,7 +21,6 @@ from ..constants import (
     TEST_GET_ALLOWED_STATUSES,
 )
 from ..config import get_settings
-from ..db_repository import get_guest_session, set_guest_session_job
 from ..errors import (
     bad_request,
     coupon_code_exhausted,
@@ -29,8 +28,6 @@ from ..errors import (
     coupon_code_invalid,
     forbidden,
     invalid_step_state,
-    invite_claim_exhausted,
-    invite_claim_failed,
     service_unavailable,
 )
 from ..job_file_repository import (
@@ -44,6 +41,7 @@ from ..schemas import (
     ClientUploadIssueReportRequest,
     CouponRedeemRequest,
     CreateJobRequest,
+    SourceMetadataRequest,
     TestConfirmRequest,
     GuestSessionClaimRequest,
 )
@@ -56,12 +54,8 @@ from ..services.account import (
     CouponCodeInvalidError,
     GuestSessionIneligibleError,
     GuestSessionUnavailableError,
-    InviteClaimExhaustedError,
-    InviteClaimFailedError,
     UserActivationRequiredError,
-    check_coupon_for_signup,
     claim_guest_session_for_request,
-    claim_public_invite_for_ip,
     ensure_active_user,
     get_user_profile,
     redeem_coupon_for_user,
@@ -75,11 +69,13 @@ from ..services.jobs import (
     require_status,
     save_local_uploaded_audio,
     save_local_uploaded_video,
+    save_source_video_metadata,
 )
 from ..services.oss_presign import get_presigned_put_url_for_job
 from ..services.test_runner import run_test_job_background
-from ..services.test import confirm_test, get_test_document
+from ..services.test import confirm_test, get_test_document, reopen_test_for_editing
 from ..services.source_transcode import transcode_source_video_to_browser_compatible_mp4
+from video_auto_cut.shared.log_context import get_request_id, set_job_id
 from ..utils.common import new_request_id
 
 router = APIRouter()
@@ -94,7 +90,7 @@ def _browser_compatible_output_name(file_name: str) -> str:
     return f"{stem}_browser_compatible.mp4"
 
 def _ok(data: dict[str, Any]) -> dict[str, Any]:
-    return {"request_id": new_request_id(), "data": data}
+    return {"request_id": get_request_id() or new_request_id(), "data": data}
 
 
 def _build_render_config(*args: Any, **kwargs: Any) -> Any:
@@ -162,17 +158,13 @@ def _resolve_client_ip(request: Request) -> str:
 
 def _translate_account_error(exc: AccountServiceError):
     if isinstance(exc, UserActivationRequiredError):
-        return forbidden("账号尚未完成邀请码激活，请先激活后再继续")
+        return forbidden("账号暂不可用，请登录后重试")
     if isinstance(exc, CouponCodeExpiredError):
         return coupon_code_expired("兑换码已过期，请联系管理员获取新码")
     if isinstance(exc, CouponCodeExhaustedError):
         return coupon_code_exhausted("兑换码已用完，请联系管理员获取新码")
     if isinstance(exc, CouponCodeInvalidError):
         return coupon_code_invalid("兑换码无效，请检查后重试")
-    if isinstance(exc, InviteClaimExhaustedError):
-        return invite_claim_exhausted("邀请码领取名额已满，请稍后再来看看")
-    if isinstance(exc, InviteClaimFailedError):
-        return invite_claim_failed("邀请码发放失败，请稍后再试")
     if isinstance(exc, ClientIpUnavailableError):
         return bad_request("暂时无法识别你的访问来源，请稍后重试")
     raise exc
@@ -180,7 +172,7 @@ def _translate_account_error(exc: AccountServiceError):
 
 def _translate_guest_session_error(exc: AccountServiceError):
     if isinstance(exc, GuestSessionIneligibleError):
-        return forbidden("当前设备已使用过免登录免费剪辑，请登录并兑换邀请码后继续")
+        return forbidden("当前设备已使用过免登录免费剪辑，请登录并兑换码后继续")
     if isinstance(exc, GuestSessionUnavailableError):
         return service_unavailable("暂时无法开启免登录体验，请稍后重试")
     if isinstance(exc, ClientIpUnavailableError):
@@ -188,25 +180,15 @@ def _translate_guest_session_error(exc: AccountServiceError):
     raise exc
 
 
-def _translate_signup_coupon_error(exc: AccountServiceError):
-    if isinstance(exc, CouponCodeExpiredError):
-        return coupon_code_expired("邀请码已过期，请联系管理员获取新码")
-    if isinstance(exc, CouponCodeExhaustedError):
-        return coupon_code_exhausted("邀请码已被使用，请联系管理员获取新码")
-    if isinstance(exc, CouponCodeInvalidError):
-        return coupon_code_invalid("邀请码无效，请检查后重试")
-    raise exc
-
-
 def _translate_billing_error(exc: BillingServiceError):
     if isinstance(exc, InsufficientCreditsError):
-        return invalid_step_state("额度不足，请先兑换邀请码后重试")
+        return invalid_step_state("额度不足，请先兑换码后重试")
     raise exc
 
 
 def _ensure_actor_can_use_job_routes(actor: RequestActor) -> None:
     if actor.kind != "user":
-        return
+        raise forbidden("当前限时免费需要登录账号后使用")
     try:
         ensure_active_user(actor.actor_id, actor.email)
     except AccountServiceError as exc:
@@ -230,24 +212,11 @@ def create_job_endpoint(
     request: CreateJobRequest = Body(default_factory=CreateJobRequest),
     actor: RequestActor = Depends(require_request_actor),
 ) -> dict[str, Any]:
-    if actor.kind == "guest" and actor.guest_id:
-        guest_session = get_guest_session(actor.guest_id)
-        remaining = int((guest_session or {}).get("free_uses_remaining") or 0)
-        status = str((guest_session or {}).get("status") or "ACTIVE").upper()
-        if remaining < 1 or status != "ACTIVE":
-            raise invalid_step_state("当前设备已使用过免登录免费剪辑，请登录并兑换邀请码后继续")
-        existing_job_id = str((guest_session or {}).get("job_id") or "").strip()
-        if existing_job_id:
-            existing_job = get_job(existing_job_id, owner_user_id=actor.actor_id)
-            if existing_job and existing_job.get("status") != "FAILED":
-                return _ok({"job": existing_job})
-
+    _ensure_actor_can_use_job_routes(actor)
     job_id = f"job_{uuid.uuid4().hex[:12]}"
     job = create_job(job_id, JOB_STATUS_CREATED, actor.actor_id, script=request.script)
-    if actor.kind == "guest" and actor.guest_id:
-        set_guest_session_job(actor.guest_id, job_id)
     logging.info(
-        "[web_api] route=create_job actor=%s kind=%s job=%s script_present=%s",
+        "route=create_job actor=%s kind=%s job=%s script_present=%s",
         actor.actor_id,
         actor.kind,
         job.get("job_id"),
@@ -269,7 +238,7 @@ def report_client_upload_issue_endpoint(
     actor: RequestActor = Depends(require_request_actor),
 ) -> dict[str, Any]:
     logging.warning(
-        "[web_api] client upload issue actor=%s kind=%s stage=%s page=%s file=%s size=%s type=%s error_name=%s error=%s friendly=%s client=%s ua=%s",
+        "client upload issue actor=%s kind=%s stage=%s page=%s file=%s size=%s type=%s error_name=%s error=%s friendly=%s client=%s ua=%s",
         actor.actor_id,
         actor.kind,
         payload.stage,
@@ -297,24 +266,6 @@ def redeem_coupon_endpoint(
         raise _translate_account_error(exc) from exc
     profile = get_user_profile(current_user.user_id, current_user.email)
     return _ok({"coupon": result, "user": profile})
-
-
-@router.post("/public/coupons/verify")
-def verify_coupon_endpoint(request: CouponRedeemRequest) -> dict[str, Any]:
-    try:
-        result = check_coupon_for_signup(request.code)
-    except AccountServiceError as exc:
-        raise _translate_signup_coupon_error(exc) from exc
-    return _ok({"coupon": result})
-
-
-@router.post("/public/invites/claim")
-def claim_public_invite_endpoint(request: Request) -> dict[str, Any]:
-    try:
-        result = claim_public_invite_for_ip(_resolve_client_ip(request))
-    except AccountServiceError as exc:
-        raise _translate_account_error(exc) from exc
-    return _ok({"invite": result})
 
 
 @router.post("/public/guest/session")
@@ -369,6 +320,7 @@ def source_browser_compatible(
 def get_job_endpoint(
     job_id: str, actor: RequestActor = Depends(require_request_actor)
 ) -> dict[str, Any]:
+    _ensure_actor_can_use_job_routes(actor)
     job = load_job_or_404(job_id, actor.actor_id)
     return _ok({"job": job})
 
@@ -412,7 +364,7 @@ def audio_oss_ready(
     result = mark_audio_oss_ready(job_id, request.object_key)
     job = load_job_or_404(job_id, actor.actor_id)
     logging.info(
-        "[web_api] route=audio_oss_ready actor=%s kind=%s job=%s object_key=%s",
+        "route=audio_oss_ready actor=%s kind=%s job=%s object_key=%s",
         actor.actor_id,
         actor.kind,
         job_id,
@@ -438,7 +390,7 @@ def audio_upload_local(
 
     job = load_job_or_404(job_id, actor.actor_id)
     logging.info(
-        "[web_api] route=audio_upload_local actor=%s kind=%s job=%s audio_path=%s",
+        "route=audio_upload_local actor=%s kind=%s job=%s audio_path=%s",
         actor.actor_id,
         actor.kind,
         job_id,
@@ -464,13 +416,45 @@ def source_upload_local(
 
     job = load_job_or_404(job_id, actor.actor_id)
     logging.info(
-        "[web_api] route=source_upload_local actor=%s kind=%s job=%s video_path=%s",
+        "route=source_upload_local actor=%s kind=%s job=%s video_path=%s",
         actor.actor_id,
         actor.kind,
         job_id,
         result.get("video_path"),
     )
     return _ok({"job": job, "upload": result})
+
+
+@router.post("/jobs/{job_id}/source-metadata")
+def source_metadata(
+    job_id: str,
+    payload: SourceMetadataRequest,
+    actor: RequestActor = Depends(require_request_actor),
+) -> dict[str, Any]:
+    _ensure_actor_can_use_job_routes(actor)
+    job = load_job_or_404(job_id, actor.actor_id)
+    require_status(job, {JOB_STATUS_CREATED, JOB_STATUS_UPLOAD_READY})
+
+    result = save_source_video_metadata(
+        job_id,
+        width=payload.width,
+        height=payload.height,
+        fps=payload.fps,
+        duration_sec=payload.duration_sec,
+        file_name=payload.file_name,
+        file_type=payload.file_type,
+        file_size_bytes=payload.file_size_bytes,
+    )
+    job = load_job_or_404(job_id, actor.actor_id)
+    logging.info(
+        "route=source_metadata actor=%s kind=%s job=%s width=%s height=%s",
+        actor.actor_id,
+        actor.kind,
+        job_id,
+        result.get("source_width"),
+        result.get("source_height"),
+    )
+    return _ok({"job": job, "source": result})
 
 
 @router.post("/jobs/{job_id}/test/run")
@@ -486,7 +470,7 @@ def test_run(
         raise _translate_billing_error(exc) from exc
     background_tasks.add_task(run_test_job_background, job_id)
     logging.info(
-        "[web_api] route=test_run actor=%s kind=%s job=%s mode=background-task",
+        "route=test_run actor=%s kind=%s job=%s mode=background-task",
         actor.actor_id,
         actor.kind,
         job_id,
@@ -496,11 +480,12 @@ def test_run(
 
 @router.get("/jobs/{job_id}/test")
 def test_get(job_id: str, actor: RequestActor = Depends(require_request_actor)) -> dict[str, Any]:
+    _ensure_actor_can_use_job_routes(actor)
     job = load_job_or_404(job_id, actor.actor_id)
     require_status(job, TEST_GET_ALLOWED_STATUSES)
     document = get_test_document(job_id)
     logging.debug(
-        "[web_api] route=test_get actor=%s kind=%s job=%s line_count=%s chapter_count=%s",
+        "route=test_get actor=%s kind=%s job=%s line_count=%s chapter_count=%s",
         actor.actor_id,
         actor.kind,
         job_id,
@@ -514,6 +499,7 @@ def test_get(job_id: str, actor: RequestActor = Depends(require_request_actor)) 
 def test_confirm(
     job_id: str, request: TestConfirmRequest, actor: RequestActor = Depends(require_request_actor)
 ) -> dict[str, Any]:
+    _ensure_actor_can_use_job_routes(actor)
     job = load_job_or_404(job_id, actor.actor_id)
     require_status(job, {JOB_STATUS_TEST_READY})
     lines = [item.model_dump() for item in request.lines]
@@ -533,7 +519,7 @@ def test_confirm(
         raise invalid_step_state(str(exc)) from exc
     job = load_job_or_404(job_id, actor.actor_id)
     logging.info(
-        "[web_api] route=test_confirm actor=%s kind=%s job=%s line_count=%s chapter_count=%s",
+        "route=test_confirm actor=%s kind=%s job=%s line_count=%s chapter_count=%s",
         actor.actor_id,
         actor.kind,
         job_id,
@@ -541,6 +527,29 @@ def test_confirm(
         len(chapters),
     )
     return _ok({"confirmed": True, "status": job["status"], "document_revision": confirmed["document_revision"]})
+
+
+@router.post("/jobs/{job_id}/test/reopen")
+def test_reopen_for_editing(
+    job_id: str, actor: RequestActor = Depends(require_request_actor)
+) -> dict[str, Any]:
+    _ensure_actor_can_use_job_routes(actor)
+    job = load_job_or_404(job_id, actor.actor_id)
+    require_status(job, {JOB_STATUS_TEST_CONFIRMED})
+    try:
+        document = reopen_test_for_editing(job_id)
+    except RuntimeError as exc:
+        raise invalid_step_state(str(exc)) from exc
+    job = load_job_or_404(job_id, actor.actor_id)
+    logging.info(
+        "route=test_reopen actor=%s kind=%s job=%s line_count=%s chapter_count=%s",
+        actor.actor_id,
+        actor.kind,
+        job_id,
+        len(document["lines"]),
+        len(document["chapters"]),
+    )
+    return _ok({"reopened": True, "job": job, "document_revision": document["document_revision"]})
 
 
 @router.get("/jobs/{job_id}/render/config")
@@ -553,6 +562,7 @@ def render_config(
     current_user: RequestActor | CurrentUser = Depends(require_request_actor),
 ) -> dict[str, Any]:
     actor = _coerce_actor(current_user)
+    _ensure_actor_can_use_job_routes(actor)
     job = load_job_or_404(job_id, actor.actor_id)
     require_status(job, RENDER_GET_ALLOWED_STATUSES)
     try:

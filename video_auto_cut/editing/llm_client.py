@@ -162,8 +162,10 @@ def chat_completion(cfg: Dict[str, Any], messages: List[Dict[str, str]]) -> str:
             extra_body["thinking"] = {"type": "enabled"}
         elif cfg.get("enable_thinking") is False:
             extra_body["thinking"] = {"type": "disabled"}
-    elif cfg.get("enable_thinking"):
+    elif cfg.get("enable_thinking") is True:
         extra_body["enable_thinking"] = True
+    elif cfg.get("enable_thinking") is False:
+        extra_body["enable_thinking"] = False
     if extra_body:
         request_kwargs["extra_body"] = extra_body
     max_tokens = cfg.get("max_tokens")

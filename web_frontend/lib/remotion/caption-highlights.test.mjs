@@ -24,7 +24,9 @@ test("plain highlight ranges still render as highlighted chunks without explicit
   assert.equal(chunks.length, 2);
   assert.equal(chunks[0].text, "重点");
   assert.equal(chunks[0].isHighlighted, true);
-  assert.ok((getCaptionChunkFontScale(chunks[0]) ?? 1) > 1.2);
+  const highlightScale = getCaptionChunkFontScale(chunks[0]) ?? 1;
+  assert.ok(highlightScale >= 1.16);
+  assert.ok(highlightScale <= 1.3);
   assert.equal(chunks[1].text, "词");
   assert.equal(chunks[1].isHighlighted, false);
 });

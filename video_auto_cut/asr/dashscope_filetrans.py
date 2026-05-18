@@ -69,20 +69,20 @@ class DashScopeFiletransClient:
         prompt: str,
     ) -> FiletransSubmitResponse:
         language = self._resolve_language(lang)
-        legacy_language_hints = self._build_legacy_language_hints(lang)
+        language_hints = self._build_language_hints(lang)
         text = (prompt or self._config.text or "").strip()
         payload = self._build_submit_payload(
             file_url=file_url,
             language=language,
-            legacy_language_hints=legacy_language_hints,
+            language_hints=language_hints,
             text=text,
             use_file_urls=False,
         )
         logging.info(
-            "[asr] dashscope submit start model=%s file_url_prefix=%s language=%s channel_ids=%s",
+            "dashscope submit start model=%s file_url_prefix=%s language=%s channel_ids=%s",
             self._config.model,
             str(file_url)[:80],
-            language or legacy_language_hints,
+            language or language_hints,
             self._config.channel_ids,
         )
         try:
@@ -98,7 +98,7 @@ class DashScopeFiletransClient:
             fallback_payload = self._build_submit_payload(
                 file_url=file_url,
                 language=language,
-                legacy_language_hints=legacy_language_hints,
+                language_hints=language_hints,
                 text=text,
                 use_file_urls=True,
             )
@@ -119,7 +119,7 @@ class DashScopeFiletransClient:
         *,
         file_url: str,
         language: str | None,
-        legacy_language_hints: list[str],
+        language_hints: list[str],
         text: str,
         use_file_urls: bool,
     ) -> dict[str, Any]:
@@ -139,9 +139,8 @@ class DashScopeFiletransClient:
             payload["task"] = task
         if language:
             payload["parameters"]["language"] = language
-        elif legacy_language_hints:
-            # Backward compatibility for legacy env names; the documented field is `language`.
-            payload["parameters"]["language_hints"] = legacy_language_hints
+        elif language_hints:
+            payload["parameters"]["language_hints"] = language_hints
         if text:
             payload["parameters"]["text"] = text
         payload["parameters"]["enable_itn"] = bool(self._config.enable_itn)
@@ -153,7 +152,7 @@ class DashScopeFiletransClient:
         return payload
 
     def poll(self, task_id: str) -> FiletransTask:
-        logging.info("[asr] dashscope poll task_id=%s", task_id)
+        logging.info("dashscope poll task_id=%s", task_id)
         data = self._get_json(f"/api/v1/tasks/{task_id}")
         output = data.get("output")
         if not isinstance(output, dict):
@@ -173,10 +172,10 @@ class DashScopeFiletransClient:
         )
 
     def load_result(self, transcription_url: str) -> FiletransResult:
-        logging.info("[asr] dashscope fetch result url=%s", transcription_url)
+        logging.info("dashscope fetch result url=%s", transcription_url)
         payload = self._open_json_url(transcription_url, headers={})
         segments = self._parse_segments(payload)
-        logging.info("[asr] dashscope result parsed segments=%s", len(segments))
+        logging.info("dashscope result parsed segments=%s", len(segments))
         return FiletransResult(task_id="", segments=segments, raw_payload=payload)
 
     def _parse_segments(self, payload: dict[str, Any]) -> list[FiletransSegment]:
@@ -535,13 +534,13 @@ class DashScopeFiletransClient:
         if raw_lang:
             mapped = _map_lang_hint(raw_lang)
             return mapped or raw_lang
-        legacy_hints = [item for item in self._config.language_hints if item]
-        if len(legacy_hints) == 1:
-            mapped = _map_lang_hint(legacy_hints[0])
-            return mapped or legacy_hints[0]
+        language_hints = [item for item in self._config.language_hints if item]
+        if len(language_hints) == 1:
+            mapped = _map_lang_hint(language_hints[0])
+            return mapped or language_hints[0]
         return None
 
-    def _build_legacy_language_hints(self, lang: str | None) -> list[str]:
+    def _build_language_hints(self, lang: str | None) -> list[str]:
         hints = [item for item in self._config.language_hints if item]
         raw_lang = (lang or "").strip()
         if raw_lang:
@@ -569,7 +568,7 @@ class DashScopeFiletransClient:
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
         url = self._resolve(path)
-        logging.info("[asr] dashscope http POST %s bytes=%s", url, len(body))
+        logging.info("dashscope http POST %s bytes=%s", url, len(body))
         return self._request_json(
             url=url,
             method="POST",
@@ -580,7 +579,7 @@ class DashScopeFiletransClient:
 
     def _get_json(self, path: str) -> dict[str, Any]:
         url = self._resolve(path)
-        logging.info("[asr] dashscope http GET %s", url)
+        logging.info("dashscope http GET %s", url)
         return self._request_json(
             url=url,
             method="GET",
@@ -590,7 +589,7 @@ class DashScopeFiletransClient:
         )
 
     def _open_json_url(self, url: str, *, headers: dict[str, str]) -> dict[str, Any]:
-        logging.info("[asr] dashscope open result url=%s", url)
+        logging.info("dashscope open result url=%s", url)
         parsed = urllib.parse.urlparse(url)
         if parsed.scheme.lower() not in {"http", "https"}:
             raise RuntimeError("DashScope transcription result URL is invalid.")
@@ -652,7 +651,7 @@ def _read_error_text(exc: urllib.error.HTTPError) -> str:
 def _sleep_before_retry(stage: str, attempt: int, error: Exception) -> None:
     delay = HTTP_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1))
     logging.warning(
-        "[asr] dashscope %s request failed attempt=%s/%s retry_in=%.1fs error=%s",
+        "dashscope %s request failed attempt=%s/%s retry_in=%.1fs error=%s",
         stage,
         attempt,
         HTTP_REQUEST_MAX_ATTEMPTS,

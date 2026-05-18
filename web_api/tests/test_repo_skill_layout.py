@@ -9,15 +9,22 @@ SKILLS_ROOT = REPO_ROOT / "skills"
 
 
 class RepoSkillLayoutTests(unittest.TestCase):
-    def test_asr_transcribe_skill_is_doc_first_and_script_free(self) -> None:
-        skill_dir = SKILLS_ROOT / "asr-transcribe"
-        self.assertTrue((skill_dir / "SKILL.md").exists())
-        self.assertFalse((skill_dir / "scripts").exists())
+    def test_project_skills_only_keep_direct_prompt_sources(self) -> None:
+        dirs = sorted(path.name for path in SKILLS_ROOT.iterdir() if path.is_dir())
+        self.assertEqual(dirs, ["direct-prompts"])
 
-    def test_asr_transcribe_skill_points_to_module_cli(self) -> None:
-        text = (SKILLS_ROOT / "asr-transcribe" / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("python -m video_auto_cut.asr.transcribe_stage", text)
-        self.assertNotIn("skills/asr-transcribe/scripts/run_asr_transcribe.py", text)
+        prompt_files = sorted(path.name for path in (SKILLS_ROOT / "direct-prompts").glob("*.md"))
+        self.assertEqual(
+            prompt_files,
+            [
+                "chapter.md",
+                "delete-with-reference.md",
+                "delete.md",
+                "highlight.md",
+                "polish-with-reference.md",
+                "polish.md",
+            ],
+        )
 
 
 if __name__ == "__main__":

@@ -112,7 +112,7 @@ const buildInitialOverlayControls = (scenarioId: string): OverlayScaleControls =
 };
 
 const buildInitialSubtitleTheme = (scenarioId: string): SubtitleTheme =>
-  getMockScenarioPreset(scenarioId).defaultSubtitleTheme ?? "black";
+  getMockScenarioPreset(scenarioId).defaultSubtitleTheme ?? "stroke";
 
 const parseLineList = (value: string): string[] =>
   value
@@ -267,7 +267,7 @@ function DevExportPreviewPageInner() {
   const applyScenarioPreset = (scenarioId: string) => {
     const scenario = getMockScenarioPreset(scenarioId);
     setSelectedScenarioId(scenario.id);
-    setSubtitleTheme(scenario.defaultSubtitleTheme ?? "black");
+    setSubtitleTheme(scenario.defaultSubtitleTheme ?? "stroke");
     setOverlayControls(
       scenario.defaultOverlayControls ?? {
         ...DEFAULT_OVERLAY_CONTROLS,
@@ -518,7 +518,7 @@ function DevExportPreviewPageInner() {
               </div>
 
               <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-medium">字幕样式</label>
+                <label className="text-sm font-medium">字幕颜色</label>
                 <Select value={subtitleTheme} onValueChange={(value) => setSubtitleTheme(value as SubtitleTheme)}>
                   <SelectTrigger className="w-[188px]">
                     <SelectValue />

@@ -26,11 +26,9 @@ from .render_typography import (
     remap_topics_to_cut_timeline,
     resolve_dimensions as _resolve_dimensions,
 )
-from .render_source_video import generate_cut_source_video_to_browser_compatible_mp4
 
 _TIMECODE_RE = re.compile(r"^(?P<hh>\d{2}):(?P<mm>\d{2}):(?P<ss>\d{2})\.(?P<ms>\d{3})$")
 _EDITOR_STYLE_CACHE_NAME = "subtitle-style-editor.v1.json"
-_CUT_SOURCE_VIDEO_NAME = "cut_source.browser.mp4"
 
 
 def build_web_render_config(
@@ -124,12 +122,6 @@ def _generate_subtitle_render_v1_contract(
     segments = [item for item in segments if item is not None]
     if not segments:
         raise RuntimeError("render segments missing")
-    render_source_video_path = _ensure_render_source_video_path(
-        job_id,
-        files,
-        dirs=dirs,
-        segments=segments,
-    )
 
     topic_source = chapters if chapters is not None else list_final_test_chapters(job_id)
     topics = [_normalize_topic(item) for item in topic_source]
@@ -137,7 +129,7 @@ def _generate_subtitle_render_v1_contract(
     topics = remap_topics_to_cut_timeline(topics, segments)
     topics.sort(key=lambda item: float(item["start"]))
 
-    subtitle_theme = normalize_render_contract_theme(files.get("subtitle_theme") or "white")
+    subtitle_theme = normalize_render_contract_theme(files.get("subtitle_theme") or "stroke-white")
     style_contract = _build_aligned_style_contract_from_editor_cache(
         captions,
         _load_editor_subtitle_style_cache(dirs["render"]),
@@ -152,9 +144,6 @@ def _generate_subtitle_render_v1_contract(
         style_contract=style_contract,
         llm_config=_build_subtitle_style_llm_config(),
     )
-    if render_source_video_path:
-        generated_contract["src"] = f"/api/v1/jobs/{job_id}/render/source-video"
-        generated_contract["sourceKind"] = "cut-proxy"
     if document_revision:
         generated_contract["sourceRevision"] = document_revision
     contract_path = dirs["render"] / "subtitle-render.v1.json"
@@ -162,7 +151,6 @@ def _generate_subtitle_render_v1_contract(
     upsert_job_files(
         job_id,
         subtitle_render_v1_path=str(contract_path),
-        render_source_video_path=render_source_video_path,
     )
     return generated_contract
 
@@ -221,38 +209,6 @@ def _contract_matches_revision(contract: dict[str, Any], document_revision: str 
         return True
     existing_revision = str(contract.get("sourceRevision") or "").strip()
     return existing_revision == document_revision
-
-
-def _ensure_render_source_video_path(
-    job_id: str,
-    files: dict[str, Any],
-    *,
-    dirs: dict[str, Path],
-    segments: list[dict[str, Any]],
-) -> str | None:
-    raw_video_path = files.get("video_path")
-    if not isinstance(raw_video_path, str) or not raw_video_path.strip():
-        return None
-    input_video_path = Path(raw_video_path)
-    if not input_video_path.exists():
-        return None
-
-    existing_path = files.get("render_source_video_path")
-    if isinstance(existing_path, str) and existing_path.strip():
-        candidate = Path(existing_path)
-        if candidate.exists() and candidate.is_file():
-            return str(candidate)
-
-    output_path = dirs["render"] / _CUT_SOURCE_VIDEO_NAME
-    if output_path.exists() and output_path.is_file():
-        return str(output_path)
-
-    generate_cut_source_video_to_browser_compatible_mp4(
-        input_path=input_video_path,
-        output_path=output_path,
-        segments=segments,
-    )
-    return str(output_path)
 
 
 def _build_style_source_captions_from_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -513,7 +469,6 @@ def _subtitle_render_v1_to_web_render_config(
         "showProgress",
         "showChapter",
         "progressLabelMode",
-        "sourceKind",
     ):
         value = payload.get(key)
         if value is not None:
@@ -699,6 +654,9 @@ def _normalize_caption_highlights(raw: Any, token_meta: list[dict[str, Any]]) ->
         color = str(item.get("color") or "").strip()
         if color:
             entry["color"] = color
+        background_color = str(item.get("backgroundColor") or "").strip()
+        if background_color:
+            entry["backgroundColor"] = background_color
         try:
             font_scale = float(item.get("fontScale"))
         except (TypeError, ValueError):
@@ -780,10 +738,10 @@ def _parse_time_value(raw: Any) -> float | None:
 
 def _normalize_subtitle_theme(raw: Any) -> str | None:
     value = str(raw or "").strip()
-    if value in {"white", "box-white-on-black", "text-white"}:
-        return "white"
-    if value in {"black", "box-black-on-white", "text-black"}:
-        return "black"
+    if value in {"stroke", "outlined", "stroke-black", "text-stroke", "black", "box-black-on-white", "text-black"}:
+        return "stroke"
+    if value in {"stroke-white", "outlined-white", "stroke-white-fill", "text-stroke-white", "white", "box-white-on-black", "text-white"}:
+        return "stroke-white"
     return None
 
 

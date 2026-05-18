@@ -10,10 +10,8 @@ from web_api.api.routes import render_complete
 from web_api.config import get_settings
 from web_api.constants import JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED
 from web_api.db import get_conn, init_db
-from web_api.errors import ApiError
 from web_api.job_file_repository import create_job, get_job, update_job
 from web_api.services.auth import CurrentUser
-from web_api.utils.persistence_helpers import now_iso
 
 
 class RenderCompletionRouteTests(unittest.TestCase):
@@ -41,7 +39,7 @@ class RenderCompletionRouteTests(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_render_complete_deducts_once_and_persists_succeeded_status(self) -> None:
+    def test_render_complete_is_free_and_persists_succeeded_status(self) -> None:
         job_id = "job_render_done"
         user_id = "user_render_done"
         create_job(job_id, "CREATED", user_id)
@@ -53,25 +51,15 @@ class RenderCompletionRouteTests(unittest.TestCase):
         (test_dir / ".confirmed").touch()
         update_job(job_id, status=JOB_STATUS_TEST_CONFIRMED)
 
-        with get_conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
-                VALUES(?, 2, 'TEST_CREDIT', NULL, ?, ?)
-                """,
-                (user_id, f"test-credit:{user_id}", now_iso()),
-            )
-            conn.commit()
-
         current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
         with patch("web_api.api.routes.ensure_active_user", return_value=None):
             first = render_complete(job_id, current_user=current_user)["data"]["billing"]
             second = render_complete(job_id, current_user=current_user)["data"]["billing"]
 
-        self.assertTrue(first["consumed"])
-        self.assertEqual(first["balance"], 1)
+        self.assertFalse(first["consumed"])
+        self.assertEqual(first["balance"], 0)
         self.assertFalse(second["consumed"])
-        self.assertEqual(second["balance"], 1)
+        self.assertEqual(second["balance"], 0)
 
         job = get_job(job_id, owner_user_id=user_id)
         self.assertIsNotNone(job)
@@ -90,12 +78,9 @@ class RenderCompletionRouteTests(unittest.TestCase):
                 (user_id, job_id),
             ).fetchall()
 
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(int(rows[0]["delta"]), -1)
-        self.assertEqual(str(rows[0]["reason"]), "JOB_EXPORT_SUCCESS")
-        self.assertEqual(str(rows[0]["idempotency_key"]), f"job:{job_id}:export_success")
+        self.assertEqual(len(rows), 0)
 
-    def test_render_complete_raises_when_credit_is_insufficient(self) -> None:
+    def test_render_complete_allows_zero_credit_user_during_free_period(self) -> None:
         job_id = "job_render_no_credit"
         user_id = "user_render_no_credit"
         create_job(job_id, "CREATED", user_id)
@@ -109,14 +94,12 @@ class RenderCompletionRouteTests(unittest.TestCase):
 
         current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
         with patch("web_api.api.routes.ensure_active_user", return_value=None):
-            with self.assertRaises(ApiError) as ctx:
-                render_complete(job_id, current_user=current_user)
+            billing = render_complete(job_id, current_user=current_user)["data"]["billing"]
 
-        self.assertEqual(ctx.exception.code, "INVALID_STEP_STATE")
-        self.assertEqual(ctx.exception.message, "额度不足，请先兑换邀请码后重试")
+        self.assertEqual(billing, {"consumed": False, "balance": 0})
         job = get_job(job_id, owner_user_id=user_id)
         self.assertIsNotNone(job)
-        self.assertEqual(job["status"], JOB_STATUS_TEST_CONFIRMED)
+        self.assertEqual(job["status"], JOB_STATUS_SUCCEEDED)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,36 @@
 - `test_data/`: local sample media for manual regression.
 - `workdir/`: runtime artifacts and job files; do not commit generated outputs.
 
+## Current Product Flow
+- Entry/UI: `web_frontend/app/page.tsx` and `web_frontend/components/home-page-client.tsx` create or resume a job, then `web_frontend/components/job-workspace.tsx` switches between upload, processing, editor, and export views.
+- API boundary: `web_api/api/routes.py` owns user/guest job routes, upload confirmation, `POST /jobs/{job_id}/test/run`, `GET/PUT /jobs/{job_id}/test`, and render config/complete endpoints.
+- Test pipeline: `web_api/services/test.py` runs `ASR -> auto_edit(delete/polish) -> chapter sidecar -> TEST_READY`, persists draft lines/chapters, then warms the editor subtitle style cache in the background.
+- Direct prompt runtime: `video_auto_cut/direct_prompt_runner.py` and `video_auto_cut/editing/direct_prompts.py` build and parse delete/polish/chapter prompt calls. Runtime prompt text comes from `skills/direct-prompts/*.md`.
+- Export pipeline: `confirm_test()` in `web_api/services/test.py` writes final Test artifacts and calls `web_api/services/render_web.py`, which builds `subtitle-render.v1.json` for `web_frontend/lib/remotion/stitch-video-web.tsx`.
+- Export UI and Remotion controls live mainly in `web_frontend/components/job-workspace/export-step.tsx`, `web_frontend/components/job-workspace/use-export-step-controller.ts`, and `web_frontend/lib/remotion/`.
+
+## Vibe Coding Iteration Loop
+- Start by reading `git status --short --branch`, this file, `README.md`, and the relevant slice of `docs/requirements_todo.md`; assume unrelated dirty files are user work unless proven otherwise.
+- Add or move a concise requirement entry in `docs/requirements_todo.md` when a new product request or follow-up appears, then keep the code change scoped to that entry.
+- Trace one narrow path before editing: frontend view/controller, API route/service, shared pipeline module, prompt file, or Remotion rendering module. Prefer existing helpers over new abstractions.
+- For frontend/UI work, use `web_frontend/app/dev-export-preview/page.tsx` as the fast lab for overlay density, wrapping, resolution presets, and export screenshots before running heavier browser flows.
+- For backend/pipeline work, keep persisted job artifacts in `workdir/` and avoid committing generated media, sqlite replicas, browser profiles, `.next/`, or test outputs.
+- After a coherent verified unit, commit only the relevant files. If the worktree already contains unrelated changes, do not stage them just to satisfy the commit rule; report the constraint clearly.
+
+## Prompt & LLM Guardrails
+- `skills/direct-prompts/delete.md`, `polish.md`, `delete-with-reference.md`, `polish-with-reference.md`, `chapter.md`, and `highlight.md` are the active prompt source of truth. Do not reintroduce hidden runtime prompt rules, dynamic constraints, `.pi` provider wiring, or repo-local skill folders outside `skills/direct-prompts/`.
+- `video_auto_cut/editing/direct_prompts.py` uses `script` only to select the explicit `*-with-reference.md` prompt and include the script as input payload. It still must not append hidden script rules, chapter limits, title limits, theme notes, or other dynamic instructions.
+- Test editing behavior goes through `video_auto_cut/direct_prompt_runner.py`, `video_auto_cut/orchestration/test_cli.py`, and `web_api/services/test.py`; do not add PI compatibility wrappers or alternate prompt runners.
+- Before claiming prompt source cleanup or prompt-only behavior, run or inspect the contract tests around `test_direct_prompt_source_of_truth`, `test_direct_prompt_runner_contract`, and `test_repo_skill_layout`.
+
+## Feature Area Pointers
+- Auth, guest sessions, coupons, and credits: `web_api/services/auth.py`, `web_api/services/account.py`, `web_api/api/routes.py`, `web_frontend/lib/auth.ts`, `web_frontend/lib/session.ts`.
+- Upload and browser media handling: `web_frontend/lib/upload-pipeline.ts`, `web_frontend/lib/upload-source-preflight.ts`, `web_frontend/lib/video-transcode.ts`, `web_api/services/jobs.py`.
+- Test editor state and revision conflicts: `web_frontend/components/job-workspace/use-test-document-polling.ts`, `use-editor-step-controller.ts`, `workspace-state.ts`, plus `build_document_revision()` in `video_auto_cut/editing/chapter_domain.py`.
+- Chapter identity/ranges: treat `chapter_key` / `start_line_id` as canonical and `block_range` as derived display/contract data. Keep coverage checks in `video_auto_cut/editing/chapter_domain.py`.
+- Render contract/highlights: `video_auto_cut/rendering/subtitle_render_contract.py`, `web_api/services/render_web.py`, `web_frontend/lib/remotion/subtitle-render-v1.ts`, `caption-highlights.ts`, and `overlay-presentation.ts`.
+- Local one-shot direct prompt run: `./scripts/run_direct_prompt_test.sh test_data/media/1.wav`.
+
 ## Build, Test, and Development Commands
 - Install deps:
   - `python -m pip install -r requirements.txt`
@@ -30,6 +60,11 @@
 ## Testing Guidelines
 - Current automated tests exist mainly in `web_api/tests/` (unittest style).
 - Run: `python -m unittest discover web_api/tests -p "test_*.py"`.
+- Useful targeted checks:
+  - Direct prompt source/runner: `python -m unittest web_api.tests.test_direct_prompt_source_of_truth web_api.tests.test_direct_prompt_runner_contract web_api.tests.test_repo_skill_layout -v`
+  - Direct prompt runner end-to-end contracts: `python -m unittest web_api.tests.test_direct_prompt_runner web_api.tests.test_direct_prompt_runner_end_to_end -v`
+  - Backend Test/render handoff: `python -m unittest web_api.tests.test_test_run web_api.tests.test_render_web web_api.tests.test_render_completion -v`
+  - Frontend workspace/render units: `cd web_frontend && npm run test:unit`
 - For web changes, always run:
   - `cd web_frontend && npx tsc --noEmit`
   - `npm --prefix web_frontend run build`
@@ -43,7 +78,7 @@
   - Use `test_data/raw/AI1.MOV` for the real large-case regression check.
   - Standard local startup:
     - `./scripts/start_web_mvp.sh debug`
-    - if Kimi is overloaded (`429 rate_limit_error` / `currently overloaded`), restart with `PI_PROVIDER=vac-llm ./scripts/start_web_mvp.sh debug`
+    - if the configured LLM is overloaded (`429 rate_limit_error` / `currently overloaded`), switch `LLM_BASE_URL` / `LLM_MODEL` to a backup OpenAI-compatible provider and restart `./scripts/start_web_mvp.sh debug`
   - Stable build-mode startup for preview/export debugging when you need to avoid Next dev HMR / page target rebuilds:
     - `WEB_DB_LOCAL_ONLY=1 BETTER_AUTH_LOCAL_ONLY=1 ./scripts/start_web_mvp.sh build`
     - Use this especially when browser E2E reaches export but dev mode keeps rebuilding or CDP targets get invalidated during preview/export.

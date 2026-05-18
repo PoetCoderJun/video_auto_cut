@@ -16,7 +16,7 @@ from video_auto_cut.shared.test_text_io import (
 
 
 class BuildTestLinesFromSrtTest(unittest.TestCase):
-    def test_legacy_dual_srt_builder_is_removed(self) -> None:
+    def test_dual_srt_builder_is_removed(self) -> None:
         self.assertFalse(hasattr(srt_utils, "build_test_lines_from_srts"))
 
     def test_test_lines_follow_optimized_srt_granularity(self) -> None:

@@ -42,7 +42,7 @@ class GuestRoutesAccessTest(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_guest_token_can_create_upload_and_start_job_without_login(self) -> None:
+    def test_guest_token_cannot_create_job_during_login_required_free_period(self) -> None:
         with (
             patch("web_api.api.routes.run_test_job_background", return_value=None),
             TestClient(create_app()) as client,
@@ -57,27 +57,13 @@ class GuestRoutesAccessTest(unittest.TestCase):
             headers = {"X-Guest-Token": guest["token"]}
 
             create_resp = client.post("/api/v1/jobs", json={}, headers=headers)
-            self.assertEqual(create_resp.status_code, 200)
-            job_id = create_resp.json()["data"]["job"]["job_id"]
-
-            load_resp = client.get(f"/api/v1/jobs/{job_id}", headers=headers)
-            self.assertEqual(load_resp.status_code, 200)
-            self.assertEqual(load_resp.json()["data"]["job"]["job_id"], job_id)
-
-            upload_resp = client.post(
-                f"/api/v1/jobs/{job_id}/audio-upload-local",
-                headers=headers,
-                files={"audio_file": ("audio.mp3", b"guest audio bytes", "audio/mpeg")},
+            self.assertEqual(create_resp.status_code, 403)
+            self.assertEqual(
+                create_resp.json()["error"]["message"],
+                "当前限时免费需要登录账号后使用",
             )
-            self.assertEqual(upload_resp.status_code, 200)
-            self.assertEqual(upload_resp.json()["data"]["job"]["status"], "UPLOAD_READY")
 
-            run_resp = client.post(f"/api/v1/jobs/{job_id}/test/run", headers=headers)
-            self.assertEqual(run_resp.status_code, 200)
-            self.assertTrue(run_resp.json()["data"]["accepted"])
-            self.assertEqual(run_resp.json()["data"]["job"]["status"], "TEST_RUNNING")
-
-    def test_guest_render_complete_consumes_free_use_idempotently(self) -> None:
+    def test_guest_render_complete_is_blocked_during_login_required_free_period(self) -> None:
         with TestClient(create_app()) as client:
             guest_resp = client.post(
                 "/api/v1/public/guest/session",
@@ -96,15 +82,17 @@ class GuestRoutesAccessTest(unittest.TestCase):
             first = client.post(f"/api/v1/jobs/{job_id}/render/complete", headers=headers)
             second = client.post(f"/api/v1/jobs/{job_id}/render/complete", headers=headers)
 
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(first.json()["data"]["billing"], {"consumed": True, "balance": 0})
-        self.assertEqual(second.status_code, 200)
-        self.assertEqual(second.json()["data"]["billing"], {"consumed": False, "balance": 0})
+        self.assertEqual(first.status_code, 403)
+        self.assertEqual(second.status_code, 403)
+        self.assertEqual(
+            first.json()["error"]["message"],
+            "当前限时免费需要登录账号后使用",
+        )
 
         session = get_guest_session(guest["guest_id"])
         self.assertIsNotNone(session)
-        self.assertEqual(session["status"], "CONSUMED")
-        self.assertEqual(session["free_uses_remaining"], 0)
+        self.assertEqual(session["status"], "ACTIVE")
+        self.assertEqual(session["free_uses_remaining"], 1)
 
 
 if __name__ == "__main__":

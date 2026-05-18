@@ -146,21 +146,16 @@ class ApiSecurityGuardsTest(unittest.TestCase):
         self.assertEqual(upload_url_resp.json()["error"]["code"], "SERVICE_UNAVAILABLE")
         self.assertEqual(upload_url_resp.json()["error"]["message"], "上传服务暂未配置，请稍后再试。")
 
-    def test_public_invite_endpoint_is_rate_limited(self) -> None:
+    def test_public_guest_session_endpoint_is_rate_limited(self) -> None:
         os.environ["WEB_PUBLIC_RATE_LIMIT_WINDOW_SECONDS"] = "60"
         os.environ["WEB_PUBLIC_INVITE_RATE_LIMIT"] = "2"
         get_settings.cache_clear()
 
-        with (
-            patch(
-                "web_api.api.routes.claim_public_invite_for_ip",
-                return_value={"code": "CPN-TEST", "credits": 1, "already_claimed": False},
-            ),
-            TestClient(create_app()) as client,
-        ):
-            first = client.post("/api/v1/public/invites/claim")
-            second = client.post("/api/v1/public/invites/claim")
-            third = client.post("/api/v1/public/invites/claim")
+        with TestClient(create_app()) as client:
+            payload = {"device_fingerprint": "rate-limit-device"}
+            first = client.post("/api/v1/public/guest/session", json=payload)
+            second = client.post("/api/v1/public/guest/session", json=payload)
+            third = client.post("/api/v1/public/guest/session", json=payload)
 
         self.assertEqual(first.status_code, 200)
         self.assertEqual(second.status_code, 200)
@@ -191,8 +186,8 @@ class ApiSecurityGuardsTest(unittest.TestCase):
             scope = {
                 "type": "http",
                 "method": "POST",
-                "path": "/api/v1/public/coupons/verify",
-                "raw_path": b"/api/v1/public/coupons/verify",
+                "path": "/api/v1/auth/coupon/redeem",
+                "raw_path": b"/api/v1/auth/coupon/redeem",
                 "query_string": b"",
                 "headers": [(b"content-type", b"application/json")],
                 "client": ("127.0.0.1", 1234),

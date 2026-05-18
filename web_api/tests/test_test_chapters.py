@@ -10,7 +10,7 @@ from video_auto_cut.editing.chapter_domain import (
     build_document_revision,
     canonicalize_test_chapters,
 )
-from video_auto_cut.pi_agent_runner import TestPiArtifacts
+from video_auto_cut.direct_prompt_runner import TestPromptArtifacts
 from web_api.job_file_repository import list_test_chapters, list_test_lines
 from web_api.services.test import confirm_test, generate_test_chapters
 
@@ -20,7 +20,7 @@ class TestChaptersTests(unittest.TestCase):
         for key, value in expected.items():
             self.assertEqual(actual.get(key), value, f"chapter field mismatch: {key}")
 
-    def test_generate_test_chapters_uses_canonical_pi_chapter_path(self) -> None:
+    def test_generate_test_chapters_uses_canonical_direct_prompt_chapter_path(self) -> None:
         kept_lines = [
             {
                 "line_id": index,
@@ -44,8 +44,8 @@ class TestChaptersTests(unittest.TestCase):
                     return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
                 ),
                 patch(
-                    "web_api.services.test.run_test_pi",
-                    return_value=TestPiArtifacts(
+                    "web_api.services.test.run_test_prompt",
+                    return_value=TestPromptArtifacts(
                         task="chapter",
                         chapters=[
                             {"chapter_id": 1, "title": "开场", "start": 0.0, "end": 3.0, "block_range": "1-3"},
@@ -119,8 +119,8 @@ class TestChaptersTests(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "web_api.services.test.run_test_pi",
-                    return_value=TestPiArtifacts(
+                    "web_api.services.test.run_test_prompt",
+                    return_value=TestPromptArtifacts(
                         task="chapter",
                         chapters=[
                             {"chapter_id": 1, "title": "开场", "block_range": "1-3"},
@@ -181,8 +181,8 @@ class TestChaptersTests(unittest.TestCase):
                     ),
                 ),
                 patch(
-                    "web_api.services.test.run_test_pi",
-                    return_value=TestPiArtifacts(
+                    "web_api.services.test.run_test_prompt",
+                    return_value=TestPromptArtifacts(
                         task="chapter",
                         chapters=[
                             {"chapter_id": 1, "title": "开场", "block_range": "1-4"},
@@ -205,6 +205,53 @@ class TestChaptersTests(unittest.TestCase):
         self.assertEqual(request.title_max_chars, 5)
         self.assertEqual(request.chapter_policy_hint, "竖屏视频章节约束")
         self.assertEqual([chapter["block_range"] for chapter in chapters], ["1-4", "5-8", "9-14", "15-18"])
+
+    def test_generate_test_chapters_uses_source_metadata_orientation_without_video_file(self) -> None:
+        kept_lines = [
+            {
+                "line_id": index,
+                "start": float((index - 1) * 3),
+                "end": float(index * 3),
+                "original_text": f"第{index}句内容比较完整",
+                "optimized_text": f"第{index}句内容比较完整",
+                "ai_suggest_remove": False,
+                "user_final_remove": False,
+            }
+            for index in range(1, 19)
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "chapters_draft.txt"
+            with (
+                patch("web_api.services.test.build_pipeline_options_from_settings"),
+                patch(
+                    "web_api.services.test.build_llm_config",
+                    return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
+                ),
+                patch("web_api.services.test.subprocess.run") as mock_ffprobe,
+                patch(
+                    "web_api.services.test.run_test_prompt",
+                    return_value=TestPromptArtifacts(
+                        task="chapter",
+                        chapters=[
+                            {"chapter_id": 1, "title": "开场", "block_range": "1-4"},
+                            {"chapter_id": 2, "title": "重点一", "block_range": "5-8"},
+                            {"chapter_id": 3, "title": "重点二", "block_range": "9-12"},
+                            {"chapter_id": 4, "title": "重点三", "block_range": "13-18"},
+                        ],
+                    ),
+                ) as mock_runner,
+            ):
+                generate_test_chapters(
+                    output_path=output_path,
+                    kept_lines=kept_lines,
+                    source_orientation="portrait",
+                )
+
+        request = mock_runner.call_args.args[0]
+        self.assertEqual(request.max_chapters, 4)
+        self.assertEqual(request.chapter_policy_hint, "竖屏视频章节约束")
+        mock_ffprobe.assert_not_called()
 
     def test_generate_test_chapters_merges_insubstantial_single_block_bridge(self) -> None:
         kept_lines = [
@@ -282,8 +329,8 @@ class TestChaptersTests(unittest.TestCase):
                     return_value={"base_url": "http://x", "model": "test-model", "api_key": "k"},
                 ),
                 patch(
-                    "web_api.services.test.run_test_pi",
-                    return_value=TestPiArtifacts(
+                    "web_api.services.test.run_test_prompt",
+                    return_value=TestPromptArtifacts(
                         task="chapter",
                         chapters=[
                             {"chapter_id": 1, "title": "前情", "block_range": "1-3"},

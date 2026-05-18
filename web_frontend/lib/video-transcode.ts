@@ -1,7 +1,7 @@
 import { fetchFile } from "@ffmpeg/util";
 
-import { getBrowserFfmpeg } from "./ffmpeg-browser";
-import { getBrowserCompatibleOutputName } from "./video-transcode-name";
+import { getBrowserFfmpeg } from "./ffmpeg-browser.ts";
+import { getBrowserCompatibleOutputName } from "./video-transcode-name.ts";
 
 export type BrowserCompatibleTranscodeOptions = {
   onProgress?: (progress: number) => void;
@@ -30,11 +30,11 @@ export async function transcodeVideoToBrowserCompatibleMp4(
       "-map",
       "0:v:0",
       "-map",
-      "0:a?:0",
+      "0:a:0?",
       "-c:v",
       "libx264",
       "-preset",
-      "veryfast",
+      "ultrafast",
       "-pix_fmt",
       "yuv420p",
       "-movflags",

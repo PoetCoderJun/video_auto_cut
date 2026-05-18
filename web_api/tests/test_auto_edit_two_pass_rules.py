@@ -25,6 +25,7 @@ class DummyArgs:
         self.llm_temperature = 0.0
         self.llm_max_tokens = None
         self.auto_edit_llm_concurrency = 1
+        self.direct_prompt_cache = False
 
 
 def _sample_segments() -> list[dict[str, object]]:
@@ -35,10 +36,10 @@ def _sample_segments() -> list[dict[str, object]]:
 
 
 class AutoEditCanonicalRunnerTest(unittest.TestCase):
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_stage_and_preview_callbacks_follow_delete_then_polish(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
-            if "# delete direct prompt" in messages[0]["content"]:
+            if "只输出需要删除的行号" in messages[0]["content"]:
                 return "1\n"
             return "2\t这是后一句的表达内容，这是更加准确的表达方式\n"
 
@@ -50,24 +51,30 @@ class AutoEditCanonicalRunnerTest(unittest.TestCase):
         args.auto_edit_stage_callback = lambda code, msg: stage_events.append((code, msg))
         args.auto_edit_preview_callback = lambda lines: preview_batches.append(lines)
 
-        result = AutoEdit.from_args(args)._auto_edit_segments(_sample_segments(), total_length=10.0)
+        with self.assertLogs(level="INFO") as captured_logs:
+            result = AutoEdit.from_args(args)._auto_edit_segments(_sample_segments(), total_length=10.0)
 
         self.assertEqual([code for code, _ in stage_events], ["REMOVING_REDUNDANT_LINES", "POLISHING_EXPRESSION"])
         self.assertEqual(len(preview_batches), 2)
         self.assertTrue(preview_batches[0][0]["ai_suggest_remove"])
         self.assertEqual(preview_batches[1][1]["optimized_text"], "这是后一句的表达内容，这是更加准确的表达方式")
         self.assertEqual(result["optimized_subs"][1].content, "这是后一句的表达内容，这是更加准确的表达方式")
+        joined_logs = "\n".join(captured_logs.output)
+        self.assertIn("direct prompt step done task=delete elapsed_seconds=", joined_logs)
+        self.assertIn("auto edit step done step=delete elapsed_seconds=", joined_logs)
+        self.assertIn("direct prompt step done task=polish elapsed_seconds=", joined_logs)
+        self.assertIn("auto edit step done step=polish elapsed_seconds=", joined_logs)
 
-    @patch("video_auto_cut.pi_agent_runner.llm_utils.chat_completion")
+    @patch("video_auto_cut.direct_prompt_runner.llm_utils.chat_completion")
     def test_polish_output_rejects_unknown_sparse_line_id(self, mock_chat) -> None:
         def fake_chat(cfg, messages):
-            if "# delete direct prompt" in messages[0]["content"]:
+            if "只输出需要删除的行号" in messages[0]["content"]:
                 return ""
             return "3\t第一句润色\n"
 
         mock_chat.side_effect = fake_chat
 
-        with self.assertRaisesRegex(RuntimeError, "unknown or removed line ids"):
+        with self.assertRaisesRegex(RuntimeError, "unknown line ids"):
             AutoEdit.from_args(DummyArgs())._auto_edit_segments(_sample_segments(), total_length=10.0)
 
 

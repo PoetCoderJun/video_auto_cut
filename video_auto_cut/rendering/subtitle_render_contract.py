@@ -10,17 +10,31 @@ from video_auto_cut.shared.test_text_protocol import format_time, parse_timed_li
 
 SUBTITLE_STYLE_VERSION = "subtitle-style.v1"
 SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
-DEFAULT_SUBTITLE_THEME = "white"
+DEFAULT_SUBTITLE_THEME = "stroke"
 MAX_HIGHLIGHTS_PER_CAPTION = 2
 DEFAULT_STYLE_MAX_TOKENS = 2400
+
+_HIGHLIGHT_TEXT_COLORS = [
+    "#12E8D1",
+    "#FF4D9D",
+    "#FFE04B",
+    "#63F261",
+]
+
+_HIGHLIGHT_FONT_SCALE = 1.42
+
+
+def _pick_highlight_color(caption_index: int, term_index: int) -> str:
+    palette_index = (caption_index + term_index) % len(_HIGHLIGHT_TEXT_COLORS)
+    return _HIGHLIGHT_TEXT_COLORS[palette_index]
 
 
 def normalize_subtitle_theme(raw: Any) -> str:
     value = str(raw or "").strip()
-    if value in {"white", "box-white-on-black", "text-white"}:
-        return "white"
-    if value in {"black", "box-black-on-white", "text-black"}:
-        return "black"
+    if value in {"stroke", "outlined", "stroke-black", "text-stroke", "black", "box-black-on-white", "text-black"}:
+        return "stroke"
+    if value in {"stroke-white", "outlined-white", "stroke-white-fill", "text-stroke-white", "white", "box-white-on-black", "text-white"}:
+        return "stroke-white"
     return DEFAULT_SUBTITLE_THEME
 
 
@@ -72,7 +86,8 @@ def request_subtitle_style_contract(
     if not normalized_captions:
         return empty_contract
 
-    config = llm_config or {}
+    config = dict(llm_config or {})
+    config["enable_thinking"] = False
     if not config.get("base_url") or not config.get("model"):
         return empty_contract
 
@@ -139,7 +154,14 @@ def build_subtitle_render_v1_contract(
         normalized_terms = _normalize_highlight_terms(highlight_terms, entry["text"])
         if normalized_terms:
             entry["label"] = {
-                "highlights": [{"text": term} for term in normalized_terms],
+                "highlights": [
+                    {
+                        "text": term,
+                        "color": _pick_highlight_color(index, term_index),
+                        "fontScale": _HIGHLIGHT_FONT_SCALE,
+                    }
+                    for term_index, term in enumerate(normalized_terms)
+                ],
             }
         render_captions.append(entry)
 
@@ -380,5 +402,3 @@ def _is_reasonable_highlight_term(candidate: str, source_text: str) -> bool:
     if len(term) > max(8, len(source) // 2):
         return False
     return True
-
-

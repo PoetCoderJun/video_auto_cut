@@ -35,7 +35,13 @@ _STAGE_UNSET = object()
 
 JOB_FILE_FIELDS = (
     "video_path",
-    "render_source_video_path",
+    "source_width",
+    "source_height",
+    "source_fps",
+    "source_duration_sec",
+    "source_file_name",
+    "source_file_type",
+    "source_file_size_bytes",
     "audio_path",
     "asr_oss_key",
     "pending_asr_oss_key",
@@ -51,6 +57,16 @@ JOB_FILE_FIELDS = (
     "subtitle_render_v1_path",
     "final_video_path",
 )
+
+JOB_FILE_SOURCE_METADATA_FIELDS = {
+    "source_width",
+    "source_height",
+    "source_fps",
+    "source_duration_sec",
+    "source_file_name",
+    "source_file_type",
+    "source_file_size_bytes",
+}
 
 _STATUS_RANK = {
     JOB_STATUS_CREATED: 0,
@@ -180,7 +196,9 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"job_id": job_id}
     for field in JOB_FILE_FIELDS:
         raw = payload.get(field)
-        if field in {
+        if field in JOB_FILE_SOURCE_METADATA_FIELDS:
+            result[field] = _normalize_source_metadata_field(field, raw)
+        elif field in {
             "asr_oss_key",
             "pending_asr_oss_key",
             "optimized_srt_oss_key",
@@ -195,10 +213,6 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     # Fallbacks by conventional paths.
     if not result["video_path"]:
         result["video_path"] = _existing_video_path(job_id)
-    if not result["render_source_video_path"]:
-        candidate_render_source = job_dir(job_id) / "render" / "cut_source.browser.mp4"
-        if candidate_render_source.exists():
-            result["render_source_video_path"] = str(candidate_render_source)
     if not result["audio_path"]:
         result["audio_path"] = _existing_audio_path(job_id)
     if not result["asr_words_sidecar_path"] and result.get("srt_path"):
@@ -227,6 +241,25 @@ def _normalize_files(job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         result["final_video_path"] = str(final_video)
 
     return result
+
+
+def _normalize_source_metadata_field(field: str, raw: Any) -> Any:
+    if field in {"source_width", "source_height", "source_file_size_bytes"}:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+    if field in {"source_fps", "source_duration_sec"}:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if value > 0 else None
+    if field in {"source_file_name", "source_file_type"}:
+        value = str(raw or "").strip()
+        return value or None
+    return None
 
 
 def _infer_job_status(job_id: str) -> str:
@@ -342,23 +375,23 @@ def _missing_job_artifact_error(job_id: str, status: str, files: dict[str, Any])
     return None
 
 
-def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
+def create_job(job_id: str, status: str, owner_user_id: str, *, script: str = "") -> dict[str, Any]:
     normalized_status = _normalize_meta_status(status) or JOB_STATUS_CREATED
     now = now_iso()
     ensure_job_dirs(job_id)
-    _write_json(
-        _meta_path(job_id),
-        {
-            "job_id": job_id,
-            "owner_user_id": owner_user_id,
-            "status": normalized_status,
-            "progress": _progress_for_status(normalized_status),
-            "stage_code": None,
-            "stage_message": None,
-            "created_at": now,
-            "updated_at": now,
-        },
-    )
+    meta: dict[str, Any] = {
+        "job_id": job_id,
+        "owner_user_id": owner_user_id,
+        "status": normalized_status,
+        "progress": _progress_for_status(normalized_status),
+        "stage_code": None,
+        "stage_message": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    if script and script.strip():
+        meta["script"] = script.strip()
+    _write_json(_meta_path(job_id), meta)
     _write_files_manifest(job_id, {})
     _error_path(job_id).unlink(missing_ok=True)
     _test_confirmed_path(job_id).unlink(missing_ok=True)
@@ -370,6 +403,14 @@ def create_job(job_id: str, status: str, owner_user_id: str) -> dict[str, Any]:
         "stage": None,
         "error": None,
     }
+
+
+def get_job_script(job_id: str) -> str:
+    meta = _read_meta(job_id)
+    if not isinstance(meta, dict):
+        return ""
+    script = meta.get("script")
+    return str(script).strip() if script else ""
 
 
 def get_job(job_id: str, *, owner_user_id: str | None = None) -> dict[str, Any] | None:
@@ -662,6 +703,17 @@ def list_test_lines(job_id: str) -> list[dict[str, Any]]:
 def replace_test_chapters(job_id: str, chapters: list[dict[str, Any]]) -> None:
     write_chapters_v2_json(chapters, _test_chapters_draft_v2_path(job_id))
     write_chapters_text(chapters, _test_chapters_draft_path(job_id))
+
+
+def reopen_test_artifacts_for_editing(job_id: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    lines = list_test_lines(job_id)
+    chapters = list_test_chapters(job_id)
+    if lines:
+        replace_test_lines(job_id, lines)
+    if chapters:
+        replace_test_chapters(job_id, chapters)
+    _test_confirmed_path(job_id).unlink(missing_ok=True)
+    return lines, chapters
 
 
 def _list_test_chapters_from_path(job_id: str, path: Path) -> list[dict[str, Any]]:

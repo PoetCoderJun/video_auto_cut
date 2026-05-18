@@ -4,6 +4,7 @@ import unittest
 
 from video_auto_cut.rendering.subtitle_render_contract import (
     build_sparse_highlight_text,
+    build_subtitle_style_llm_config,
     build_subtitle_render_v1_contract,
     request_subtitle_style_contract,
 )
@@ -30,7 +31,7 @@ class SubtitleRenderContractTest(unittest.TestCase):
         )
 
         self.assertEqual(payload["version"], "subtitle-style.v1")
-        self.assertEqual(payload["subtitleTheme"], "white")
+        self.assertEqual(payload["subtitleTheme"], "stroke")
         self.assertEqual(payload["captions"][0]["highlights"], [])
         self.assertEqual(payload["captions"][1]["text"], "再补充动作")
 
@@ -48,15 +49,36 @@ class SubtitleRenderContractTest(unittest.TestCase):
 
         payload = request_subtitle_style_contract(
             captions=captions,
-            subtitle_theme="black",
+            subtitle_theme="stroke",
             llm_config={"base_url": "https://example.com/v1", "model": "qwen-plus"},
             request_text_fn=fake_request_text,
         )
 
-        self.assertEqual(payload["subtitleTheme"], "black")
+        self.assertEqual(payload["subtitleTheme"], "stroke")
         self.assertEqual(payload["captions"][0]["highlights"], ["重点"])
         self.assertEqual(payload["captions"][1]["highlights"], ["动作结果"])
         self.assertEqual(payload["captions"][2]["highlights"], [])
+
+    def test_highlight_contract_forces_thinking_off(self) -> None:
+        cfg = build_subtitle_style_llm_config(
+            base_url="https://example.com/v1",
+            model="qwen-plus",
+            api_key="secret",
+            timeout=60,
+        )
+        self.assertFalse(cfg["enable_thinking"])
+
+        def fake_request_text(request_cfg, _messages):
+            self.assertFalse(request_cfg["enable_thinking"])
+            return "1\t重点\n"
+
+        payload = request_subtitle_style_contract(
+            captions=[{"index": 1, "start": 0.0, "end": 1.2, "text": "真正重点先说"}],
+            llm_config={**cfg, "enable_thinking": True},
+            request_text_fn=fake_request_text,
+        )
+
+        self.assertEqual(payload["captions"][0]["highlights"], ["重点"])
 
     def test_request_subtitle_style_contract_uses_single_sparse_request_without_chunking(self) -> None:
         captions = [
@@ -130,10 +152,49 @@ class SubtitleRenderContractTest(unittest.TestCase):
         )
 
         self.assertEqual(contract["version"], "subtitle-render.v1")
-        self.assertEqual(contract["subtitleTheme"], "white")
-        self.assertEqual(contract["captions"][0]["label"]["highlights"], [{"text": "重点结论"}])
+        self.assertEqual(contract["subtitleTheme"], "stroke")
+        highlights = contract["captions"][0]["label"]["highlights"]
+        self.assertEqual(len(highlights), 1)
+        self.assertEqual(highlights[0]["text"], "重点结论")
+        self.assertEqual(highlights[0]["color"], "#12E8D1")
+        self.assertEqual(highlights[0]["fontScale"], 1.42)
+        self.assertNotIn("backgroundColor", highlights[0])
         self.assertEqual(contract["captions"][0]["alignmentMode"], "exact")
         self.assertEqual(contract["topics"][0]["title"], "第一段")
+
+    def test_build_subtitle_render_v1_contract_uses_four_highlight_colors(self) -> None:
+        captions = [
+            {
+                "index": index + 1,
+                "start": float(index),
+                "end": float(index + 1),
+                "text": f"第{index + 1}句重点信息",
+            }
+            for index in range(6)
+        ]
+
+        contract = build_subtitle_render_v1_contract(
+            captions=captions,
+            segments=[{"start": 0.0, "end": 6.0}],
+            output_name="demo.mp4",
+            style_contract={
+                "version": "subtitle-style.v1",
+                "captions": [
+                    {"text": caption["text"], "highlights": ["重点"]}
+                    for caption in captions
+                ],
+            },
+        )
+
+        colors = [
+            item["label"]["highlights"][0]["color"]
+            for item in contract["captions"]
+        ]
+
+        self.assertEqual(
+            sorted(set(colors)),
+            ["#12E8D1", "#63F261", "#FF4D9D", "#FFE04B"],
+        )
 
 
 if __name__ == "__main__":

@@ -106,9 +106,9 @@ class Transcribe:
         )
         if oss_ok:
             self.oss_uploader = create_oss_uploader_from_config(source)
-            logging.info("[asr] using own OSS bucket for upload")
+            logging.info("using own OSS bucket for upload")
         else:
-            logging.info("[asr] own OSS upload is unavailable because OSS config is incomplete")
+            logging.info("own OSS upload is unavailable because OSS config is incomplete")
         logging.info(
             "Init DashScope Filetrans backend with model=%s task=%s enable_words=%s word_split=%s",
             config.model,
@@ -118,10 +118,10 @@ class Transcribe:
         )
         if bool(getattr(self.args, "asr_dashscope_sentence_rule_with_punc", True)) and not config.enable_words:
             logging.info(
-                "[asr] sentence rule with punctuation is enabled via local post-process because enable_words=false"
+                "sentence rule with punctuation is enabled via local post-process because enable_words=false"
             )
         if bool(getattr(self.args, "asr_dashscope_sentence_rule_with_punc", True)) and config.enable_words:
-            logging.info("[asr] sentence rule with punctuation follows cloud sentence boundaries (enable_words=true)")
+            logging.info("sentence rule with punctuation follows cloud sentence boundaries (enable_words=true)")
 
     def run(self):
         for input_path in self.inputs:
@@ -169,14 +169,14 @@ class Transcribe:
         self._emit_progress(progress_callback, 0.0)
         file_url: str
         if self.oss_uploader is not None and oss_object_key:
-            logging.info("[asr] using existing OSS object: %s (skip upload)", oss_object_key)
+            logging.info("using existing OSS object: %s (skip upload)", oss_object_key)
             file_url = self.oss_uploader.get_signed_get_url(oss_object_key)
         elif self.oss_uploader is not None:
             media_p = Path(media_path)
-            logging.info("[asr] oss upload start: %s", media_p)
+            logging.info("oss upload start: %s", media_p)
             uploaded = self.oss_uploader.upload_audio(media_p)
             logging.info(
-                "[asr] oss upload done: key=%s size=%s signed_url_len=%s",
+                "oss upload done: key=%s size=%s signed_url_len=%s",
                 uploaded.object_key,
                 uploaded.size_bytes,
                 len(uploaded.signed_url),
@@ -195,14 +195,14 @@ class Transcribe:
             lang=lang,
             prompt=prompt,
         )
-        logging.info("[asr] filetrans task submitted: %s", submit.task_id)
+        logging.info("filetrans task submitted: %s", submit.task_id)
 
         task = self._poll_filetrans_task(submit.task_id, progress_callback=progress_callback)
         if task.task_status != "SUCCEEDED" or not task.transcription_url:
             message = task.error_message or "unknown error"
             raise RuntimeError(f"DashScope ASR task failed: task_id={task.task_id} error={message}")
 
-        logging.info("[asr] filetrans result fetch: %s", task.transcription_url)
+        logging.info("filetrans result fetch: %s", task.transcription_url)
         result = None
         retries = 5
         for attempt in range(1, retries + 1):
@@ -213,7 +213,7 @@ class Transcribe:
                 if attempt >= retries:
                     raise
                 logging.warning(
-                    "[asr] filetrans result not ready, retry %s/%s task_id=%s",
+                    "filetrans result not ready, retry %s/%s task_id=%s",
                     attempt,
                     retries,
                     task.task_id,
@@ -347,7 +347,7 @@ class Transcribe:
         while True:
             task = self.filetrans_client.poll(task_id)
             if task.task_status != last_status:
-                logging.info("[asr] filetrans task status=%s task_id=%s", task.task_status, task_id)
+                logging.info("filetrans task status=%s task_id=%s", task.task_status, task_id)
                 last_status = task.task_status
 
             if task.task_status == "SUCCEEDED" and task.transcription_url:

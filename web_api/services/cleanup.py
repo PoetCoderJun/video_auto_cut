@@ -17,7 +17,6 @@ from ..job_file_repository import (
 
 ARTIFACT_FIELDS = (
     "video_path",
-    "render_source_video_path",
     "audio_path",
     "srt_path",
     "asr_words_sidecar_path",
@@ -58,7 +57,7 @@ def _collect_artifact_paths(job_id: str, files: dict[str, object]) -> list[Path]
             paths.append(candidate)
         else:
             logging.warning(
-                "[web_api] skip cleanup path outside workdir job=%s field=%s path=%s",
+                "skip cleanup path outside workdir job=%s field=%s path=%s",
                 job_id,
                 field,
                 candidate,
@@ -133,10 +132,10 @@ def cleanup_orphan_job_dirs(
             if _remove_path(path):
                 removed += 1
         except Exception:
-            logging.exception("[web_api] orphan cleanup failed path=%s", path)
+            logging.exception("orphan cleanup failed path=%s", path)
 
     if removed:
-        logging.info("[web_api] orphan cleanup completed reason=%s removed_dirs=%s", reason, removed)
+        logging.info("orphan cleanup completed reason=%s removed_dirs=%s", reason, removed)
     return removed
 
 
@@ -151,13 +150,12 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
             if _remove_path(path):
                 removed += 1
         except Exception:
-            logging.exception("[web_api] cleanup failed removing path job=%s path=%s", job_id, path)
+            logging.exception("cleanup failed removing path job=%s path=%s", job_id, path)
 
     clear_step_data(job_id)
     upsert_job_files(
         job_id,
         video_path=None,
-        render_source_video_path=None,
         audio_path=None,
         asr_oss_key=None,
         optimized_srt_oss_key=None,
@@ -172,7 +170,7 @@ def cleanup_job_artifacts(job_id: str, *, reason: str) -> int:
         subtitle_render_v1_path=None,
         final_video_path=None,
     )
-    logging.info("[web_api] cleaned artifacts job=%s reason=%s removed_paths=%s", job_id, reason, removed)
+    logging.info("cleaned artifacts job=%s reason=%s removed_paths=%s", job_id, reason, removed)
     return removed
 
 
@@ -192,7 +190,7 @@ def cleanup_expired_jobs() -> int:
             cleanup_job_artifacts(job_id, reason=f"ttl>{ttl_seconds}s")
             cleaned += 1
         except Exception:
-            logging.exception("[web_api] cleanup failed job=%s", job_id)
+            logging.exception("cleanup failed job=%s", job_id)
 
     orphan_cleaned = cleanup_orphan_job_dirs(
         older_than=cutoff,
@@ -202,7 +200,7 @@ def cleanup_expired_jobs() -> int:
 
     if cleaned or orphan_cleaned:
         logging.info(
-            "[web_api] cleanup sweep completed cleaned_jobs=%s cleaned_orphans=%s cutoff=%s",
+            "cleanup sweep completed cleaned_jobs=%s cleaned_orphans=%s cutoff=%s",
             cleaned,
             orphan_cleaned,
             cutoff_iso,
@@ -226,11 +224,11 @@ def cleanup_on_startup() -> int:
                 cleanup_job_artifacts(job_id, reason="startup")
                 total_cleaned += 1
             except Exception:
-                logging.exception("[web_api] startup cleanup failed job=%s", job_id)
+                logging.exception("startup cleanup failed job=%s", job_id)
 
     if total_cleaned or orphan_cleaned:
         logging.info(
-            "[web_api] startup cleanup completed cleaned_jobs=%s cleaned_orphans=%s",
+            "startup cleanup completed cleaned_jobs=%s cleaned_orphans=%s",
             total_cleaned,
             orphan_cleaned,
         )

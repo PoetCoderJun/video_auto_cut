@@ -2,29 +2,68 @@
 
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
-import {CheckCircle2} from "lucide-react";
+import {ArrowLeft, CheckCircle2, ChevronRight, Loader2} from "lucide-react";
 
 import {STEPS} from "./constants";
 
+type StepId = (typeof STEPS)[number]["id"];
+
 export function JobWorkspaceStepper({
   activeStep,
-  succeeded,
+  canReopenEditor,
   onBackHome,
+  onReopenEditor,
+  reopenEditorBusy,
+  reopenEditorDisabled,
+  succeeded,
 }: {
   activeStep: number;
-  succeeded: boolean;
+  canReopenEditor?: boolean;
   onBackHome?: () => void;
+  onReopenEditor?: () => void;
+  reopenEditorBusy?: boolean;
+  reopenEditorDisabled?: boolean;
+  succeeded: boolean;
 }) {
+  const getStepAction = (stepId: StepId): (() => void) | undefined => {
+    if (stepId === 1 && onBackHome && stepId < activeStep) {
+      return onBackHome;
+    }
+    if (stepId === 2 && canReopenEditor && onReopenEditor) {
+      return onReopenEditor;
+    }
+    return undefined;
+  };
+
+  const canShowReopenAction = Boolean(
+    canReopenEditor && onReopenEditor && activeStep >= 3 && !succeeded,
+  );
+
   return (
     <div className="mb-12 border-b pb-8">
       <div className="flex flex-wrap items-center justify-center gap-4 md:justify-between">
-        <div className="flex flex-wrap items-center gap-2 md:gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 md:gap-4">
           {STEPS.map((step, index) => {
             const isCompleted = step.id < activeStep || (step.id === 3 && succeeded);
             const isActive = step.id === activeStep && !succeeded;
+            const stepAction = getStepAction(step.id);
+            const isClickable = Boolean(stepAction);
+            const isDisabled =
+              step.id === 2 && isClickable && (reopenEditorBusy || reopenEditorDisabled);
+            const StepTag = isClickable ? "button" : "div";
             return (
               <div key={step.id} className="flex items-center gap-2 md:gap-4">
-                <div
+                <StepTag
+                  type={isClickable ? "button" : undefined}
+                  onClick={isClickable ? stepAction : undefined}
+                  disabled={isClickable ? isDisabled : undefined}
+                  aria-label={
+                    step.id === 1 && isClickable
+                      ? "返回上传视频"
+                      : step.id === 2 && isClickable
+                        ? "返回编辑字幕"
+                        : undefined
+                  }
                   className={cn(
                     "flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                     isActive
@@ -32,6 +71,8 @@ export function JobWorkspaceStepper({
                       : isCompleted
                         ? "bg-muted text-foreground"
                         : "text-muted-foreground opacity-50",
+                    isClickable &&
+                      "cursor-pointer hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-60",
                   )}
                 >
                   <div
@@ -43,19 +84,41 @@ export function JobWorkspaceStepper({
                     {isCompleted ? <CheckCircle2 className="h-3 w-3" /> : step.id}
                   </div>
                   <span className="hidden sm:inline">{step.label}</span>
-                </div>
+                </StepTag>
                 {index < STEPS.length - 1 && (
-                  <div className="text-muted-foreground/30">›</div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground/30" />
                 )}
               </div>
             );
           })}
         </div>
-        {onBackHome && (
-          <Button type="button" variant="ghost" size="sm" onClick={onBackHome}>
-            重新上传
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {canShowReopenAction && (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="rounded-full px-4"
+              onClick={onReopenEditor}
+              disabled={reopenEditorBusy || reopenEditorDisabled}
+            >
+              {reopenEditorBusy ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 返回中
+                </>
+              ) : (
+                <>
+                  <ArrowLeft className="mr-2 h-4 w-4" /> 返回上一步编辑字幕
+                </>
+              )}
+            </Button>
+          )}
+          {onBackHome && (
+            <Button type="button" variant="ghost" size="sm" onClick={onBackHome}>
+              重新上传
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

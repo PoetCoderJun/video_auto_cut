@@ -40,10 +40,6 @@ export function getSourceVideoMismatchMessage(
   meta: RenderMeta,
   config: WebRenderConfig
 ): string | null {
-  if (config.input_props.sourceKind === "cut-proxy") {
-    return null;
-  }
-
   if (isLikelyAppExportFileName(fileName)) {
     return getLikelyAppExportFileMessage(fileName);
   }

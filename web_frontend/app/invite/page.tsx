@@ -1,5 +1,5 @@
-import InviteClaimPageClient from "@/components/invite-claim-page-client";
+import { redirect } from "next/navigation";
 
-export default function InvitePage() {
-  return <InviteClaimPageClient />;
+export default function RemovedInvitePage() {
+  redirect("/sign-up");
 }

@@ -58,13 +58,6 @@ case "$API_TURSO_LOCAL_REPLICA_PATH" in
   *) API_TURSO_LOCAL_REPLICA_PATH="$ROOT_DIR/${API_TURSO_LOCAL_REPLICA_PATH#./}" ;;
 esac
 
-LEGACY_REPLICA_FILES=(
-  "${TURSO_LOCAL_REPLICA_PATH:-$ROOT_DIR/workdir/web_api_turso_replica.db}.api"
-  "${TURSO_LOCAL_REPLICA_PATH:-$ROOT_DIR/workdir/web_api_turso_replica.db}.worker"
-  "$ROOT_DIR/workdir/web_api_turso_replica.db.api"
-  "$ROOT_DIR/workdir/web_api_turso_replica.db.worker"
-)
-
 AUTH_ENABLED_RAW="${WEB_AUTH_ENABLED:-1}"
 AUTH_ENABLED="$(printf '%s' "$AUTH_ENABLED_RAW" | tr '[:upper:]' '[:lower:]')"
 if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == "yes" ]]; then
@@ -119,18 +112,6 @@ echo "[start_web_mvp] using python: $("${PYTHON_CMD[@]}" -c 'import sys; print(f
 echo "[start_web_mvp] frontend mode: $MODE"
 echo "[start_web_mvp] business DB path: $API_TURSO_LOCAL_REPLICA_PATH"
 
-legacy_replica_detected=0
-for legacy_replica in "${LEGACY_REPLICA_FILES[@]}"; do
-  if [[ "$legacy_replica" != "$API_TURSO_LOCAL_REPLICA_PATH" && -f "$legacy_replica" ]]; then
-    legacy_replica_detected=1
-    break
-  fi
-done
-if [[ "$legacy_replica_detected" -eq 1 ]]; then
-  echo "[start_web_mvp] note: legacy local replica files (.api/.worker) were detected and will be ignored"
-  echo "[start_web_mvp] note: local development now maintains a single business DB at $API_TURSO_LOCAL_REPLICA_PATH"
-fi
-
 if ! command -v npm >/dev/null 2>&1; then
   echo "[start_web_mvp] npm not found in PATH"
   exit 1
@@ -177,6 +158,12 @@ if [[ "$AUTH_ENABLED" == "1" || "$AUTH_ENABLED" == "true" || "$AUTH_ENABLED" == 
     TURSO_LOCAL_REPLICA_PATH="$API_TURSO_LOCAL_REPLICA_PATH" \
     npx @better-auth/cli migrate --config ./lib/auth.ts -y
   )
+  if [[ "$DB_LOCAL_ONLY" != "1" && "$DB_LOCAL_ONLY" != "true" && "$DB_LOCAL_ONLY" != "yes" ]]; then
+    echo "[start_web_mvp] repairing Better Auth local replica from Turso if needed ..."
+    "${PYTHON_CMD[@]}" "$ROOT_DIR/scripts/repair_local_turso_replicas.py" \
+      --target auth \
+      --only-if-invalid-local-state
+  fi
 fi
 
 existing_next_process="$(ps -ax -o pid=,command= | rg "next (dev|start)|\\.next/standalone/server\\.js" | rg "$ROOT_DIR/web_frontend" || true)"

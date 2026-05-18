@@ -19,10 +19,19 @@ class DirectPromptSourceOfTruthTests(unittest.TestCase):
         message = build_delete_messages("1\t第一句")[0]
         self.assertEqual(message["role"], "user")
         self.assertTrue(message["content"].startswith(expected))
-        self.assertIn("请直接处理下面的 delete 输入", message["content"])
-        self.assertIn("前置返工行", message["content"])
-        self.assertIn("拿不准时一律保留", message["content"])
+        self.assertNotIn("## 参考口播脚本", message["content"])
+        self.assertNotIn("更接近最终准确表达", message["content"])
         self.assertIn("1\t第一句", message["content"])
+
+    def test_delete_with_reference_prompt_is_separate_source(self) -> None:
+        expected = _load_prompt_template("delete-with-reference")
+        message = build_delete_messages("1\tASR 错句", script="这是脚本里的准确说法")[0]
+        self.assertTrue(message["content"].startswith(expected))
+        self.assertIn("优先用参考口播脚本判断", message["content"])
+        self.assertIn("## 参考口播脚本", message["content"])
+        self.assertIn("这是脚本里的准确说法", message["content"])
+        self.assertIn("## 待处理字幕", message["content"])
+        self.assertIn("1\tASR 错句", message["content"])
 
     def test_delete_prompt_preserves_handcrafted_overview_verbatim(self) -> None:
         expected_overview = (
@@ -34,15 +43,41 @@ class DirectPromptSourceOfTruthTests(unittest.TestCase):
         )
         self.assertIn(expected_overview, _load_prompt_template("delete"))
 
+    def test_delete_prompt_states_semantic_coverage_principle(self) -> None:
+        prompt = _load_prompt_template("delete")
+        self.assertIn("完整覆盖前文的核心语义", prompt)
+        self.assertIn("可以替代前文且不丢信息", prompt)
+        self.assertIn("后文只是补充、展开、承接", prompt)
+        self.assertIn("新的信息增量", prompt)
+
+    def test_delete_prompt_states_fast_conservative_decision_principle(self) -> None:
+        prompt = _load_prompt_template("delete")
+        self.assertIn("快速、保守的剪辑判断", prompt)
+        self.assertIn("不要穷尽所有远距离相似关系", prompt)
+        self.assertIn("连续或近邻的重说", prompt)
+        self.assertIn("只是主题相似但不是同一表达的重新完成", prompt)
+        self.assertIn("只输出确定删除的行号", prompt)
+
     def test_polish_prompt_text_is_loaded_into_user_message_from_skills_direct_prompts(self) -> None:
         expected = _load_prompt_template("polish")
         message = build_polish_messages("1\t原句")[0]
         self.assertEqual(message["role"], "user")
         self.assertTrue(message["content"].startswith(expected))
-        self.assertIn("请直接处理下面的 polish 输入", message["content"])
+        self.assertNotIn("## 参考口播脚本", message["content"])
+        self.assertNotIn("以参考口播脚本的措辞", message["content"])
         self.assertIn("1\t原句", message["content"])
 
-    def test_chapter_prompt_appends_runtime_rules_inside_user_message(self) -> None:
+    def test_polish_with_reference_prompt_is_separate_source(self) -> None:
+        expected = _load_prompt_template("polish-with-reference")
+        message = build_polish_messages("1\t错别字", script="脚本里的专有名词 OpenAI")[0]
+        self.assertTrue(message["content"].startswith(expected))
+        self.assertIn("以参考口播脚本的措辞", message["content"])
+        self.assertIn("## 参考口播脚本", message["content"])
+        self.assertIn("脚本里的专有名词 OpenAI", message["content"])
+        self.assertIn("## 待处理字幕", message["content"])
+        self.assertIn("1\t错别字", message["content"])
+
+    def test_chapter_prompt_uses_file_text_without_runtime_rules(self) -> None:
         template = _load_prompt_template("chapter")
         message = build_chapter_messages(
             "【1】第一段",
@@ -52,16 +87,17 @@ class DirectPromptSourceOfTruthTests(unittest.TestCase):
         )[0]
         self.assertEqual(message["role"], "user")
         self.assertTrue(message["content"].startswith(template))
-        self.assertIn("- 当前按横屏视频章节约束处理，本次最多只能分成 2 章。", message["content"])
-        self.assertIn("- 标题绝不能超过 5 个字。", message["content"])
+        self.assertNotIn("横屏视频章节约束", message["content"])
+        self.assertNotIn("本次最多只能分成 2 章", message["content"])
+        self.assertNotIn("标题绝不能超过 4 个字", message["content"])
         self.assertIn("【1】第一段", message["content"])
 
-    def test_highlight_prompt_appends_theme_note_inside_user_message(self) -> None:
+    def test_highlight_prompt_uses_file_text_without_theme_note(self) -> None:
         template = _load_prompt_template("highlight")
         message = build_highlight_messages("1\t香港", subtitle_theme="white")[0]
         self.assertEqual(message["role"], "user")
         self.assertTrue(message["content"].startswith(template))
-        self.assertIn("额外说明：渲染主题固定为 `white`，你无需输出主题信息。", message["content"])
+        self.assertNotIn("渲染主题固定为", message["content"])
         self.assertIn("1\t香港", message["content"])
 
 

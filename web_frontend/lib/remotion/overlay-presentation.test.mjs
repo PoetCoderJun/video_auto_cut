@@ -53,8 +53,14 @@ test("subtitle theme styles now keep text-only rendering with no background box"
   assert.equal(darkText.maxWidth, 460);
   assert.equal("padding" in darkText, false);
   assert.equal("backgroundColor" in darkText, false);
+  assert.equal(darkText.color, "#111827");
+  assert.equal(darkText.WebkitTextStroke, "1.05px rgba(255, 255, 255, 0.88)");
+  assert.match(darkText.textShadow, /rgba\(255, 255, 255, 0\.9\)/);
   assert.equal(lightText.maxWidth, 460);
   assert.equal("borderRadius" in lightText, false);
+  assert.equal(lightText.color, "#f9fbff");
+  assert.equal(lightText.WebkitTextStroke, "1.15px rgba(15, 23, 42, 0.82)");
+  assert.match(lightText.textShadow, /rgba\(2, 6, 23, 0\.72\)/);
 });
 
 test("progress label fit budget follows CSS-side em padding", () => {

@@ -13,6 +13,7 @@ export type SubtitleRenderV1CaptionHighlight = {
   endToken?: number;
   color?: string;
   fontScale?: number;
+  backgroundColor?: string;
 };
 
 export type SubtitleRenderV1Caption = {
@@ -90,7 +91,7 @@ const asTimeSeconds = (value: unknown): number | null => {
 
 const asString = (value: unknown): string => String(value ?? "").trim();
 
-const normalizeSubtitleTheme = (value: unknown): "black" | "white" | null => {
+const normalizeSubtitleTheme = (value: unknown): "black" | "white" | "stroke" | "stroke-white" | null => {
   const raw = asString(value);
   switch (raw) {
     case "white":
@@ -101,6 +102,16 @@ const normalizeSubtitleTheme = (value: unknown): "black" | "white" | null => {
     case "box-black-on-white":
     case "text-black":
       return "black";
+    case "stroke":
+    case "outlined":
+    case "stroke-black":
+    case "text-stroke":
+      return "stroke";
+    case "stroke-white":
+    case "outlined-white":
+    case "stroke-white-fill":
+    case "text-stroke-white":
+      return "stroke-white";
     default:
       return null;
   }
@@ -243,12 +254,14 @@ const normalizeCaptionHighlights = (
             : null;
       if (!resolvedRange) continue;
       const color = asString(record.color);
+      const backgroundColor = asString(record.backgroundColor);
       const fontScale = asNumber(record.fontScale);
       normalized.push({
         ...(text ? {text} : {}),
         startToken: resolvedRange.startToken,
         endToken: resolvedRange.endToken,
         ...(color ? {color} : {}),
+        ...(backgroundColor ? {backgroundColor} : {}),
         ...(fontScale !== null && fontScale > 0 ? {fontScale} : {}),
       });
   }
@@ -390,7 +403,10 @@ export const coerceWebRenderConfig = <T extends AnyRecord>(value: T): T => {
     "progressScale",
     "progressYPercent",
     "chapterScale",
+    "overlayReferenceWidth",
+    "overlayReferenceHeight",
     "showSubtitles",
+    "showHighlights",
     "showProgress",
     "showChapter",
     "progressLabelMode",

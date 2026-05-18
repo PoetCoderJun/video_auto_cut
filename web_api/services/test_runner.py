@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 
+from video_auto_cut.shared.log_context import bind_context
+
 from ..config import job_dir
 from ..constants import (
     JOB_ERROR_CODE_FILES_MISSING,
@@ -14,7 +16,7 @@ from ..constants import (
     PROGRESS_UPLOAD_READY,
 )
 from ..job_file_repository import list_jobs_by_status, list_test_chapters, list_test_lines, update_job
-from .test import run_test
+from .test import run_test, schedule_editor_highlight_warmup
 
 _INTERRUPTED_STAGE_CODE = "TEST_RETRY_REQUIRED"
 _INTERRUPTED_STAGE_MESSAGE = "服务重启后测试任务已中断，请重新开始字幕与章节生成。"
@@ -49,7 +51,7 @@ def _public_task_error_code(exc: Exception) -> str:
 def _public_task_error_message(exc: Exception) -> str:
     message = str(exc or "").strip()
     if _is_insufficient_credit_error(exc):
-        return message or "额度不足，请先兑换邀请码后重试"
+        return message or "额度不足，请先兑换码后重试"
     if _is_missing_job_file_error(exc):
         return JOB_ERROR_MESSAGE_FILES_MISSING
     return "任务执行失败，请重试。"
@@ -63,25 +65,27 @@ def _exception_summary(exc: Exception) -> str:
 
 
 def run_test_job_background(job_id: str) -> None:
-    try:
-        logging.info("[web_api] background test start job=%s", job_id)
-        run_test(job_id)
-    except Exception as exc:  # pragma: no cover - runtime behavior
-        logging.error("[web_api] test flow failed summary job=%s error=%s", job_id, _exception_summary(exc))
-        logging.exception("[web_api] background test failed job=%s", job_id)
-        if _is_insufficient_credit_error(exc):
+    with bind_context(job_id=job_id):
+        try:
+            logging.info("background test start")
+            run_test(job_id)
+            logging.info("background test success")
+        except Exception as exc:  # pragma: no cover - runtime behavior
+            logging.error("test flow failed summary error=%s", _exception_summary(exc))
+            logging.exception("background test failed")
+            if _is_insufficient_credit_error(exc):
+                update_job(
+                    job_id,
+                    status=JOB_STATUS_UPLOAD_READY,
+                    progress=PROGRESS_UPLOAD_READY,
+                )
+                return
             update_job(
                 job_id,
-                status=JOB_STATUS_UPLOAD_READY,
-                progress=PROGRESS_UPLOAD_READY,
+                status=JOB_STATUS_FAILED,
+                error_code=_public_task_error_code(exc),
+                error_message=_public_task_error_message(exc),
             )
-            return
-        update_job(
-            job_id,
-            status=JOB_STATUS_FAILED,
-            error_code=_public_task_error_code(exc),
-            error_message=_public_task_error_message(exc),
-        )
 
 
 def _has_ready_test_drafts(job_id: str) -> bool:
@@ -122,6 +126,7 @@ def recover_interrupted_test_runs() -> int:
                 stage_code=_RECOVERED_READY_STAGE_CODE,
                 stage_message=_RECOVERED_READY_STAGE_MESSAGE,
             )
+            schedule_editor_highlight_warmup(job_id)
         else:
             update_job(
                 job_id,
@@ -133,5 +138,5 @@ def recover_interrupted_test_runs() -> int:
         recovered += 1
 
     if recovered:
-        logging.warning("[web_api] recovered interrupted test runs count=%s", recovered)
+        logging.warning("recovered interrupted test runs count=%s", recovered)
     return recovered

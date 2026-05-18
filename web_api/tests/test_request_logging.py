@@ -15,7 +15,7 @@ class RequestLoggingTest(unittest.TestCase):
             {
                 "type": "http",
                 "method": "GET",
-                "path": "/api/v1/public/invites/claim",
+                "path": "/api/v1/public/guest/session",
                 "headers": headers,
                 "client": client,
             }

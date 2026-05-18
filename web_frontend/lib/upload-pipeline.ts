@@ -1,9 +1,9 @@
 import {
   createJob,
+  saveSourceVideoMetadata,
   type ClientUploadIssueStage,
   type Job,
   uploadAudio,
-  uploadSourceVideo,
 } from "./api";
 import { extractAudioForAsr } from "./audio-extract";
 import { resolveRenderMetaFromFile } from "./render-source-meta";
@@ -56,6 +56,7 @@ export async function readVideoDurationSec(file: File): Promise<number> {
 
 export async function runUploadPipeline(options: {
   file: File;
+  script?: string;
   onStageMessage?: (message: string) => void;
   onPreparedSource?: (file: File) => void;
 }): Promise<{
@@ -63,7 +64,7 @@ export async function runUploadPipeline(options: {
   uploadedJob: Job;
   preparedSourceFile: File;
 }> {
-  const { file, onStageMessage, onPreparedSource } = options;
+  const { file, script, onStageMessage, onPreparedSource } = options;
   let stage: ClientUploadIssueStage = "source_preflight";
 
   try {
@@ -87,25 +88,31 @@ export async function runUploadPipeline(options: {
     stage = "render_validation";
     onStageMessage?.("正在校验浏览器导出能力...");
     await validateBrowserRenderCapability(preparedSource.file);
-
-    stage = "job_create";
-    const job = await createJob();
-
-    stage = "source_upload";
-    onStageMessage?.("正在上传源视频...");
-    const sourceUploadPromise = uploadSourceVideo(job.job_id, file);
-
-    stage = "audio_extract";
-    onStageMessage?.("正在提取音频...");
     const renderMetaPromise = resolveRenderMetaFromFile(preparedSource.file).catch(
       () => null,
     );
+
+    stage = "job_create";
+    const job = await createJob(script);
+
+    stage = "source_upload";
+    onStageMessage?.("正在保存源视频信息...");
+    const sourceMetadataPromise = renderMetaPromise.then((renderMeta) => {
+      if (!renderMeta) {
+        return null;
+      }
+      return saveSourceVideoMetadata(job.job_id, renderMeta, preparedSource.file);
+    });
+
+    stage = "audio_extract";
+    onStageMessage?.("正在提取音频...");
     const audioFile = await extractAudioForAsr(preparedSource.file);
 
     stage = "audio_upload";
     onStageMessage?.("正在上传音频...");
     const uploadedJob = await uploadAudio(job.job_id, audioFile);
-    await sourceUploadPromise;
+    stage = "source_upload";
+    await sourceMetadataPromise;
 
     stage = "source_cache";
     const renderMeta = await renderMetaPromise;

@@ -193,7 +193,7 @@ def _build_common_values() -> dict[str, Any]:
         "topic_output": None,
         "topic_strict": False,
         "topic_max_topics": _env_int("TOPIC_MAX_TOPICS", default=5),
-        "topic_title_max_chars": _env_int("TOPIC_TITLE_MAX_CHARS", default=6),
+        "topic_title_max_chars": _env_int("TOPIC_TITLE_MAX_CHARS", default=4),
     }
 
 
@@ -223,6 +223,7 @@ def build_pipeline_options_from_settings(settings: Any, **overrides: object) -> 
             "force": True,
             "lang": settings.asr_dashscope_language or settings.lang,
             "prompt": "",
+            "script": "",
             "asr_backend": "dashscope_filetrans",
             "topic_llm_model": settings.llm_model,
             "auto_edit_merge_gap": 0.5,

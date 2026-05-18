@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { authClient } from "../lib/auth-client";
-import { activateInviteCode } from "../lib/api";
+import { redeemCouponCode } from "../lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -67,7 +67,7 @@ export default function CouponRedeemEntry({
         throw new Error("请先登录后再兑换");
       }
 
-      const activation = await activateInviteCode(code.trim().toUpperCase(), token);
+      const activation = await redeemCouponCode(code.trim().toUpperCase(), token);
       setOpen(false);
       setCode("");
       onRedeemed?.(activation);
