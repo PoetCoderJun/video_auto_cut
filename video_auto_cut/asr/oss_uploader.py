@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+import logging
+import time
+import datetime as dt
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+# Use resumable (multipart) upload for files >= this size (more reliable on slow/unstable networks)
+RESUMABLE_UPLOAD_THRESHOLD_BYTES = 10 * 1024 * 1024  # 10 MB
+UPLOAD_MAX_RETRIES = 3
+UPLOAD_RETRY_BASE_DELAY_SEC = 2.0
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class UploadedAudioObject:
+    object_key: str
+    signed_url: str
+    size_bytes: int
+
+
+class OSSAudioUploader:
+    def __init__(
+        self,
+        *,
+        endpoint: str,
+        bucket_name: str,
+        access_key_id: str,
+        access_key_secret: str,
+        prefix: str,
+        signed_url_ttl_seconds: int,
+    ) -> None:
+        try:
+            import oss2  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError(
+                "Missing dependency `oss2`. Please install with `pip install oss2`."
+            ) from exc
+
+        endpoint = (endpoint or "").strip()
+        bucket_name = _normalize_bucket_name((bucket_name or "").strip())
+        access_key_id = (access_key_id or "").strip()
+        access_key_secret = (access_key_secret or "").strip()
+        prefix = (prefix or "video-auto-cut/asr").strip().strip("/")
+        if not endpoint or not bucket_name or not access_key_id or not access_key_secret:
+            raise RuntimeError("OSS config missing: endpoint/bucket/access_key_id/access_key_secret")
+
+        endpoint = _ensure_https_endpoint(endpoint)
+        self._prefix = prefix
+        self._signed_url_ttl_seconds = int(max(60, signed_url_ttl_seconds))
+        auth = oss2.Auth(access_key_id, access_key_secret)
+        # connect_timeout=300 for slow/unstable networks; Bucket uses 3600s for read/write
+        self._bucket = oss2.Bucket(auth, endpoint, bucket_name, connect_timeout=300)
+
+    def upload_audio(
+        self, local_path: Path, *, job_id: str | None = None
+    ) -> UploadedAudioObject:
+        path = Path(local_path).expanduser().resolve()
+        if not path.exists() or not path.is_file():
+            raise RuntimeError(f"audio file not found: {path}")
+
+        object_key = self._build_object_key(path, job_id=job_id)
+        size = path.stat().st_size
+        use_resumable = size >= RESUMABLE_UPLOAD_THRESHOLD_BYTES
+
+        import oss2  # noqa: F811
+
+        last_exc: BaseException | None = None
+        for attempt in range(UPLOAD_MAX_RETRIES):
+            try:
+                if use_resumable:
+                    oss2.resumable.resumable_upload(
+                        self._bucket,
+                        object_key,
+                        str(path),
+                        multipart_threshold=RESUMABLE_UPLOAD_THRESHOLD_BYTES,
+                    )
+                else:
+                    self._bucket.put_object_from_file(object_key, str(path))
+                break
+            except (oss2.exceptions.RequestError, TimeoutError, ConnectionError) as e:
+                last_exc = e
+                if attempt < UPLOAD_MAX_RETRIES - 1:
+                    delay = UPLOAD_RETRY_BASE_DELAY_SEC * (2**attempt)
+                    logger.warning(
+                        "upload attempt %d/%d failed (%s), retrying in %.1fs: %s",
+                        attempt + 1,
+                        UPLOAD_MAX_RETRIES,
+                        type(e).__name__,
+                        delay,
+                        e,
+                    )
+                    time.sleep(delay)
+                else:
+                    raise
+
+        signed_url = self._bucket.sign_url(
+            "GET",
+            object_key,
+            self._signed_url_ttl_seconds,
+            slash_safe=True,
+        )
+        if signed_url.startswith("http://"):
+            signed_url = "https://" + signed_url[len("http://") :]
+        return UploadedAudioObject(
+            object_key=object_key,
+            signed_url=signed_url,
+            size_bytes=int(path.stat().st_size),
+        )
+
+    def _build_object_key(self, path: Path, *, job_id: str | None = None) -> str:
+        stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
+        resolved_job_id = _sanitize(job_id)[:40] if job_id else _guess_job_id(path)
+        stem = _sanitize(path.stem)[:32] or "audio"
+        suffix = path.suffix.lower() or ".wav"
+        nonce = uuid.uuid4().hex[:10]
+        parts = [self._prefix]
+        if resolved_job_id:
+            parts.append(resolved_job_id)
+        parts.append(stamp)
+        return "/".join(part for part in parts if part) + f"/{stem}_{nonce}{suffix}"
+
+    def build_object_key_for_job(self, job_id: str, *, suffix: str = ".wav") -> str:
+        """Build OSS object key for a known job id."""
+        stamp = dt.datetime.utcnow().strftime("%Y%m%d/%H%M%S")
+        nonce = uuid.uuid4().hex[:10]
+        job_safe = _sanitize(job_id)[:40] if job_id else ""
+        ext = suffix if suffix.startswith(".") else f".{suffix}"
+        ext = ext.lower()
+        if not ext or ext == ".":
+            ext = ".wav"
+        parts = [self._prefix]
+        if job_safe:
+            parts.append(job_safe)
+        parts.append(stamp)
+        return "/".join(part for part in parts if part) + f"/audio_{nonce}{ext}"
+
+    def get_presigned_put_url(
+        self,
+        object_key: str,
+        expires: int = 3600,
+        *,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        """Return presigned PUT URL for client-side direct upload.
+        Client must send the same Content-Type to avoid SignatureDoesNotMatch.
+        """
+        headers = {"Content-Type": content_type}
+        url = self._bucket.sign_url(
+            "PUT", object_key, expires, headers=headers, slash_safe=True
+        )
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        return url
+
+    def get_signed_get_url(self, object_key: str) -> str:
+        """Return signed GET URL for DashScope to fetch the object."""
+        url = self._bucket.sign_url(
+            "GET", object_key, self._signed_url_ttl_seconds, slash_safe=True
+        )
+        if url.startswith("http://"):
+            url = "https://" + url[len("http://") :]
+        return url
+
+
+def create_oss_uploader_from_config(
+    config: Any,
+    *,
+    prefix: str | None = None,
+    default_prefix: str = "video-auto-cut/asr",
+    min_ttl_seconds: int = 60,
+) -> OSSAudioUploader:
+    endpoint = getattr(config, "asr_oss_endpoint", None)
+    bucket_name = getattr(config, "asr_oss_bucket", None)
+    access_key_id = getattr(config, "asr_oss_access_key_id", None)
+    access_key_secret = getattr(config, "asr_oss_access_key_secret", None)
+    raw_prefix = prefix if prefix is not None else getattr(config, "asr_oss_prefix", default_prefix)
+    raw_ttl = getattr(config, "asr_oss_signed_url_ttl_seconds", 86400)
+    return OSSAudioUploader(
+        endpoint=(endpoint or "").strip(),
+        bucket_name=(bucket_name or "").strip(),
+        access_key_id=(access_key_id or "").strip(),
+        access_key_secret=(access_key_secret or "").strip(),
+        prefix=(raw_prefix or default_prefix).strip().strip("/") or default_prefix,
+        signed_url_ttl_seconds=max(int(min_ttl_seconds), int(raw_ttl)),
+    )
+
+
+def _ensure_https_endpoint(endpoint: str) -> str:
+    normalized = endpoint.strip()
+    if normalized.startswith("https://"):
+        return normalized
+    if normalized.startswith("http://"):
+        return "https://" + normalized[len("http://") :]
+    return "https://" + normalized
+
+
+def _normalize_bucket_name(bucket_name: str) -> str:
+    raw = bucket_name.strip()
+    if not raw:
+        return ""
+    if "://" in raw:
+        raw = raw.split("://", 1)[1]
+    raw = raw.split("/", 1)[0]
+    marker = ".oss-"
+    if marker in raw:
+        raw = raw.split(marker, 1)[0]
+    return raw.strip(".")
+
+
+def _guess_job_id(path: Path) -> str:
+    for item in path.parts:
+        if item.startswith("job_"):
+            return _sanitize(item)[:40]
+    return ""
+
+
+def _sanitize(text: str) -> str:
+    return "".join(ch for ch in str(text) if ch.isalnum() or ch in {"-", "_"})

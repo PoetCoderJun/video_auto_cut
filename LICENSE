@@ -1,0 +1,60 @@
+PoetCut Core Non-Commercial Source License 1.0
+
+Copyright (c) 2026 PoetCut contributors.
+
+This license applies to the source code and documentation in this repository
+unless a file says otherwise.
+
+1. Permission
+
+You may use, copy, modify, and distribute this software for personal,
+educational, research, evaluation, and internal non-commercial purposes.
+
+2. Non-Commercial Restriction
+
+You may not use this software for commercial purposes without a separate
+written commercial license from the copyright holder.
+
+Commercial purposes include, without limitation:
+
+- offering this software or a modified version as a paid or ad-supported
+  hosted service;
+- selling, sublicensing, renting, or reselling this software;
+- incorporating this software into a commercial product or service;
+- using this software to provide paid video editing, automation, API, SaaS, or
+  managed-service offerings for third parties;
+- using the PoetCut name, logo, domain, hosted service, production
+  infrastructure, customer data, analytics property, payment system, or private
+  configuration.
+
+3. Notices
+
+You must keep copyright, license, and notice files with redistributed copies or
+substantial portions of this software.
+
+4. Contributions
+
+Unless separately agreed in writing, any contribution submitted to this
+repository is licensed under this same license.
+
+5. No Trademark Grant
+
+This license does not grant rights to use PoetCut trademarks, trade names,
+logos, domains, or branding except to describe the origin of the software in a
+reasonable and non-misleading way.
+
+6. No Warranty
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+7. Commercial Licensing
+
+Commercial use requires a separate license. Contact the project owner before
+using PoetCut Core in any commercial product, hosted service, paid workflow, or
+customer-facing deployment.

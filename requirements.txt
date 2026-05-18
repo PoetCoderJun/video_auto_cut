@@ -1,0 +1,4 @@
+openai
+oss2
+python-dotenv
+srt

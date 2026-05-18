@@ -1,0 +1,184 @@
+{
+  "lines": [
+    {
+      "line_id": 1,
+      "start": 83.772,
+      "end": 86.092,
+      "original_text": "们可以看一下入境处最新的截图，",
+      "optimized_text": "们可以看一下入境处最新的截图，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 2,
+      "start": 86.412,
+      "end": 91.452,
+      "original_text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，",
+      "optimized_text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 3,
+      "start": 91.932,
+      "end": 95.452,
+      "original_text": "并且从事的工作必须要由学位的持有者担任，",
+      "optimized_text": "并且从事的工作必须要由学位的持有者担任，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 4,
+      "start": 95.532,
+      "end": 97.772,
+      "original_text": "及其薪酬福利必须达市场水平。",
+      "optimized_text": "及其薪酬福利必须达市场水平。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 5,
+      "start": 97.772,
+      "end": 98.572,
+      "original_text": "换句话说，",
+      "optimized_text": "换句话说，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 6,
+      "start": 99.292,
+      "end": 106.092,
+      "original_text": "对于申请者学位、现在薪酬福利水平学位持有都必须有一个要求，",
+      "optimized_text": "对于申请者学位、现在薪酬福利水平学位持有都必须有一个要求，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 7,
+      "start": 106.572,
+      "end": 112.492,
+      "original_text": "避免你去从事一些大家都懂的一些低技术的些工作去达到续签的目的。",
+      "optimized_text": "避免你去从事一些大家都懂的一些低技术的些工作去达到续签的目的。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 8,
+      "start": 112.492,
+      "end": 117.932,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 9,
+      "start": 117.932,
+      "end": 118.972,
+      "original_text": "第三就是，",
+      "optimized_text": "第三就是，",
+      "ai_suggest_remove": true,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 10,
+      "start": 119.452,
+      "end": 123.692,
+      "original_text": "第三就是续签费现在上调到了申请费六百块钱，",
+      "optimized_text": "第三就是续签费现在上调到了申请费六百块钱，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 11,
+      "start": 123.692,
+      "end": 126.012,
+      "original_text": "加上签证费千三百块钱，",
+      "optimized_text": "加上签证费千三百块钱，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 12,
+      "start": 126.012,
+      "end": 127.692,
+      "original_text": "共是一千九百块钱。",
+      "optimized_text": "共是一千九百块钱。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 13,
+      "start": 128.172,
+      "end": 132.012,
+      "original_text": "第四就是续签现在不再是通过填填表，",
+      "optimized_text": "第四就是续签现在不再是通过填填表，",
+      "ai_suggest_remove": true,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 14,
+      "start": 132.732,
+      "end": 135.612,
+      "original_text": "第四就是续签现在不再是通过填表的方式，",
+      "optimized_text": "第四就是续签现在不再是通过填表的方式，",
+      "ai_suggest_remove": true,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 15,
+      "start": 135.692,
+      "end": 138.092,
+      "original_text": "而是通过纯电子的网站这。",
+      "optimized_text": "而是通过纯电子的网站这。",
+      "ai_suggest_remove": true,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 16,
+      "start": 138.092,
+      "end": 139.532,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 17,
+      "start": 139.532,
+      "end": 142.972,
+      "original_text": "第四就是现在续签变成了纯电子网站的一个方式，",
+      "optimized_text": "第四就是现在续签变成了纯电子网站的一个方式，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 18,
+      "start": 143.212,
+      "end": 144.972,
+      "original_text": "不再需要去填表了。",
+      "optimized_text": "不再需要去填表了。",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 19,
+      "start": 144.972,
+      "end": 146.892,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 20,
+      "start": 146.892,
+      "end": 148.972,
+      "original_text": "很多人都被忽悠了，",
+      "optimized_text": "很多人都被忽悠了，",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    }
+  ]
+}

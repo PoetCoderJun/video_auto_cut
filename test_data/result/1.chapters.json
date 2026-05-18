@@ -1,0 +1,53 @@
+{
+  "topics": [
+    {
+      "chapter_id": 1,
+      "title": "开场引入",
+      "start": 2.588,
+      "end": 16.188,
+      "block_range": "1-7"
+    },
+    {
+      "chapter_id": 2,
+      "title": "变化一",
+      "start": 42.892,
+      "end": 52.892,
+      "block_range": "8-12"
+    },
+    {
+      "chapter_id": 3,
+      "title": "变化二",
+      "start": 53.932,
+      "end": 112.492,
+      "block_range": "13-24"
+    },
+    {
+      "chapter_id": 4,
+      "title": "变化三",
+      "start": 119.452,
+      "end": 127.692,
+      "block_range": "25-27"
+    },
+    {
+      "chapter_id": 5,
+      "title": "变化四",
+      "start": 132.732,
+      "end": 144.972,
+      "block_range": "28-31"
+    },
+    {
+      "chapter_id": 6,
+      "title": "自助建议",
+      "start": 146.892,
+      "end": 161.692,
+      "block_range": "32-39"
+    },
+    {
+      "chapter_id": 7,
+      "title": "关注与结尾",
+      "start": 164.204,
+      "end": 181.804,
+      "block_range": "40-43"
+    }
+  ]
+}

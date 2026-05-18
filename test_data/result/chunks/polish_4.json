@@ -1,0 +1,148 @@
+{
+  "lines": [
+    {
+      "line_id": 1,
+      "start": 149.372,
+      "end": 150.812,
+      "original_text": "觉得说续签好复杂，",
+      "optimized_text": "觉得续签好复杂",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 2,
+      "start": 150.812,
+      "end": 151.612,
+      "original_text": "需要找中介，",
+      "optimized_text": "需要找中介",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 3,
+      "start": 151.612,
+      "end": 152.332,
+      "original_text": "千万不要。",
+      "optimized_text": "千万不要",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 4,
+      "start": 152.972,
+      "end": 154.412,
+      "original_text": "网上申请是非常容易的，",
+      "optimized_text": "网上申请非常容易",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 5,
+      "start": 154.732,
+      "end": 157.132,
+      "original_text": "并且如果你有续签相关的问题，",
+      "optimized_text": "如果有续签相关的问题",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 6,
+      "start": 157.132,
+      "end": 160.252,
+      "original_text": "都可以到人才办的网站去查询，",
+      "optimized_text": "都可以到人才办网站查询",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 7,
+      "start": 160.492,
+      "end": 161.692,
+      "original_text": "会有专人解答。",
+      "optimized_text": "会有专人解答",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 8,
+      "start": 161.692,
+      "end": 164.204,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 9,
+      "start": 164.204,
+      "end": 168.764,
+      "original_text": "强烈大家关注香港人才服办公室的官方小红书账号，",
+      "optimized_text": "强烈推荐大家关注香港人才服务办公室的官方小红书账号",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 10,
+      "start": 169.004,
+      "end": 171.964,
+      "original_text": "那里有更多的实用信息和最新政策的解读。",
+      "optimized_text": "那里有更多实用信息和最新政策解读",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 11,
+      "start": 172.284,
+      "end": 173.564,
+      "original_text": "如果你有续签的问题，",
+      "optimized_text": "如果有续签问题",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 12,
+      "start": 173.564,
+      "end": 175.084,
+      "original_text": "欢迎点赞收藏评论，",
+      "optimized_text": "欢迎点赞收藏评论",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 13,
+      "start": 175.484,
+      "end": 176.364,
+      "original_text": "在评论里，",
+      "optimized_text": "在评论里",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 14,
+      "start": 177.324,
+      "end": 178.524,
+      "original_text": "如你有续签问题，",
+      "optimized_text": "如有续签问题",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 15,
+      "start": 178.524,
+      "end": 181.244,
+      "original_text": "欢迎点赞收藏在评论区留言交流，",
+      "optimized_text": "欢迎点赞收藏并在评论区留言交流",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 16,
+      "start": 181.404,
+      "end": 181.804,
+      "original_text": "下期见。",
+      "optimized_text": "下期见",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    }
+  ]
+}

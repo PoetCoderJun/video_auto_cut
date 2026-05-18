@@ -1,0 +1,75 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+.claude/
+*.swp
+
+# Logs
+log/
+logs/
+*.log
+
+# Media assets and render outputs (ignore by default)
+*.[Mm][Pp]4
+*.[Mm][Oo][Vv]
+*.[Mm][Kk][Vv]
+*.[Ff][Ll][Vv]
+*.[Aa][Vv][Ii]
+*.[Ww][Ee][Bb][Mm]
+*.[Mm][Pp]3
+*.[Ww][Aa][Vv]
+*.[Aa][Aa][Cc]
+*.[Ff][Ll][Aa][Cc]
+*.[Oo][Gg][Gg]
+*.[Oo][Pp][Uu][Ss]
+*.[Mm]4[Aa]
+*.[Ww][Mm][Aa]
+*.[Aa][Ii][Ff]
+*.[Aa][Ii][Ff][Cc]
+
+# Model weights (keep configs/READMEs, ignore large binaries)
+model/**/model.safetensors
+model/**/pytorch_model*.bin
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+.python-version
+
+# Packaging
+*.egg-info/
+build/
+dist/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# Test/coverage/caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.trash/
+workdir*/
+.worktrees/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+htmlcov/
+.coverage
+.coverage.*
+.omx/

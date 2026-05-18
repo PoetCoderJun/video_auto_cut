@@ -1,0 +1,44 @@
+{
+  "topics": [
+    {
+      "chapter_id": 1,
+      "title": "开场",
+      "block_range": "2-8"
+    },
+    {
+      "chapter_id": 2,
+      "title": "变化一：合同年限",
+      "block_range": "24-28"
+    },
+    {
+      "chapter_id": 3,
+      "title": "变化二：续签条件",
+      "block_range": "38-45"
+    },
+    {
+      "chapter_id": 4,
+      "title": "变化三：费用上调",
+      "block_range": "48-50"
+    },
+    {
+      "chapter_id": 5,
+      "title": "变化四：电子申请",
+      "block_range": "55-56"
+    },
+    {
+      "chapter_id": 6,
+      "title": "提醒与建议",
+      "block_range": "58-65"
+    },
+    {
+      "chapter_id": 7,
+      "title": "关注官方账号",
+      "block_range": "67-68"
+    },
+    {
+      "chapter_id": 8,
+      "title": "互动引导",
+      "block_range": "72-74"
+    }
+  ]
+}

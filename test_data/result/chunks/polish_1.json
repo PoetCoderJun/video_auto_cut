@@ -1,0 +1,184 @@
+{
+  "lines": [
+    {
+      "line_id": 1,
+      "start": 0.0,
+      "end": 2.588,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 2,
+      "start": 2.588,
+      "end": 3.308,
+      "original_text": "哟，这是俊。",
+      "optimized_text": "哟，这是俊",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 3,
+      "start": 3.788,
+      "end": 6.588,
+      "original_text": "前段时间我发了续签香港签证的分享，",
+      "optimized_text": "前段时间我发了续签香港签证的分享",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 4,
+      "start": 6.668,
+      "end": 8.268,
+      "original_text": "还接受了凤凰卫视采访，",
+      "optimized_text": "还接受了凤凰卫视采访",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 5,
+      "start": 8.748,
+      "end": 10.988,
+      "original_text": "受到了大量的续签相关私信。",
+      "optimized_text": "收到了大量续签相关的私信",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 6,
+      "start": 11.468,
+      "end": 14.428,
+      "original_text": "那么二五年香港续签签证有四大变化，",
+      "optimized_text": "2025年香港续签签证有四大变化",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 7,
+      "start": 14.508,
+      "end": 15.628,
+      "original_text": "一分钟给大家总结，",
+      "optimized_text": "一分钟给大家总结",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 8,
+      "start": 15.628,
+      "end": 16.188,
+      "original_text": "非常的重要。",
+      "optimized_text": "非常重要",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 9,
+      "start": 16.908,
+      "end": 17.228,
+      "original_text": "首先，",
+      "optimized_text": "首先，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 10,
+      "start": 17.228,
+      "end": 18.908,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 11,
+      "start": 18.908,
+      "end": 19.148,
+      "original_text": "嗯，",
+      "optimized_text": "嗯，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 12,
+      "start": 19.148,
+      "end": 20.348,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 13,
+      "start": 20.348,
+      "end": 22.508,
+      "original_text": "首先如果你不是parent的合同，",
+      "optimized_text": "首先如果你不是parent的合同，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 14,
+      "start": 22.748,
+      "end": 23.628,
+      "original_text": "现在不是是。",
+      "optimized_text": "现在不是是。",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 15,
+      "start": 23.628,
+      "end": 28.732,
+      "original_text": "< No Speech >",
+      "optimized_text": "< No Speech >",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 16,
+      "start": 28.732,
+      "end": 29.132,
+      "original_text": "首先，",
+      "optimized_text": "首先，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 17,
+      "start": 29.532,
+      "end": 31.052,
+      "original_text": "如果你不是permanent合同，",
+      "optimized_text": "如果你不是permanent合同，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 18,
+      "start": 31.052,
+      "end": 31.932,
+      "original_text": "现在不是，",
+      "optimized_text": "现在不是，",
+      "ai_suggest_remove": true,
+      "user_final_remove": true
+    },
+    {
+      "line_id": 19,
+      "start": 32.652,
+      "end": 34.492,
+      "original_text": "首先，如果你不是permanent合同，",
+      "optimized_text": "首先如果你不是permanent合同",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    },
+    {
+      "line_id": 20,
+      "start": 34.492,
+      "end": 36.732,
+      "original_text": "现在不再是三加三的形式续签，",
+      "optimized_text": "现在不再是3+3的形式续签",
+      "ai_suggest_remove": false,
+      "user_final_remove": false
+    }
+  ]
+}
