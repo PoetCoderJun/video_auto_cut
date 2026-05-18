@@ -467,7 +467,7 @@ test("createJob waits briefly for auth token initialization before failing", asy
   }
 });
 
-test("createJob requires a login token during limited-time free period", async () => {
+test("createJob requires a login token before job creation", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const restoreWindow = withMockWindowStorage();
@@ -507,7 +507,7 @@ test("createJob requires a login token during limited-time free period", async (
     await claimGuestSession("device-fingerprint-test");
     await assert.rejects(
       () => createJob(),
-      /当前限时免费需要先登录账号/
+      /请先登录账号后继续使用/
     );
 
     assert.equal(calls.length, 1);

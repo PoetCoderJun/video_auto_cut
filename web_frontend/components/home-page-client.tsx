@@ -12,6 +12,7 @@ import {
   FileText,
   Handshake,
   MessageCircle,
+  ShoppingBag,
 } from "lucide-react";
 import Logo from "@/components/logo";
 import {
@@ -67,8 +68,11 @@ import {
 import { cn } from "@/lib/utils";
 import HeroAnimation from "@/components/hero-animation";
 import FounderCard from "@/components/founder-card";
+import CouponRedeemEntry from "@/components/coupon-redeem-entry";
 
 const WECHAT_ID = "PoetCoderJun";
+const XHS_PROFILE_URL = "https://xhslink.com/m/2CUIT8iyntn";
+const XHS_QR_CODE_URL = `https://api.qrserver.com/v1/create-qr-code/?size=224x224&margin=12&data=${encodeURIComponent(XHS_PROFILE_URL)}`;
 
 const FAQ_ITEMS = [
   {
@@ -89,7 +93,7 @@ const FAQ_ITEMS = [
   {
     question: "现在怎么使用？",
     answer:
-      "当前是限时免费阶段。登录账号后即可上传、处理并导出，暂时不展示额度，也不会扣除额度。",
+      "新账号赠送 1 次体验剪辑。体验额度用完后，可以通过小红书购买兑换码：30 元 5 次剪辑，兑换后额度立即到账。",
   },
 ];
 
@@ -173,6 +177,55 @@ function PublicFeedbackSection() {
   );
 }
 
+function PurchaseCreditsSection() {
+  return (
+    <section id="buy-credits" className="border-t border-border/60 py-14">
+      <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_320px] lg:items-center">
+        <div>
+          <Badge className="rounded-full bg-indigo-600 text-white hover:bg-indigo-600">
+            购买额度
+          </Badge>
+          <h2 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+            5 次剪辑 30 元，小红书购买兑换码
+          </h2>
+          <div className="mt-4 space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
+            <p>
+              每个新账号赠送 1 次体验额度。用完后可以扫码或点击小红书链接私信购买，收到兑换码后回到 PoetCut 兑换即可继续剪辑。
+            </p>
+            <p>
+              额度在开始 AI 剪辑时扣除：同一个视频后续编辑、预览和导出不会重复扣费。
+            </p>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a href={XHS_PROFILE_URL} target="_blank" rel="noopener noreferrer">
+              <Button className="rounded-full">
+                <ShoppingBag className="mr-2 h-4 w-4" />
+                点击购买兑换码
+              </Button>
+            </a>
+            <CouponRedeemEntry buttonVariant="outline" buttonClassName="rounded-full" />
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-card p-5 shadow-sm">
+          <div className="mx-auto w-fit rounded-lg border border-border bg-white p-3 shadow-sm">
+            <img
+              src={XHS_QR_CODE_URL}
+              alt="扫码打开小红书购买 PoetCut 兑换码"
+              className="h-56 w-56 rounded-md object-contain"
+            />
+          </div>
+          <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm">
+            <p className="text-muted-foreground">当前套餐</p>
+            <p className="mt-1 font-semibold tracking-wide text-foreground">30 元 / 5 次剪辑</p>
+            <p className="mt-1 text-xs text-muted-foreground">扫码或点击链接，在小红书私信购买兑换码</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function useInView(threshold = 0.2) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [inView, setInView] = useState(false);
@@ -236,6 +289,7 @@ export default function HomePageClient() {
   const [authBusy, setAuthBusy] = useState(false);
   const [error, setError] = useState("");
   const [accountNotice, setAccountNotice] = useState("");
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [authAccount, setAuthAccount] = useState("");
   const [mobileUploadBlocked, setMobileUploadBlocked] = useState(false);
@@ -324,6 +378,7 @@ export default function HomePageClient() {
       invalidateTokenCache();
       setIsSignedIn(false);
       setAuthAccount("");
+      setCreditBalance(null);
       setJobId(null);
       setAccountNotice("");
       try {
@@ -338,7 +393,7 @@ export default function HomePageClient() {
 
   const showLoginRequiredError = useCallback((source = "upload_entry") => {
     trackEvent("upload_login_required", { source });
-    setError("当前限时免费需要先登录账号。登录后即可上传和导出，暂时不消耗额度。");
+    setError("请先登录账号。新账号赠送 1 次体验额度，用完后可购买兑换码继续使用。");
   }, []);
 
   // Auth and profile checks happen here, only when user actually tries to upload.
@@ -395,15 +450,23 @@ export default function HomePageClient() {
 
       // 2. Reconcile the business user row before starting job I/O.
       uploadStage = "profile_check";
+      let accountBalance = 0;
       try {
-        await getMe();
+        const profile = await getMe();
+        accountBalance = Number(profile.credits?.balance ?? 0);
+        setCreditBalance(accountBalance);
+        if (accountBalance < 1) {
+          setAccountNotice("当前账号额度不足，请先购买或兑换码后再上传。");
+          setError("当前账号额度不足，请先购买 30 元 / 5 次兑换码，兑换后再上传。");
+          return;
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "账号状态校验失败，请稍后重试。";
         setError(message);
         return;
       }
-      setAccountNotice("限时免费已开启：本次处理和导出暂不消耗额度。");
+      setAccountNotice(`当前剩余 ${Math.max(0, accountBalance)} 次额度，开始 AI 剪辑时扣 1 次。`);
 
       const result = await runUploadPipeline({
         file,
@@ -471,7 +534,7 @@ export default function HomePageClient() {
               {isSignedIn && (
                 <>
                   <Badge variant="secondary" className="px-3 py-1">
-                    限时免费
+                    {creditBalance === null ? "已登录" : `剩余 ${creditBalance} 次`}
                   </Badge>
                   <span className="hidden text-sm text-muted-foreground sm:inline-block">
                     {authAccount}
@@ -514,6 +577,9 @@ export default function HomePageClient() {
             <a href="#contact" className="transition-colors hover:text-foreground">
               反馈合作
             </a>
+            <a href="#buy-credits" className="transition-colors hover:text-foreground">
+              购买额度
+            </a>
             <a href="#faq" className="transition-colors hover:text-foreground">
               常见问题
             </a>
@@ -531,7 +597,7 @@ export default function HomePageClient() {
             ) : (
               <>
                 <Badge variant="secondary" className="px-3 py-1">
-                  限时免费
+                  {creditBalance === null ? "已登录" : `剩余 ${creditBalance} 次`}
                 </Badge>
                 <span className="hidden text-sm text-muted-foreground sm:inline-block">
                   {authAccount}
@@ -564,9 +630,9 @@ export default function HomePageClient() {
             <div className="flex-1 lg:max-w-[56%] min-w-0">
               <div className="mb-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
                 <Badge className="rounded-full bg-emerald-600 text-white hover:bg-emerald-600">
-                  限时免费
+                  新账号赠送 1 次
                 </Badge>
-                <span>公测期间登录账号即可免费使用</span>
+                <span>5 次剪辑 30 元，小红书购买兑换码</span>
               </div>
               {/* Headline */}
               <h1 className="tracking-tight text-foreground">
@@ -667,15 +733,15 @@ export default function HomePageClient() {
                             : mobileUploadBlocked
                             ? "当前浏览器暂不支持上传"
                             : !isSignedIn
-                            ? "登录后即可限时免费上传"
+                            ? "登录后领取 1 次体验额度"
                             : "拖拽文件到此处，或点击上传视频"}
                         </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {mobileUploadBlocked
                             ? "请使用桌面版 Chrome"
                             : !isSignedIn
-                            ? "限时免费期间不消耗额度，请先登录账号"
-                            : "支持 MP4, MOV, MKV 等 · 最长 10 分钟"}
+                            ? "体验额度用完后，可购买兑换码继续使用"
+                            : "支持 MP4, MOV, MKV 等 · 最长 10 分钟 · AI 剪辑扣 1 次"}
                         </p>
                       </div>
                       {!loading && !mobileUploadBlocked && isSignedIn && (
@@ -827,6 +893,8 @@ export default function HomePageClient() {
 
         <PublicFeedbackSection />
 
+        <PurchaseCreditsSection />
+
         <section className="border-t border-border/60 py-12">
           <div className="mx-auto max-w-md">
             <FounderCard />
@@ -859,7 +927,7 @@ export default function HomePageClient() {
                   className="rounded-full"
                   disabled={loading}
                 >
-                  {isSignedIn ? "立即上传视频" : "登录后免费使用"}
+                  {isSignedIn ? "立即上传视频" : "登录领取体验额度"}
                   <ArrowRight className="ml-1 h-4 w-4" />
                 </Button>
                 {!isSignedIn && (

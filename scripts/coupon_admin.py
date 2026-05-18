@@ -56,6 +56,17 @@ def normalize_code(raw: str) -> str:
     return code
 
 
+def row_value(row: Any, key: str, index: int) -> Any:
+    try:
+        return row[key]
+    except Exception:
+        pass
+    try:
+        return row[index]
+    except Exception:
+        return None
+
+
 def generate_code(length: int) -> str:
     alphabet = string.ascii_uppercase + string.digits
     token = "".join(secrets.choice(alphabet) for _ in range(length))
@@ -218,14 +229,14 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(
             "\t".join(
                 [
-                    str(row["coupon_id"]),
-                    str(row["code"]),
-                    str(row["credits"]),
-                    str(row["used_count"]),
-                    str(row["status"]),
-                    str(row["source"] if row["source"] is not None else ""),
-                    str(row["expires_at"] if row["expires_at"] is not None else ""),
-                    str(row["created_at"]),
+                    str(row_value(row, "coupon_id", 0)),
+                    str(row_value(row, "code", 1)),
+                    str(row_value(row, "credits", 2)),
+                    str(row_value(row, "used_count", 3)),
+                    str(row_value(row, "status", 5)),
+                    str(row_value(row, "source", 6) if row_value(row, "source", 6) is not None else ""),
+                    str(row_value(row, "expires_at", 4) if row_value(row, "expires_at", 4) is not None else ""),
+                    str(row_value(row, "created_at", 7)),
                 ]
             )
         )

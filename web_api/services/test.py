@@ -54,7 +54,7 @@ from ..job_file_repository import (
     update_job,
     upsert_job_files,
 )
-from .billing import has_available_credits
+from .billing import has_available_credits_for_job
 from .render_web import ensure_subtitle_render_v1_contract, warm_editor_subtitle_style_cache
 
 
@@ -491,7 +491,7 @@ def _ensure_test_credit(job_id: str) -> None:
     owner_user_id = get_job_owner_user_id(job_id)
     if not owner_user_id:
         raise RuntimeError("job owner not found")
-    if not has_available_credits(owner_user_id):
+    if not has_available_credits_for_job(owner_user_id, job_id):
         raise RuntimeError("额度不足，请先兑换码后重试")
 
 

@@ -10,7 +10,7 @@ from web_api.services.auth import CurrentUser
 
 class RenderConfigRouteTest(unittest.TestCase):
     @patch("web_api.api.routes._build_render_config")
-    @patch("web_api.api.routes.ensure_credit_available", return_value=None)
+    @patch("web_api.api.routes.ensure_credit_available_for_job", return_value=None)
     @patch("web_api.api.routes.require_status")
     @patch("web_api.api.routes.load_job_or_404")
     def test_render_config_maps_dimension_validation_to_api_error(
@@ -36,7 +36,7 @@ class RenderConfigRouteTest(unittest.TestCase):
         self.assertEqual(raised.exception.message, "视频分辨率无效，请重新选择源文件后重试")
         mock_load_job.assert_called_once_with("job-1", "user-1")
         mock_require_status.assert_called_once()
-        mock_has_credits.assert_called_once_with("user-1")
+        mock_has_credits.assert_called_once_with("user-1", "job-1")
 
 
 if __name__ == "__main__":

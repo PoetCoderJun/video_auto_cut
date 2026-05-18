@@ -5,7 +5,7 @@ import SeoArticlePage from "@/components/seo-article-page";
 export const metadata: Metadata = {
   title: "PoetCut AI网感口播剪辑常见问题",
   description:
-    "了解 PoetCut AI网感口播剪辑支持的视频格式、剪辑层、字幕层、包装层、自动删废话、数据处理方式和限时免费使用方式。",
+    "了解 PoetCut AI网感口播剪辑支持的视频格式、剪辑层、字幕层、包装层、自动删废话、数据处理方式和兑换码额度。",
   alternates: {
     canonical: "/faq",
   },
@@ -51,7 +51,7 @@ export default function FaqPage() {
         {
           title: "当前如何使用？",
           body:
-            "当前处于限时免费阶段，登录账号后即可上传、处理并导出。后续如果计费方式变化，会在产品内明确说明。",
+            "新账号赠送 1 次体验剪辑。体验额度用完后，可以通过首页的小红书购买入口购买兑换码，目前套餐是 30 元 5 次剪辑。",
         },
       ]}
     />

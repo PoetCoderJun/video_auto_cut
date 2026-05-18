@@ -162,13 +162,13 @@ https://poetcut.online/sitemap.xml
 创建：
 
 ```bash
-python scripts/coupon_admin.py create --credits 20 --source xhs
+python scripts/coupon_admin.py create --credits 5 --source xhs
 ```
 
 批量创建：
 
 ```bash
-python scripts/coupon_admin.py create --count 20 --credits 20 --source xhs
+python scripts/coupon_admin.py create --count 100 --credits 5 --source xhs
 ```
 
 查看：

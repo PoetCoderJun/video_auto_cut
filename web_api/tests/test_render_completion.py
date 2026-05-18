@@ -10,6 +10,7 @@ from web_api.api.routes import render_complete
 from web_api.config import get_settings
 from web_api.constants import JOB_STATUS_TEST_CONFIRMED, JOB_STATUS_SUCCEEDED
 from web_api.db import get_conn, init_db
+from web_api.db_repository import consume_job_test_credit, ensure_user
 from web_api.job_file_repository import create_job, get_job, update_job
 from web_api.services.auth import CurrentUser
 
@@ -39,10 +40,14 @@ class RenderCompletionRouteTests(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_render_complete_is_free_and_persists_succeeded_status(self) -> None:
+    def test_render_complete_does_not_consume_again_after_test_credit_paid(self) -> None:
         job_id = "job_render_done"
         user_id = "user_render_done"
+        ensure_user(user_id, "user@example.com")
         create_job(job_id, "CREATED", user_id)
+        paid = consume_job_test_credit(user_id, job_id)
+        self.assertTrue(paid["consumed"])
+        self.assertEqual(paid["balance"], 0)
         test_dir = Path(self.tmpdir.name) / "jobs" / job_id / "test"
         test_dir.mkdir(parents=True, exist_ok=True)
         (test_dir / "final_test.txt").write_text("", encoding="utf-8")
@@ -78,9 +83,12 @@ class RenderCompletionRouteTests(unittest.TestCase):
                 (user_id, job_id),
             ).fetchall()
 
-        self.assertEqual(len(rows), 0)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["delta"], -1)
+        self.assertEqual(rows[0]["reason"], "JOB_TEST_RUN")
+        self.assertEqual(rows[0]["idempotency_key"], f"job:{job_id}:test_run")
 
-    def test_render_complete_allows_zero_credit_user_during_free_period(self) -> None:
+    def test_render_complete_rejects_zero_credit_user(self) -> None:
         job_id = "job_render_no_credit"
         user_id = "user_render_no_credit"
         create_job(job_id, "CREATED", user_id)
@@ -94,12 +102,13 @@ class RenderCompletionRouteTests(unittest.TestCase):
 
         current_user = CurrentUser(user_id=user_id, email="user@example.com", account="user")
         with patch("web_api.api.routes.ensure_active_user", return_value=None):
-            billing = render_complete(job_id, current_user=current_user)["data"]["billing"]
+            with self.assertRaises(Exception) as cm:
+                render_complete(job_id, current_user=current_user)
 
-        self.assertEqual(billing, {"consumed": False, "balance": 0})
+        self.assertEqual(getattr(cm.exception, "message", ""), "额度不足，请先兑换码后重试")
         job = get_job(job_id, owner_user_id=user_id)
         self.assertIsNotNone(job)
-        self.assertEqual(job["status"], JOB_STATUS_SUCCEEDED)
+        self.assertEqual(job["status"], JOB_STATUS_TEST_CONFIRMED)
 
 
 if __name__ == "__main__":

@@ -39,16 +39,26 @@ class BillingRoutesCleanupRegressionTest(unittest.TestCase):
                 os.environ[key] = value
         get_settings.cache_clear()
 
-    def test_me_endpoint_returns_pending_profile_for_local_dev_user(self) -> None:
+    def test_me_endpoint_grants_one_welcome_credit_for_local_dev_user(self) -> None:
         with TestClient(create_app()) as client:
             response = client.get("/api/v1/me")
 
         self.assertEqual(response.status_code, 200)
         user = response.json()["data"]["user"]
         self.assertEqual(user["user_id"], "dev_local_user")
-        self.assertEqual(user["status"], "PENDING_COUPON")
-        self.assertEqual(user["credits"]["balance"], 0)
-        self.assertEqual(user["credits"]["recent_ledger"], [])
+        self.assertEqual(user["status"], "ACTIVE")
+        self.assertEqual(user["credits"]["balance"], 1)
+        self.assertEqual(len(user["credits"]["recent_ledger"]), 1)
+        self.assertEqual(user["credits"]["recent_ledger"][0]["delta"], 1)
+        self.assertEqual(user["credits"]["recent_ledger"][0]["reason"], "WELCOME_CREDIT")
+
+        with TestClient(create_app()) as client:
+            repeat = client.get("/api/v1/me")
+
+        self.assertEqual(repeat.status_code, 200)
+        repeat_user = repeat.json()["data"]["user"]
+        self.assertEqual(repeat_user["credits"]["balance"], 1)
+        self.assertEqual(len(repeat_user["credits"]["recent_ledger"]), 1)
 
     def test_public_coupon_verify_endpoint_is_removed(self) -> None:
         with TestClient(create_app()) as client:

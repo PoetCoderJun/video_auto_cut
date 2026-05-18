@@ -22,6 +22,28 @@ type AuthPageClientProps = {
   view: AuthViewName;
 };
 
+const DEVICE_ACCOUNT_EMAIL_KEY = "poetcut_device_account_email";
+
+function readDeviceAccountEmail(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(DEVICE_ACCOUNT_EMAIL_KEY)?.trim().toLowerCase() || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDeviceAccountEmail(email: string): void {
+  if (typeof window === "undefined") return;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return;
+  try {
+    window.localStorage.setItem(DEVICE_ACCOUNT_EMAIL_KEY, normalized);
+  } catch {
+    // Ignore storage failures; the backend credit ledger still enforces quota.
+  }
+}
+
 export default function AuthPageClient({ view }: AuthPageClientProps) {
   const router = useRouter();
 
@@ -39,21 +61,31 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
     setLoading(true);
 
     try {
+      const normalizedEmail = email.trim().toLowerCase();
       if (view === "SIGN_UP") {
+        const registeredEmail = readDeviceAccountEmail();
+        if (registeredEmail && registeredEmail !== normalizedEmail) {
+          toast.error("当前设备已经注册过一个账号，请直接登录原账号使用。");
+          return;
+        }
         const res = await authClient.signUp.email({
-          email,
+          email: normalizedEmail,
           password,
-          name: email.split("@")[0] || "User",
+          name: normalizedEmail.split("@")[0] || "User",
         });
         if (res.error) throw res.error;
+        writeDeviceAccountEmail(normalizedEmail);
         toast.success("注册成功！");
         router.push("/");
       } else {
         const res = await authClient.signIn.email({
-          email,
+          email: normalizedEmail,
           password,
         });
         if (res.error) throw res.error;
+        if (!readDeviceAccountEmail()) {
+          writeDeviceAccountEmail(normalizedEmail);
+        }
         toast.success("登录成功！");
         router.push("/");
       }
@@ -102,8 +134,8 @@ export default function AuthPageClient({ view }: AuthPageClientProps) {
             </h1>
             <p className="text-sm text-muted-foreground">
               {isSignIn
-                ? "输入邮箱登录，继续限时免费使用"
-                : "注册账号后即可限时免费使用，暂时不消耗额度"}
+                ? "输入邮箱登录，继续使用你的剪辑额度"
+                : "注册账号后赠送 1 次体验额度"}
             </p>
           </div>
           

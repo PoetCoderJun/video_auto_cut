@@ -60,7 +60,7 @@ from ..services.account import (
     get_user_profile,
     redeem_coupon_for_user,
 )
-from ..services.billing import BillingServiceError, InsufficientCreditsError, ensure_credit_available
+from ..services.billing import BillingServiceError, InsufficientCreditsError, ensure_credit_available_for_job
 from ..services.jobs import (
     complete_render_export,
     load_job_or_404,
@@ -188,7 +188,7 @@ def _translate_billing_error(exc: BillingServiceError):
 
 def _ensure_actor_can_use_job_routes(actor: RequestActor) -> None:
     if actor.kind != "user":
-        raise forbidden("当前限时免费需要登录账号后使用")
+        raise forbidden("请先登录账号后继续使用")
     try:
         ensure_active_user(actor.actor_id, actor.email)
     except AccountServiceError as exc:
@@ -566,7 +566,7 @@ def render_config(
     job = load_job_or_404(job_id, actor.actor_id)
     require_status(job, RENDER_GET_ALLOWED_STATUSES)
     try:
-        ensure_credit_available(actor.actor_id)
+        ensure_credit_available_for_job(actor.actor_id, job_id)
     except BillingServiceError as exc:
         raise _translate_billing_error(exc) from exc
     try:

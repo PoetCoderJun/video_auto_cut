@@ -414,12 +414,12 @@ async function request<T>(path: string, init?: RequestInit, options?: RequestOpt
     if (normalizedExplicitToken) {
       token = normalizedExplicitToken;
     } else if (requireAuth) {
-      throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
+      throw new ApiClientError("请先登录账号后继续使用。", "UNAUTHORIZED", 401);
     }
   } else {
     token = await resolveAuthToken();
     if (requireAuth && !token) {
-      throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
+      throw new ApiClientError("请先登录账号后继续使用。", "UNAUTHORIZED", 401);
     }
     if (!requireAuth && !token) {
       guestToken = readStoredGuestToken();
@@ -463,7 +463,7 @@ export async function transcodeSourceVideoToBrowserCompatibleMp4(
 ): Promise<File> {
   const token = await resolveAuthToken();
   if (!token) {
-    throw new ApiClientError("当前限时免费需要先登录账号。", "UNAUTHORIZED", 401);
+    throw new ApiClientError("请先登录账号后继续使用。", "UNAUTHORIZED", 401);
   }
 
   const formData = new FormData();

@@ -101,7 +101,7 @@ class TestRunDraftSyncTests(unittest.TestCase):
                     return_value=SimpleNamespace(asr_backend="test", encoding="utf-8"),
                 ),
                 patch("web_api.services.test.get_job_owner_user_id", return_value="user-1"),
-                patch("web_api.services.test.has_available_credits", return_value=True),
+                patch("web_api.services.test.has_available_credits_for_job", return_value=True),
                 patch(
                     "web_api.services.test.run_asr_transcription_stage",
                     return_value=SimpleNamespace(srt_path=srt_path, test_lines=raw_lines),

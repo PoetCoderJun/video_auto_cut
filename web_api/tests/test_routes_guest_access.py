@@ -60,7 +60,7 @@ class GuestRoutesAccessTest(unittest.TestCase):
             self.assertEqual(create_resp.status_code, 403)
             self.assertEqual(
                 create_resp.json()["error"]["message"],
-                "当前限时免费需要登录账号后使用",
+                "请先登录账号后继续使用",
             )
 
     def test_guest_render_complete_is_blocked_during_login_required_free_period(self) -> None:
@@ -86,7 +86,7 @@ class GuestRoutesAccessTest(unittest.TestCase):
         self.assertEqual(second.status_code, 403)
         self.assertEqual(
             first.json()["error"]["message"],
-            "当前限时免费需要登录账号后使用",
+            "请先登录账号后继续使用",
         )
 
         session = get_guest_session(guest["guest_id"])

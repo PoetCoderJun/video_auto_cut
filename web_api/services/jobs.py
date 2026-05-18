@@ -22,7 +22,7 @@ from ..constants import (
 from ..errors import invalid_step_state, not_found, upload_too_large
 from ..job_file_repository import get_job, get_job_files, upsert_job_files, update_job
 from ..utils.media import validate_audio_extension
-from .billing import consume_export_credit, ensure_credit_available
+from .billing import consume_export_credit, consume_test_credit
 
 
 _LOCAL_AUDIO_UPLOAD_CHUNK_SIZE = 1024 * 1024
@@ -65,7 +65,7 @@ def queue_test_run(job_id: str, user_id: str) -> dict[str, Any]:
     require_status(job, {JOB_STATUS_UPLOAD_READY})
     if not _has_uploaded_audio(get_job_files(job_id)):
         raise invalid_step_state("音频尚未上传完成，请稍后重试")
-    ensure_credit_available(user_id)
+    consume_test_credit(job_id)
     update_job(
         job_id,
         status=JOB_STATUS_TEST_RUNNING,

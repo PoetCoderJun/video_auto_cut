@@ -130,7 +130,7 @@ def require_request_actor(
         raise unauthorized("登录状态已失效，请重新登录后继续")
 
     logging.warning("401: no Authorization Bearer token or guest token")
-    raise unauthorized("当前限时免费需要先登录账号")
+    raise unauthorized("请先登录账号后继续使用")
 
 
 def _decode_auth_token(token: str) -> dict[str, Any]:

@@ -10,7 +10,7 @@ const WECHAT_ID = "PoetCoderJun";
 
 export const metadata: Metadata = {
   title: "PoetCut 公测开放说明",
-  description: "PoetCut 当前公测开放，登录后限时免费使用，欢迎反馈体验和交流合作。",
+  description: "PoetCut 当前公测开放，新账号赠送 1 次体验剪辑，欢迎反馈体验和交流合作。",
 };
 
 export default function BetaPage() {
@@ -46,14 +46,14 @@ export default function BetaPage() {
                 PoetCut 公测开放
               </Badge>
               <h1 className="text-2xl font-extrabold tracking-tight text-foreground sm:text-4xl">
-                登录账号，限时免费体验
+                登录账号，领取 1 次体验额度
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                当前已经从内测进入公测开放阶段。登录账号后可以完整剪辑并导出，限时免费期间暂时不展示额度，也不会扣除额度。
+                当前已经从内测进入公测开放阶段。新账号赠送 1 次体验剪辑，用完后可以通过小红书购买兑换码继续使用。
               </p>
               <Link href="/">
                 <Button className="h-10 w-full rounded-full px-4 sm:h-10 sm:w-auto">
-                  登录后免费上传
+                  登录领取体验额度
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
               </Link>

@@ -74,8 +74,48 @@ def _row_value(row: Any, key: str, index: int) -> Any:
 def ensure_user(user_id: str, email: str | None) -> None:
     with get_conn() as conn:
         result = ensure_business_user(conn, user_id=user_id, email=email)
-        if result.changed:
+        welcome_granted = _ensure_welcome_credit_in_tx(conn, result.target_user_id)
+        if result.changed or welcome_granted:
             conn.commit()
+
+
+def _ensure_welcome_credit_in_tx(conn: Any, user_id: str) -> bool:
+    normalized_user_id = str(user_id or "").strip()
+    if not normalized_user_id:
+        raise ValueError("user_id cannot be empty")
+
+    existing = conn.execute(
+        """
+        SELECT entry_id
+        FROM credit_ledger
+        WHERE user_id = ? AND reason = 'WELCOME_CREDIT'
+        LIMIT 1
+        """,
+        (normalized_user_id,),
+    ).fetchone()
+    if existing:
+        return False
+
+    now = now_iso()
+    inserted = conn.execute(
+        """
+        INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
+        VALUES(?, 1, 'WELCOME_CREDIT', NULL, ?, ?)
+        """,
+        (normalized_user_id, f"welcome:{normalized_user_id}", now),
+    )
+    if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
+        return False
+
+    conn.execute(
+        """
+        UPDATE users
+        SET status = ?, activated_at = COALESCE(activated_at, ?), updated_at = ?
+        WHERE user_id = ?
+        """,
+        (USER_STATUS_ACTIVE, now, now, normalized_user_id),
+    )
+    return True
 
 
 @retry_turso_operation("get user")
@@ -606,6 +646,60 @@ def get_recent_credit_ledger(user_id: str, *, limit: int = 20) -> list[dict[str,
     ]
 
 
+@retry_turso_operation("consume test credit")
+def consume_job_test_credit(user_id: str, job_id: str) -> dict[str, Any]:
+    idempotency_key = f"job:{job_id}:test_run"
+    now = now_iso()
+
+    with get_conn() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+
+        existing = conn.execute(
+            "SELECT entry_id FROM credit_ledger WHERE idempotency_key = ? LIMIT 1",
+            (idempotency_key,),
+        ).fetchone()
+        if existing:
+            balance = _get_balance_in_tx(conn, user_id)
+            conn.commit()
+            return {"consumed": False, "balance": balance}
+
+        balance = _get_balance_in_tx(conn, user_id)
+        if balance < 1:
+            conn.rollback()
+            raise LookupError("INSUFFICIENT_CREDITS")
+
+        inserted = conn.execute(
+            """
+            INSERT OR IGNORE INTO credit_ledger(user_id, delta, reason, job_id, idempotency_key, created_at)
+            VALUES(?, -1, 'JOB_TEST_RUN', ?, ?, ?)
+            """,
+            (user_id, job_id, idempotency_key, now),
+        )
+        if int(getattr(inserted, "rowcount", 0) or 0) <= 0:
+            balance = _get_balance_in_tx(conn, user_id)
+            conn.commit()
+            return {"consumed": False, "balance": balance}
+
+        balance = _get_balance_in_tx(conn, user_id)
+        conn.commit()
+        return {"consumed": True, "balance": balance}
+
+
+@retry_turso_operation("check job credit consumed")
+def has_job_credit_consumed(job_id: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT entry_id
+            FROM credit_ledger
+            WHERE job_id = ? AND delta < 0 AND reason IN ('JOB_TEST_RUN', 'JOB_EXPORT_SUCCESS')
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+    return bool(row)
+
+
 @retry_turso_operation("consume export credit")
 def consume_job_export_credit(user_id: str, job_id: str) -> dict[str, Any]:
     idempotency_key = f"job:{job_id}:export_success"
@@ -613,6 +707,20 @@ def consume_job_export_credit(user_id: str, job_id: str) -> dict[str, Any]:
 
     with get_conn() as conn:
         conn.execute("BEGIN IMMEDIATE")
+
+        test_run = conn.execute(
+            """
+            SELECT entry_id
+            FROM credit_ledger
+            WHERE job_id = ? AND delta < 0 AND reason = 'JOB_TEST_RUN'
+            LIMIT 1
+            """,
+            (job_id,),
+        ).fetchone()
+        if test_run:
+            balance = _get_balance_in_tx(conn, user_id)
+            conn.commit()
+            return {"consumed": False, "balance": balance}
 
         existing = conn.execute(
             "SELECT entry_id FROM credit_ledger WHERE idempotency_key = ? LIMIT 1",
