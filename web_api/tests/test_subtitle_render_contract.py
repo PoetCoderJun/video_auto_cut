@@ -119,6 +119,42 @@ class SubtitleRenderContractTest(unittest.TestCase):
 
         self.assertEqual(payload["captions"][0]["highlights"], [])
 
+    def test_request_subtitle_style_contract_keeps_multiple_term_level_highlights(self) -> None:
+        captions = [
+            {"index": 1, "start": 0.0, "end": 1.2, "text": "那么二五年香港续签签证有四大变化，"},
+            {"index": 2, "start": 1.2, "end": 2.4, "text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，"},
+        ]
+
+        def fake_request_text(_cfg, _messages):
+            return "1\t二五年|香港续签|四大变化\n2\t薪酬福利|公司资质|营运状态|额外重点\n"
+
+        payload = request_subtitle_style_contract(
+            captions=captions,
+            llm_config={"base_url": "https://example.com/v1", "model": "qwen-plus"},
+            request_text_fn=fake_request_text,
+        )
+
+        self.assertEqual(payload["captions"][0]["highlights"], ["二五年", "香港续签", "四大变化"])
+        self.assertEqual(payload["captions"][1]["highlights"], ["薪酬福利", "公司资质", "营运状态"])
+
+    def test_request_subtitle_style_contract_discards_long_phrase_highlights(self) -> None:
+        captions = [
+            {"index": 1, "start": 0.0, "end": 1.2, "text": "那么二五年香港续签签证有四大变化，"},
+            {"index": 2, "start": 1.2, "end": 2.4, "text": "续签的考核标准包括但不限于薪酬福利、公司资质和营运状态，"},
+        ]
+
+        def fake_request_text(_cfg, _messages):
+            return "1\t二五年香港续签签证有四大变化\n2\t薪酬福利、公司资质和营运状态\n"
+
+        payload = request_subtitle_style_contract(
+            captions=captions,
+            llm_config={"base_url": "https://example.com/v1", "model": "qwen-plus"},
+            request_text_fn=fake_request_text,
+        )
+
+        self.assertEqual(payload["captions"][0]["highlights"], [])
+        self.assertEqual(payload["captions"][1]["highlights"], [])
+
     def test_build_subtitle_render_v1_contract_converts_highlight_terms_to_render_labels(self) -> None:
         contract = build_subtitle_render_v1_contract(
             captions=[

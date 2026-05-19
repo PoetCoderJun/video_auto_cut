@@ -67,12 +67,10 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import HeroAnimation from "@/components/hero-animation";
-import FounderCard from "@/components/founder-card";
 import CouponRedeemEntry from "@/components/coupon-redeem-entry";
 
 const WECHAT_ID = "PoetCoderJun";
 const XHS_PROFILE_URL = "https://xhslink.com/m/2CUIT8iyntn";
-const XHS_QR_CODE_URL = `https://api.qrserver.com/v1/create-qr-code/?size=224x224&margin=12&data=${encodeURIComponent(XHS_PROFILE_URL)}`;
 
 const FAQ_ITEMS = [
   {
@@ -179,48 +177,62 @@ function PublicFeedbackSection() {
 
 function PurchaseCreditsSection() {
   return (
-    <section id="buy-credits" className="border-t border-border/60 py-14">
-      <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_320px] lg:items-center">
+    <section id="buy-credits" className="-mx-4 border-t border-border/60 bg-slate-50 px-4 py-14 sm:-mx-6 sm:px-6 lg:py-16">
+      <div className="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[1fr_360px] lg:items-center">
         <div>
           <Badge className="rounded-full bg-indigo-600 text-white hover:bg-indigo-600">
             购买额度
           </Badge>
           <h2 className="mt-4 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            5 次剪辑 30 元，小红书购买兑换码
+            5 次剪辑 30 元，小红书店铺购买兑换码
           </h2>
-          <div className="mt-4 space-y-3 text-sm leading-7 text-muted-foreground sm:text-base">
+          <div className="mt-4 text-sm leading-7 text-muted-foreground sm:text-base">
             <p>
-              每个新账号赠送 1 次体验额度。用完后可以扫码或点击小红书链接私信购买，收到兑换码后回到 PoetCut 兑换即可继续剪辑。
-            </p>
-            <p>
-              额度在开始 AI 剪辑时扣除：同一个视频后续编辑、预览和导出不会重复扣费。
+              每个新账号赠送 1 次体验额度，使用额度可以在小红书内进入博主店铺直接购买，收到兑换码后回到 PoetCut 兑换即可继续使用，如果使用后觉得效果不好，可以无条件退款。
             </p>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <a href={XHS_PROFILE_URL} target="_blank" rel="noopener noreferrer">
               <Button className="rounded-full">
                 <ShoppingBag className="mr-2 h-4 w-4" />
-                点击购买兑换码
+                打开小红书店铺购买
               </Button>
             </a>
             <CouponRedeemEntry buttonVariant="outline" buttonClassName="rounded-full" />
           </div>
         </div>
 
-        <div className="rounded-lg border bg-card p-5 shadow-sm">
-          <div className="mx-auto w-fit rounded-lg border border-border bg-white p-3 shadow-sm">
-            <img
-              src={XHS_QR_CODE_URL}
-              alt="扫码打开小红书购买 PoetCut 兑换码"
-              className="h-56 w-56 rounded-md object-contain"
+        <a
+          href={XHS_PROFILE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group block rounded-lg border bg-card p-5 text-center shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
+          aria-label="打开小红书名片购买 PoetCut 兑换码"
+        >
+          <div className="mx-auto h-24 w-24 overflow-hidden rounded-full border-2 border-border bg-muted transition-transform duration-300 group-hover:scale-105">
+            <Image
+              src="/photo.jpg"
+              alt="诗人程序员Jun 小红书名片"
+              width={96}
+              height={96}
+              unoptimized
+              className="h-full w-full object-cover"
             />
           </div>
-          <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm">
+          <h3 className="mt-4 text-xl font-bold text-foreground">诗人程序员Jun</h3>
+          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+            <span>AI builder in HK</span>
+            <span className="h-1 w-1 rounded-full bg-muted-foreground/30" />
+            <span>Vibe coding 主理人</span>
+          </div>
+          <div className="mt-5 rounded-lg border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-left">
             <p className="text-muted-foreground">当前套餐</p>
             <p className="mt-1 font-semibold tracking-wide text-foreground">30 元 / 5 次剪辑</p>
-            <p className="mt-1 text-xs text-muted-foreground">扫码或点击链接，在小红书私信购买兑换码</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              点击名片进入小红书店铺购买兑换码。
+            </p>
           </div>
-        </div>
+        </a>
       </div>
     </section>
   );
@@ -565,23 +577,11 @@ export default function HomePageClient() {
             <Logo iconSize={32} showText={true} />
           </Link>
           <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-            <a href="#how-it-works" className="transition-colors hover:text-foreground">
-              如何使用
-            </a>
-            <Link href="/use-cases/koubo-video-editing" className="transition-colors hover:text-foreground">
-              适合谁用
-            </Link>
-            <Link href="/ai-koubo-jianji" className="transition-colors hover:text-foreground">
-              产品思考
-            </Link>
-            <a href="#contact" className="transition-colors hover:text-foreground">
-              反馈合作
-            </a>
             <a href="#buy-credits" className="transition-colors hover:text-foreground">
               购买额度
             </a>
-            <a href="#faq" className="transition-colors hover:text-foreground">
-              常见问题
+            <a href="#contact" className="transition-colors hover:text-foreground">
+              反馈合作
             </a>
           </nav>
           <div className="flex items-center gap-3">
@@ -848,7 +848,9 @@ export default function HomePageClient() {
           </div>
         </section>
 
-        <section id="how-it-works" className="bg-slate-50 dark:bg-slate-900/30 py-16 lg:py-20 -mx-4 sm:-mx-6 px-4 sm:px-6">
+        <PurchaseCreditsSection />
+
+        <section id="how-it-works" className="bg-background py-16 lg:py-20 -mx-4 sm:-mx-6 px-4 sm:px-6">
           <div className="mx-auto max-w-2xl mb-10 text-center">
             <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               三步完成口播成片
@@ -892,14 +894,6 @@ export default function HomePageClient() {
         </section>
 
         <PublicFeedbackSection />
-
-        <PurchaseCreditsSection />
-
-        <section className="border-t border-border/60 py-12">
-          <div className="mx-auto max-w-md">
-            <FounderCard />
-          </div>
-        </section>
 
         <section className="pb-16 pt-8">
           <Card className="border-border bg-gradient-to-br from-indigo-50 via-violet-50/70 to-background dark:from-indigo-950/30 dark:via-violet-950/20 dark:to-background shadow-sm">

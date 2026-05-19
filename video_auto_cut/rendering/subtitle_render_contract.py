@@ -11,7 +11,7 @@ from video_auto_cut.shared.test_text_protocol import format_time, parse_timed_li
 SUBTITLE_STYLE_VERSION = "subtitle-style.v1"
 SUBTITLE_RENDER_VERSION = "subtitle-render.v1"
 DEFAULT_SUBTITLE_THEME = "stroke"
-MAX_HIGHLIGHTS_PER_CAPTION = 2
+MAX_HIGHLIGHTS_PER_CAPTION = 3
 DEFAULT_STYLE_MAX_TOKENS = 2400
 
 _HIGHLIGHT_TEXT_COLORS = [
@@ -397,8 +397,10 @@ def _is_reasonable_highlight_term(candidate: str, source_text: str) -> bool:
         return False
     if term == source:
         return False
-    if any(ch in term for ch in "，。、；：！？,.!?") and len(term) > 6:
+    if term.strip("，。、；：！？,.!? ") == source.strip("，。、；：！？,.!? "):
         return False
-    if len(term) > max(8, len(source) // 2):
+    if any(ch in term for ch in "，。、；：！？,.!?") and len(term) > 8:
+        return False
+    if len(term) > max(12, int(len(source) * 0.75)):
         return False
     return True
