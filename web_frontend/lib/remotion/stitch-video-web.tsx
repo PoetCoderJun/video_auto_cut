@@ -1,4 +1,4 @@
-import React, {useMemo} from "react";
+import React, {useLayoutEffect, useMemo, useRef, useState} from "react";
 import {AbsoluteFill, Sequence, useCurrentFrame} from "remotion";
 import {Video} from "@remotion/media";
 import {clamp, cn} from "../utils.ts";
@@ -28,8 +28,10 @@ import {
 } from "./overlay-presentation";
 import {
   CHAPTER_TITLE_LINE_HEIGHT,
+  buildSubtitleDomLineCandidates,
   fitAdaptiveTextToBox,
   fitChapterTitleToBox,
+  fitSubtitleLayoutWithDom,
   fitSingleLineText,
   getChapterCardLayoutMetrics,
   getResponsiveOverlayTypography,
@@ -194,6 +196,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     progressLabelMode = "auto",
   } = coerceStitchVideoWebProps(rawProps as Record<string, unknown>) as StitchVideoWebProps;
   const frame = useCurrentFrame();
+  const subtitleRef = useRef<HTMLDivElement | null>(null);
   const overlayCanvas = useMemo(
     () =>
       resolveOverlayReferenceCanvas({
@@ -399,16 +402,75 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       }),
     [activeCaptionLayout?.fontSize, safeSubtitleScale, subtitleInitialFontSize, subtitleThemeIsText]
   );
+  const subtitleRenderMinFontSize = useMemo(
+    () =>
+      getSubtitleThemeRenderFontSize({
+        fittedFontSize: subtitleMinFontSize,
+        subtitleScale: safeSubtitleScale,
+        isTextTheme: subtitleThemeIsText,
+      }),
+    [safeSubtitleScale, subtitleMinFontSize, subtitleThemeIsText]
+  );
+  const subtitleDomLineCandidates = useMemo(
+    () => buildSubtitleDomLineCandidates(activeCaptionLayout?.maxLines),
+    [activeCaptionLayout?.maxLines]
+  );
+  const [subtitleDomLayout, setSubtitleDomLayout] = useState<{
+    fontSize: number;
+    maxLines: number;
+  } | null>(null);
+  const captionChunkSignature = useMemo(
+    () =>
+      activeCaptionChunks
+        .map((chunk) =>
+          [
+            chunk.text,
+            chunk.isHighlighted ? "h" : "n",
+            chunk.highlightColor ?? "",
+            chunk.highlightFontScale ?? "",
+          ].join(":")
+        )
+        .join("|"),
+    [activeCaptionChunks]
+  );
+
+  useLayoutEffect(() => {
+    const element = subtitleRef.current;
+    if (!element || !activeCaption || !subtitleRenderText) {
+      setSubtitleDomLayout(null);
+      return;
+    }
+
+    const nextLayout = fitSubtitleLayoutWithDom({
+      element,
+      baseFontSize: subtitleRenderFontSize,
+      minFontSize: subtitleRenderMinFontSize,
+      maxLinesCandidates: subtitleDomLineCandidates,
+    });
+    setSubtitleDomLayout((previous) =>
+      previous?.fontSize === nextLayout.fontSize && previous.maxLines === nextLayout.maxLines
+        ? previous
+        : nextLayout
+    );
+  }, [
+    activeCaption,
+    captionChunkSignature,
+    subtitleDomLineCandidates,
+    subtitleRenderFontSize,
+    subtitleRenderMinFontSize,
+    subtitleRenderText,
+  ]);
+  const subtitleMeasuredFontSize = subtitleDomLayout?.fontSize ?? subtitleRenderFontSize;
   const reservedSubtitleBottom = useMemo(
     () =>
       reserveSubtitleBottomForProgress({
         subtitleBottom: resolvedSubtitleBottom,
         progressBottom: resolvedProgressBottom,
         progressHeight: typography.progressHeight,
-        subtitleFontSize: subtitleRenderFontSize,
+        subtitleFontSize: subtitleMeasuredFontSize,
         showProgress,
       }),
-    [resolvedProgressBottom, resolvedSubtitleBottom, showProgress, subtitleRenderFontSize, typography.progressHeight]
+    [resolvedProgressBottom, resolvedSubtitleBottom, showProgress, subtitleMeasuredFontSize, typography.progressHeight]
   );
 
   const overlayLayerStyle = useMemo(
@@ -747,11 +809,12 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
           <div style={scaledStyles.subtitleWrap}>
             <div style={scaledStyles.subtitleFrame}>
               <div
+                ref={subtitleRef}
                 className={subtitleThemeClassName}
                 style={{
                   ...scaledStyles.subtitleBox,
                   ...subtitleStyleOverrides,
-                  fontSize: subtitleRenderFontSize,
+                  fontSize: subtitleMeasuredFontSize,
                   whiteSpace: "pre-line",
                   border: "none",
                   boxShadow: "none",

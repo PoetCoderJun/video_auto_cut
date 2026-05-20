@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildSubtitleDomLineCandidates,
   DEFAULT_SUBTITLE_MAX_LINES,
   fitSubtitleLayoutWithDom,
   getResponsiveOverlayTypography,
@@ -50,6 +51,13 @@ test.afterEach(() => {
   restoreWindow();
 });
 
+test("builds DOM line candidates from the current fitted caption budget", () => {
+  assert.deepEqual(buildSubtitleDomLineCandidates(undefined), [2, 3, 4]);
+  assert.deepEqual(buildSubtitleDomLineCandidates(2), [2, 3, 4]);
+  assert.deepEqual(buildSubtitleDomLineCandidates(3), [3, 4]);
+  assert.deepEqual(buildSubtitleDomLineCandidates(4), [4]);
+});
+
 test("returns the base layout before the DOM is available", () => {
   restoreWindow();
   const layout = fitSubtitleLayoutWithDom({
@@ -90,6 +98,29 @@ test("shrinks font size until width overflow disappears within the current line 
   });
 
   assert.deepEqual(layout, {fontSize: 25, maxLines: 2});
+});
+
+test("uses rendered highlight width instead of the plain text estimate", () => {
+  setMockWindow((element) => {
+    const fontSize = readFontSize(element.style, 72);
+    return {lineHeight: `${fontSize * 1.5}px`};
+  });
+  const element = makeElement({
+    clientWidth: 960,
+    baseFontSize: 72,
+    measure: (fontSize) => ({
+      scrollWidth: fontSize * 15,
+      scrollHeight: fontSize * 1.5 * 2,
+    }),
+  });
+  const layout = fitSubtitleLayoutWithDom({
+    element,
+    baseFontSize: 72,
+    minFontSize: 40,
+    maxLinesCandidates: [2, 3, 4],
+  });
+
+  assert.deepEqual(layout, {fontSize: 64, maxLines: 2});
 });
 
 test("keeps the larger font and falls back to three lines when height is the only overflow source", () => {

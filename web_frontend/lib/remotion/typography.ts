@@ -710,6 +710,18 @@ export const fitAdaptiveTextToBox = ({
 
 export const DEFAULT_SUBTITLE_MAX_LINES = [2, 3, 4] as const;
 
+export const buildSubtitleDomLineCandidates = (
+  currentMaxLines: number | undefined,
+): number[] => {
+  const fallback = DEFAULT_SUBTITLE_MAX_LINES[0];
+  const firstCandidate =
+    typeof currentMaxLines === "number" && Number.isFinite(currentMaxLines)
+      ? Math.max(fallback, Math.floor(currentMaxLines))
+      : fallback;
+  const candidates = DEFAULT_SUBTITLE_MAX_LINES.filter((value) => value >= firstCandidate);
+  return candidates.length > 0 ? candidates : [firstCandidate];
+};
+
 export const fitChapterTitleToBox = ({
   text,
   maxWidth,
