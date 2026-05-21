@@ -13,8 +13,10 @@ import {
 import {
   PROGRESS_LABEL_PADDING_X_EM,
   getChapterAccentColor,
+  getChapterCardBackdropLayers,
   getChapterCardStyle,
   getProgressLabelPaddingX,
+  getProgressTrackBackdropLayers,
   reserveSubtitleBottomForProgress,
   getSubtitleBoxMaxWidth,
   getSubtitleTextMaxWidth,
@@ -496,6 +498,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   const activeTopic = currentActiveTopicIndex >= 0 ? normalizedTopics[currentActiveTopicIndex] : null;
   const activeTopicLabel = activeTopic ? `${currentActiveTopicIndex + 1}/${normalizedTopics.length}` : "";
   const activeTopicAccentColor = getChapterAccentColor(currentActiveTopicIndex);
+  const chapterBackdropLayers = useMemo(
+    () => getChapterCardBackdropLayers({activeTopicIndex: currentActiveTopicIndex}),
+    [currentActiveTopicIndex]
+  );
+  const progressTrackBackdropLayers = useMemo(() => getProgressTrackBackdropLayers(), []);
   const topicTitleLayouts = useMemo(
     () =>
       normalizedTopics.map((topic) =>
@@ -588,7 +595,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         height: "100%",
         borderRadius: typography.progressRadius,
         overflow: "hidden" as const,
-        backgroundColor: "rgba(16, 22, 30, 0.42)",
+        backgroundColor: "transparent",
         border: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.2)`,
       },
       progressFill: {
@@ -598,6 +605,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         bottom: 0,
         width: "0%",
         background: "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+        zIndex: 1,
       },
       progressSegment: {
         position: "absolute" as const,
@@ -608,6 +616,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         justifyContent: "center" as const,
         overflow: "hidden" as const,
         borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.18)`,
+        zIndex: 2,
       },
       progressSegmentLabel: {
         maxWidth: "100%",
@@ -795,11 +804,26 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         {showChapter && activeTopic ? (
           <div style={scaledStyles.chapterWrap}>
             <div style={scaledStyles.chapterCard}>
-              <div style={scaledStyles.chapterMeta}>CHAPTER {activeTopicLabel}</div>
+              {chapterBackdropLayers.map((layer) => (
+                <span
+                  key={`chapter-backdrop-${layer.key}`}
+                  aria-hidden="true"
+                  style={{
+                    ...layer.style,
+                    pointerEvents: "none",
+                    zIndex: 0,
+                  }}
+                />
+              ))}
+              <div style={{...scaledStyles.chapterMeta, position: "relative", zIndex: 1}}>
+                CHAPTER {activeTopicLabel}
+              </div>
               <div
                 style={{
                   ...scaledStyles.chapterTitle,
                   fontSize: activeTopicLayout?.fontSize ?? scaledStyles.chapterTitle.fontSize,
+                  position: "relative",
+                  zIndex: 1,
                 }}
               >
                 {activeTopicLayout?.text ?? activeTopic.title}
@@ -865,6 +889,17 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         {showProgress ? (
           <div style={scaledStyles.progressWrap}>
             <div style={scaledStyles.progressTrack}>
+              {progressTrackBackdropLayers.map((layer) => (
+                <span
+                  key={`progress-backdrop-${layer.key}`}
+                  aria-hidden="true"
+                  style={{
+                    ...layer.style,
+                    pointerEvents: "none",
+                    zIndex: 0,
+                  }}
+                />
+              ))}
               <div style={{...scaledStyles.progressFill, width: `${progress * 100}%`}} />
               {topicSegments.map((segment) => (
                 <div

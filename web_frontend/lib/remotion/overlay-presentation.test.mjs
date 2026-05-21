@@ -13,6 +13,8 @@ import {
   getSubtitleTextMaxWidth,
   getSubtitleTextShadowLayers,
   getSubtitleThemeStyle,
+  getChapterCardBackdropLayers,
+  getProgressTrackBackdropLayers,
 } from "./overlay-presentation.ts";
 
 test("lets the chapter card use natural height with fit-content width", () => {
@@ -21,8 +23,9 @@ test("lets the chapter card use natural height with fit-content width", () => {
   assert.equal(style.width, "fit-content");
   assert.equal(style.maxWidth, 420);
   assert.equal("minHeight" in style, false);
-  assert.match(style.borderLeft, /^3px solid /);
-  assert.doesNotMatch(style.boxShadow, /\binset\b/);
+  assert.equal(style.position, "relative");
+  assert.equal("borderLeft" in style, false);
+  assert.equal("boxShadow" in style, false);
   assert.equal("backdropFilter" in style, false);
 });
 
@@ -103,6 +106,27 @@ test("overlay presentation avoids CSS effects that browser export cannot reprodu
     }
   }
   assert.doesNotMatch(String(chapterCard.boxShadow || ""), /\binset\b/i);
+});
+
+test("chapter and progress visuals use explicit export-safe layers", () => {
+  const chapterCard = getChapterCardStyle({cardMaxWidth: 420});
+  const chapterLayers = getChapterCardBackdropLayers({activeTopicIndex: 2});
+  const progressLayers = getProgressTrackBackdropLayers();
+
+  assert.equal("boxShadow" in chapterCard, false);
+  assert.ok(chapterLayers.length >= 3, "expected chapter card depth to come from real layers");
+  assert.ok(
+    chapterLayers.some((layer) => layer.kind === "accent"),
+    "expected chapter card to keep an explicit accent layer"
+  );
+  assert.ok(progressLayers.length >= 2, "expected progress track to keep explicit surface layers");
+
+  for (const layer of [...chapterLayers, ...progressLayers]) {
+    assert.equal("boxShadow" in layer.style, false);
+    assert.equal("backdropFilter" in layer.style, false);
+    assert.equal("WebkitBackdropFilter" in layer.style, false);
+    assert.equal("filter" in layer.style, false);
+  }
 });
 
 test("progress label fit budget follows CSS-side em padding", () => {

@@ -27,6 +27,12 @@ export type SubtitleTextLayerSpec = {
   translateYEm: number;
 };
 
+export type OverlayVisualLayerSpec = {
+  key: string;
+  kind: "shadow" | "surface" | "shine" | "accent";
+  style: CSSProperties;
+};
+
 export const getSubtitleTextFillColor = (subtitleTheme: string | undefined): string => {
   switch (normalizeSubtitleTheme(subtitleTheme)) {
     case "stroke-white":
@@ -173,26 +179,109 @@ export const getChapterAccentColor = (activeTopicIndex = 0): string =>
 
 export const getChapterCardStyle = ({
   cardMaxWidth,
-  activeTopicIndex = 0,
 }: {
   cardMaxWidth: number;
   activeTopicIndex?: number;
 }): CSSProperties => {
-  const accent = getChapterAccentColor(activeTopicIndex);
   return {
+    position: "relative",
     display: "inline-flex",
     flexDirection: "column",
     gap: `${CHAPTER_CARD_GAP_EM}em`,
     width: "fit-content",
     maxWidth: cardMaxWidth,
     padding: `${CHAPTER_CARD_PADDING_Y_EM}em ${CHAPTER_CARD_PADDING_X_EM}em`,
-    borderLeft: `3px solid ${accent}`,
     borderRadius: `${CHAPTER_CARD_RADIUS_EM}em`,
-    backgroundColor: "rgba(15, 18, 24, 0.55)",
-    boxShadow: "0 10px 28px rgba(0, 0, 0, 0.32)",
+    overflow: "hidden",
     boxSizing: "border-box",
   };
 };
+
+export const getChapterCardBackdropLayers = ({
+  activeTopicIndex = 0,
+}: {
+  activeTopicIndex?: number;
+} = {}): OverlayVisualLayerSpec[] => {
+  const accent = getChapterAccentColor(activeTopicIndex);
+  return [
+    {
+      key: "depth",
+      kind: "shadow",
+      style: {
+        position: "absolute",
+        inset: "0",
+        backgroundColor: "rgba(0, 0, 0, 0.2)",
+        transform: "translate(0.08em, 0.1em)",
+        borderRadius: "inherit",
+        opacity: 0.42,
+      },
+    },
+    {
+      key: "surface",
+      kind: "surface",
+      style: {
+        position: "absolute",
+        inset: "0",
+        background:
+          "linear-gradient(180deg, rgba(37, 43, 58, 0.66) 0%, rgba(13, 18, 27, 0.5) 100%)",
+        borderRadius: "inherit",
+      },
+    },
+    {
+      key: "shine",
+      kind: "shine",
+      style: {
+        position: "absolute",
+        left: "0.08em",
+        right: "0.08em",
+        top: "0.06em",
+        height: "0.08em",
+        backgroundColor: "rgba(255, 255, 255, 0.14)",
+        borderRadius: "999px",
+      },
+    },
+    {
+      key: "accent",
+      kind: "accent",
+      style: {
+        position: "absolute",
+        left: "0",
+        top: "0",
+        bottom: "0",
+        width: "0.11em",
+        backgroundColor: accent,
+      },
+    },
+  ];
+};
+
+export const getProgressTrackBackdropLayers = (): OverlayVisualLayerSpec[] => [
+  {
+    key: "surface",
+    kind: "surface",
+    style: {
+      position: "absolute",
+      inset: "0",
+      background:
+        "linear-gradient(180deg, rgba(26, 34, 47, 0.58) 0%, rgba(11, 17, 26, 0.44) 100%)",
+      borderRadius: "inherit",
+    },
+  },
+  {
+    key: "shine",
+    kind: "shine",
+    style: {
+      position: "absolute",
+      left: "0",
+      right: "0",
+      top: "0",
+      height: "34%",
+      backgroundColor: "rgba(255, 255, 255, 0.08)",
+      borderTopLeftRadius: "inherit",
+      borderTopRightRadius: "inherit",
+    },
+  },
+];
 
 export const getProgressLabelPaddingX = (fontSize: number): number =>
   Math.max(2, round(fontSize * PROGRESS_LABEL_PADDING_X_EM * 4) / 4);
