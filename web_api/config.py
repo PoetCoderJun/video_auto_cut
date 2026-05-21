@@ -19,6 +19,8 @@ class Settings:
     cleanup_enabled: bool
     cleanup_interval_seconds: float
     cleanup_ttl_seconds: int
+    cleanup_stale_job_seconds: int
+    cleanup_stale_statuses: tuple[str, ...]
     cleanup_batch_size: int
     cleanup_on_startup: bool
     asr_dashscope_base_url: str
@@ -172,6 +174,10 @@ def get_settings() -> Settings:
         cleanup_enabled=os.getenv("WEB_CLEANUP_ENABLED", "1").strip().lower() in {"1", "true", "yes"},
         cleanup_interval_seconds=max(1.0, float(os.getenv("WEB_CLEANUP_INTERVAL_SECONDS", "300"))),
         cleanup_ttl_seconds=max(0, int(os.getenv("WEB_CLEANUP_TTL_SECONDS", "3600"))),
+        cleanup_stale_job_seconds=max(0, int(os.getenv("WEB_CLEANUP_STALE_JOB_SECONDS", "21600"))),
+        cleanup_stale_statuses=parse_csv(
+            os.getenv("WEB_CLEANUP_STALE_STATUSES", "CREATED,UPLOAD_READY,TEST_RUNNING,FAILED")
+        ),
         cleanup_batch_size=max(1, int(os.getenv("WEB_CLEANUP_BATCH_SIZE", "10"))),
         cleanup_on_startup=os.getenv("WEB_CLEANUP_ON_STARTUP", "1").strip().lower() in {"1", "true", "yes"},
         **pipeline_settings,

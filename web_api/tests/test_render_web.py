@@ -617,6 +617,9 @@ class RenderWebConfigTest(unittest.TestCase):
                     {"title": "第一段", "start": 0.0, "end": 1.8},
                 ],
                 "subtitleTheme": "black",
+                "overlayReferenceWidth": 1920,
+                "overlayReferenceHeight": 1080,
+                "showHighlights": False,
             }
         }
 
@@ -633,6 +636,9 @@ class RenderWebConfigTest(unittest.TestCase):
         self.assertEqual(config["input_props"]["captions"][0]["label"]["highlights"][0]["text"], "先")
         self.assertEqual(config["input_props"]["captions"][0]["alignmentMode"], "exact")
         self.assertEqual(config["input_props"]["subtitleTheme"], "stroke")
+        self.assertEqual(config["input_props"]["overlayReferenceWidth"], 1920)
+        self.assertEqual(config["input_props"]["overlayReferenceHeight"], 1080)
+        self.assertFalse(config["input_props"]["showHighlights"])
 
     @patch("web_api.services.render_web.get_job_files")
     def test_build_web_render_config_accepts_timed_string_highlights_without_segments(

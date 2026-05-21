@@ -19,28 +19,56 @@ export const isTextSubtitleTheme = (_subtitleTheme: string | undefined): boolean
 
 export const isBoxedSubtitleTheme = (_subtitleTheme: string | undefined): boolean => false;
 
-export const getSubtitleTextTreatment = (
-  subtitleTheme: string | undefined,
-): Pick<CSSProperties, "color" | "textShadow" | "WebkitTextStroke" | "paintOrder"> => {
+export type SubtitleTextLayerSpec = {
+  key: string;
+  color: string;
+  opacity: number;
+  translateXEm: number;
+  translateYEm: number;
+};
+
+export const getSubtitleTextFillColor = (subtitleTheme: string | undefined): string => {
   switch (normalizeSubtitleTheme(subtitleTheme)) {
     case "stroke-white":
-      return {
-        color: "#f9fbff",
-        textShadow:
-          "0 2px 3px rgba(2, 6, 23, 0.72), 0 4px 12px rgba(2, 6, 23, 0.46), 0 0 1px rgba(2, 6, 23, 0.95)",
-        WebkitTextStroke: "1.15px rgba(15, 23, 42, 0.82)",
-        paintOrder: "stroke fill",
-      };
+      return "#f9fbff";
     case "stroke":
     default:
-      return {
-        color: "#111827",
-        textShadow:
-          "0 1px 2px rgba(255, 255, 255, 0.9), 0 4px 14px rgba(255, 255, 255, 0.48), 0 1px 4px rgba(15, 23, 42, 0.16)",
-        WebkitTextStroke: "1.05px rgba(255, 255, 255, 0.88)",
-        paintOrder: "stroke fill",
-      };
+      return "#111827";
   }
+};
+
+export const getSubtitleTextShadowLayers = (
+  subtitleTheme: string | undefined,
+): SubtitleTextLayerSpec[] => {
+  switch (normalizeSubtitleTheme(subtitleTheme)) {
+    case "stroke-white":
+      return [
+        {key: "outline-top", color: "#0f172a", opacity: 0.78, translateXEm: 0, translateYEm: -0.025},
+        {key: "outline-right", color: "#0f172a", opacity: 0.78, translateXEm: 0.025, translateYEm: 0},
+        {key: "outline-bottom", color: "#0f172a", opacity: 0.78, translateXEm: 0, translateYEm: 0.025},
+        {key: "outline-left", color: "#0f172a", opacity: 0.78, translateXEm: -0.025, translateYEm: 0},
+        {key: "shadow-near", color: "#020617", opacity: 0.36, translateXEm: 0, translateYEm: 0.07},
+        {key: "shadow-far", color: "#020617", opacity: 0.22, translateXEm: 0, translateYEm: 0.13},
+      ];
+    case "stroke":
+    default:
+      return [
+        {key: "outline-top", color: "#ffffff", opacity: 0.86, translateXEm: 0, translateYEm: -0.025},
+        {key: "outline-right", color: "#ffffff", opacity: 0.86, translateXEm: 0.025, translateYEm: 0},
+        {key: "outline-bottom", color: "#ffffff", opacity: 0.86, translateXEm: 0, translateYEm: 0.025},
+        {key: "outline-left", color: "#ffffff", opacity: 0.86, translateXEm: -0.025, translateYEm: 0},
+        {key: "shadow-glow", color: "#ffffff", opacity: 0.38, translateXEm: 0, translateYEm: 0.08},
+        {key: "shadow-contrast", color: "#0f172a", opacity: 0.12, translateXEm: 0, translateYEm: 0.04},
+      ];
+  }
+};
+
+export const getSubtitleTextTreatment = (
+  subtitleTheme: string | undefined,
+): Pick<CSSProperties, "color"> => {
+  return {
+    color: getSubtitleTextFillColor(subtitleTheme),
+  };
 };
 
 export const getSubtitleBoxMaxWidth = ({
@@ -158,11 +186,10 @@ export const getChapterCardStyle = ({
     width: "fit-content",
     maxWidth: cardMaxWidth,
     padding: `${CHAPTER_CARD_PADDING_Y_EM}em ${CHAPTER_CARD_PADDING_X_EM}em`,
+    borderLeft: `3px solid ${accent}`,
     borderRadius: `${CHAPTER_CARD_RADIUS_EM}em`,
     backgroundColor: "rgba(15, 18, 24, 0.55)",
-    backdropFilter: "blur(20px) saturate(180%)",
-    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-    boxShadow: `inset 3px 0 0 ${accent}, 0 10px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08)`,
+    boxShadow: "0 10px 28px rgba(0, 0, 0, 0.32)",
     boxSizing: "border-box",
   };
 };

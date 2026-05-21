@@ -11,6 +11,7 @@ import {
   getProgressLabelPaddingX,
   reserveSubtitleBottomForProgress,
   getSubtitleTextMaxWidth,
+  getSubtitleTextShadowLayers,
   getSubtitleThemeStyle,
 } from "./overlay-presentation.ts";
 
@@ -20,6 +21,9 @@ test("lets the chapter card use natural height with fit-content width", () => {
   assert.equal(style.width, "fit-content");
   assert.equal(style.maxWidth, 420);
   assert.equal("minHeight" in style, false);
+  assert.match(style.borderLeft, /^3px solid /);
+  assert.doesNotMatch(style.boxShadow, /\binset\b/);
+  assert.equal("backdropFilter" in style, false);
 });
 
 test("derives chapter title width budget from CSS-side horizontal padding", () => {
@@ -38,7 +42,7 @@ test("boxed subtitle themes reduce text width by CSS-side padding while text the
   );
 });
 
-test("subtitle theme styles now keep text-only rendering with no background box", () => {
+test("subtitle theme styles keep text-only rendering with export-safe paint", () => {
   const darkText = getSubtitleThemeStyle({
     subtitleTheme: "black",
     boxMaxWidth: 520,
@@ -54,13 +58,51 @@ test("subtitle theme styles now keep text-only rendering with no background box"
   assert.equal("padding" in darkText, false);
   assert.equal("backgroundColor" in darkText, false);
   assert.equal(darkText.color, "#111827");
-  assert.equal(darkText.WebkitTextStroke, "1.05px rgba(255, 255, 255, 0.88)");
-  assert.match(darkText.textShadow, /rgba\(255, 255, 255, 0\.9\)/);
+  assert.equal("WebkitTextStroke" in darkText, false);
+  assert.equal("textShadow" in darkText, false);
   assert.equal(lightText.maxWidth, 460);
   assert.equal("borderRadius" in lightText, false);
   assert.equal(lightText.color, "#f9fbff");
-  assert.equal(lightText.WebkitTextStroke, "1.15px rgba(15, 23, 42, 0.82)");
-  assert.match(lightText.textShadow, /rgba\(2, 6, 23, 0\.72\)/);
+  assert.equal("WebkitTextStroke" in lightText, false);
+  assert.equal("textShadow" in lightText, false);
+});
+
+test("subtitle shadow layers use duplicated text instead of unsupported CSS text effects", () => {
+  const darkLayers = getSubtitleTextShadowLayers("stroke");
+  const lightLayers = getSubtitleTextShadowLayers("stroke-white");
+
+  assert.ok(darkLayers.length >= 4);
+  assert.ok(lightLayers.length >= 4);
+  assert.ok(darkLayers.every((layer) => Number.isFinite(layer.translateXEm)));
+  assert.ok(lightLayers.some((layer) => layer.color === "#020617"));
+});
+
+test("overlay presentation avoids CSS effects that browser export cannot reproduce", () => {
+  const chapterCard = getChapterCardStyle({cardMaxWidth: 420});
+  const subtitleStyle = getSubtitleThemeStyle({
+    subtitleTheme: "white",
+    boxMaxWidth: 520,
+    textMaxWidth: 460,
+  });
+  const unsupportedKeys = [
+    "textShadow",
+    "WebkitTextStroke",
+    "paintOrder",
+    "backdropFilter",
+    "WebkitBackdropFilter",
+    "filter",
+    "mixBlendMode",
+    "clipPath",
+    "maskImage",
+    "WebkitMaskImage",
+  ];
+
+  for (const style of [chapterCard, subtitleStyle]) {
+    for (const key of unsupportedKeys) {
+      assert.equal(key in style, false, `${key} should not be used in export overlay styles`);
+    }
+  }
+  assert.doesNotMatch(String(chapterCard.boxShadow || ""), /\binset\b/i);
 });
 
 test("progress label fit budget follows CSS-side em padding", () => {

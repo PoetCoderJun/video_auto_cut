@@ -145,6 +145,14 @@ class TestRunDraftSyncTests(unittest.TestCase):
         self.assertIn("test flow step done job=job-1 step=auto_edit elapsed_seconds=", joined_logs)
         self.assertIn("test flow step done job=job-1 step=chapter elapsed_seconds=", joined_logs)
         self.assertIn("test flow step done job=job-1 step=total elapsed_seconds=", joined_logs)
+        self.assertIn(
+            'test flow edit preview job=job-1 removed_lines=0/1 changed_lines=1/1 asr="原始第一句" final="润色后的第一句"',
+            joined_logs,
+        )
+        edit_preview_logs = [line for line in captured_logs.output if "test flow edit preview job=job-1" in line]
+        self.assertEqual(len(edit_preview_logs), 1)
+        self.assertNotIn("{", edit_preview_logs[0])
+        self.assertNotIn("\\n", edit_preview_logs[0])
 
 
 if __name__ == "__main__":

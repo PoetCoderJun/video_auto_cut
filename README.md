@@ -126,6 +126,12 @@ Railway 不会读取本地 `.env`，必须在服务 Variables 中配置。
 - Root Directory：`web_frontend`
 - Dockerfile：`web_frontend/Dockerfile`
 
+### 空间与日志建议
+
+- API 进程启动后会定期清理 `workdir/jobs` 中已成功并超过 `WEB_CLEANUP_TTL_SECONDS` 的作业产物，默认每 300 秒扫一次。
+- 失败、上传后未继续、处理中断等 stale 作业默认超过 `WEB_CLEANUP_STALE_JOB_SECONDS=21600` 后清理；默认状态为 `CREATED,UPLOAD_READY,TEST_RUNNING,FAILED`，不默认清理 `TEST_READY`，避免用户刚进入编辑页就丢失草稿。
+- 线上建议保留 `LOG_LEVEL=INFO` 和 `LOG_FORMAT=auto`。Test 流程会输出 step 耗时，并额外输出一条单行 `test flow edit preview`，直接展示 ASR 原文与 AI 最终稿摘要，便于快速判断润色效果。
+
 ## 必要环境变量（至少）
 
 - `TURSO_DATABASE_URL`

@@ -11,6 +11,7 @@ from ..job_file_repository import (
     clear_step_data,
     get_job_files,
     list_expired_succeeded_jobs,
+    list_stale_jobs_with_artifacts as _list_stale_jobs_with_artifacts,
     list_succeeded_jobs_with_artifacts,
     upsert_job_files,
 )
@@ -180,7 +181,8 @@ def cleanup_expired_jobs() -> int:
         return 0
 
     ttl_seconds = max(0, int(settings.cleanup_ttl_seconds))
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=ttl_seconds)
     cutoff_iso = _to_iso(cutoff)
     job_ids = list_expired_succeeded_jobs(cutoff_iso, limit=settings.cleanup_batch_size)
 
@@ -198,14 +200,39 @@ def cleanup_expired_jobs() -> int:
         reason=f"ttl>{ttl_seconds}s",
     )
 
-    if cleaned or orphan_cleaned:
+    stale_seconds = max(0, int(settings.cleanup_stale_job_seconds))
+    stale_cutoff_iso = _to_iso(now - timedelta(seconds=stale_seconds))
+    stale_job_ids = list_stale_jobs_with_artifacts(
+        cutoff_updated_at=stale_cutoff_iso,
+        limit=settings.cleanup_batch_size,
+    )
+    stale_cleaned = 0
+    for job_id in stale_job_ids:
+        try:
+            cleanup_job_artifacts(job_id, reason=f"stale>{stale_seconds}s")
+            stale_cleaned += 1
+        except Exception:
+            logging.exception("stale cleanup failed job=%s", job_id)
+
+    if cleaned or orphan_cleaned or stale_cleaned:
         logging.info(
-            "cleanup sweep completed cleaned_jobs=%s cleaned_orphans=%s cutoff=%s",
+            "cleanup sweep completed cleaned_jobs=%s cleaned_stale_jobs=%s cleaned_orphans=%s cutoff=%s stale_cutoff=%s",
             cleaned,
+            stale_cleaned,
             orphan_cleaned,
             cutoff_iso,
+            stale_cutoff_iso,
         )
-    return cleaned + orphan_cleaned
+    return cleaned + orphan_cleaned + stale_cleaned
+
+
+def list_stale_jobs_with_artifacts(*, cutoff_updated_at: str, limit: int) -> list[str]:
+    settings = get_settings()
+    return _list_stale_jobs_with_artifacts(
+        cutoff_updated_at,
+        statuses=settings.cleanup_stale_statuses,
+        limit=limit,
+    )
 
 
 def cleanup_on_startup() -> int:
@@ -225,6 +252,17 @@ def cleanup_on_startup() -> int:
                 total_cleaned += 1
             except Exception:
                 logging.exception("startup cleanup failed job=%s", job_id)
+
+    stale_cutoff_iso = _to_iso(datetime.now(timezone.utc) - timedelta(seconds=settings.cleanup_stale_job_seconds))
+    for job_id in list_stale_jobs_with_artifacts(
+        cutoff_updated_at=stale_cutoff_iso,
+        limit=settings.cleanup_batch_size,
+    ):
+        try:
+            cleanup_job_artifacts(job_id, reason=f"startup-stale>{settings.cleanup_stale_job_seconds}s")
+            total_cleaned += 1
+        except Exception:
+            logging.exception("startup stale cleanup failed job=%s", job_id)
 
     if total_cleaned or orphan_cleaned:
         logging.info(

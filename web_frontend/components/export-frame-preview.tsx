@@ -11,6 +11,7 @@ import type {SubtitleTheme} from "@/lib/remotion/stitch-video-web";
 import {type OverlayScaleControls} from "@/lib/remotion/overlay-controls";
 import {getRenderConfigTotalDuration} from "@/lib/remotion/utils";
 import {StitchVideoWeb} from "@/lib/remotion/stitch-video-web";
+import {buildStitchVideoInputProps} from "@/lib/remotion/stitch-video-props";
 
 type ExportFramePreviewProps = {
   config: WebRenderConfig | null;
@@ -353,28 +354,12 @@ function ExportFramePreview({
 
   const inputProps = useMemo(() => {
     if (!config) return null;
-    return {
+    return buildStitchVideoInputProps({
+      config,
       src: sourceUrl ?? "",
-      captions: config.input_props.captions,
-      topics: config.input_props.topics,
-      segments: config.input_props.segments,
-      fps: config.composition.fps,
-      width: config.composition.width,
-      height: config.composition.height,
-      overlayReferenceWidth: config.input_props.overlayReferenceWidth,
-      overlayReferenceHeight: config.input_props.overlayReferenceHeight,
       subtitleTheme,
-      subtitleScale: overlayControls.subtitleScale,
-      subtitleYPercent: overlayControls.subtitleYPercent,
-      progressScale: overlayControls.progressScale,
-      progressYPercent: overlayControls.progressYPercent,
-      chapterScale: overlayControls.chapterScale,
-      showSubtitles: overlayControls.showSubtitles,
-      showHighlights: overlayControls.showHighlights,
-      showProgress: overlayControls.showProgress,
-      showChapter: overlayControls.showChapter,
-      progressLabelMode: overlayControls.progressLabelMode,
-    };
+      overlayControls,
+    });
   }, [config, sourceUrl, subtitleTheme, overlayControls]);
 
   const playerStyle = useMemo(() => ({width: "100%", height: "100%"}), []);

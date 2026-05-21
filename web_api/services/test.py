@@ -4,6 +4,7 @@ import json
 import fcntl
 import logging
 import math
+import re
 import subprocess
 import threading
 import time
@@ -56,6 +57,8 @@ from ..job_file_repository import (
 )
 from .billing import has_available_credits_for_job
 from .render_web import ensure_subtitle_render_v1_contract, warm_editor_subtitle_style_cache
+
+_EDIT_PREVIEW_LOG_MAX_CHARS = 900
 
 
 @dataclass(frozen=True)
@@ -412,6 +415,7 @@ def run_test(job_id: str) -> None:
     if not lines:
         raise RuntimeError("test flow produced empty line list")
 
+    _log_edit_preview(job_id, raw_lines=list(getattr(asr_artifacts, "test_lines", None) or []), final_lines=lines)
     state.sync_final_lines(lines)
     chapters, chapters_draft_path = _generate_test_chapters_draft(context, lines, state)
     state.sync_chapters(chapters)
@@ -431,6 +435,54 @@ def run_test(job_id: str) -> None:
         time.perf_counter() - run_start,
         len(lines),
         len(chapters),
+    )
+
+
+def _compact_log_text(value: str, *, max_chars: int) -> str:
+    compacted = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(compacted) <= max_chars:
+        return compacted
+    return compacted[: max(0, max_chars - 1)].rstrip() + "…"
+
+
+def _display_line_text(line: dict[str, Any], *, prefer_original: bool) -> str:
+    if prefer_original:
+        return str(line.get("original_text") or line.get("optimized_text") or "").strip()
+    return str(line.get("optimized_text") or line.get("original_text") or "").strip()
+
+
+def _join_lines_for_log(lines: list[dict[str, Any]], *, prefer_original: bool, kept_only: bool) -> str:
+    parts: list[str] = []
+    for line in sorted(lines, key=lambda item: int(item.get("line_id") or 0)):
+        if kept_only and bool(line.get("user_final_remove", False)):
+            continue
+        text = _display_line_text(line, prefer_original=prefer_original)
+        if text:
+            parts.append(text)
+    return _compact_log_text("｜".join(parts), max_chars=_EDIT_PREVIEW_LOG_MAX_CHARS)
+
+
+def _line_changed(line: dict[str, Any]) -> bool:
+    original = _compact_log_text(str(line.get("original_text") or ""), max_chars=200)
+    optimized = _compact_log_text(str(line.get("optimized_text") or ""), max_chars=200)
+    return bool(optimized and optimized != original)
+
+
+def _log_edit_preview(job_id: str, *, raw_lines: list[dict[str, Any]], final_lines: list[dict[str, Any]]) -> None:
+    total = len(final_lines)
+    removed = sum(1 for line in final_lines if bool(line.get("user_final_remove", False)))
+    changed = sum(1 for line in final_lines if not bool(line.get("user_final_remove", False)) and _line_changed(line))
+    raw_preview = _join_lines_for_log(raw_lines, prefer_original=True, kept_only=False)
+    final_preview = _join_lines_for_log(final_lines, prefer_original=False, kept_only=True)
+    logging.info(
+        'test flow edit preview job=%s removed_lines=%s/%s changed_lines=%s/%s asr="%s" final="%s"',
+        job_id,
+        removed,
+        total,
+        changed,
+        total,
+        raw_preview,
+        final_preview,
     )
 
 

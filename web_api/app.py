@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from collections import deque
 import logging
@@ -21,7 +22,7 @@ from video_auto_cut.shared.log_context import set_request_id, get_request_id
 from .config import ensure_work_dirs, get_settings
 from .db import init_db
 from .errors import ApiError
-from .services.cleanup import cleanup_on_startup
+from .services.cleanup import cleanup_expired_jobs, cleanup_on_startup
 from .services.test_runner import recover_interrupted_test_runs
 from .utils.common import new_request_id
 
@@ -214,6 +215,21 @@ def _configure_logging() -> None:
         access_logger.addFilter(_SuppressPollingAccessFilter())
 
 
+async def _periodic_cleanup_loop() -> None:
+    settings = get_settings()
+    interval_seconds = max(1.0, float(settings.cleanup_interval_seconds))
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            cleaned = cleanup_expired_jobs()
+            if cleaned:
+                logging.info("periodic cleanup sweep removed_paths_or_jobs=%s", cleaned)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("periodic cleanup sweep failed")
+
+
 @asynccontextmanager
 async def _app_lifespan(_: FastAPI):
     ensure_work_dirs()
@@ -223,7 +239,18 @@ async def _app_lifespan(_: FastAPI):
         cleanup_on_startup()
     except Exception:
         logging.exception("startup cleanup failed")
-    yield
+    cleanup_task = None
+    if get_settings().cleanup_enabled:
+        cleanup_task = asyncio.create_task(_periodic_cleanup_loop())
+    try:
+        yield
+    finally:
+        if cleanup_task is not None:
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
 
 
 def create_app() -> FastAPI:

@@ -41,6 +41,7 @@ import {
   getFriendlyWebRenderErrorMessage,
   WEB_RENDER_DELAY_RENDER_TIMEOUT_MS,
 } from "../../lib/remotion/rendering";
+import {buildStitchVideoInputProps} from "../../lib/remotion/stitch-video-props";
 import {
   StitchVideoWeb,
   type SubtitleTheme,
@@ -529,21 +530,12 @@ export function useExportStepController({
       setRenderNote("正在检测浏览器编码能力…");
 
       sourceObjectUrl = URL.createObjectURL(sourceFile);
-      const inputProps = {
-        ...resolvedConfig.input_props,
+      const inputProps = buildStitchVideoInputProps({
+        config: resolvedConfig,
         src: sourceObjectUrl,
         subtitleTheme,
-        subtitleScale: overlayControls.subtitleScale,
-        subtitleYPercent: overlayControls.subtitleYPercent,
-        progressScale: overlayControls.progressScale,
-        progressYPercent: overlayControls.progressYPercent,
-        chapterScale: overlayControls.chapterScale,
-        showSubtitles: overlayControls.showSubtitles,
-        showHighlights: overlayControls.showHighlights,
-        showProgress: overlayControls.showProgress,
-        showChapter: overlayControls.showChapter,
-        progressLabelMode: overlayControls.progressLabelMode,
-      };
+        overlayControls,
+      });
       const composition = {
         ...resolvedConfig.composition,
         component: StitchVideoWeb,

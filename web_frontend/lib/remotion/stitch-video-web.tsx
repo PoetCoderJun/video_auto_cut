@@ -21,10 +21,12 @@ import {
   getSubtitleThemeFitWidth,
   getSubtitleThemeRenderFontSize,
   getSubtitleThemeStyle,
-  getSubtitleTextTreatment,
+  getSubtitleTextFillColor,
+  getSubtitleTextShadowLayers,
   isBoxedSubtitleTheme,
   isTextSubtitleTheme,
   normalizeSubtitleTheme,
+  type SubtitleTextLayerSpec,
 } from "./overlay-presentation";
 import {
   CHAPTER_TITLE_LINE_HEIGHT,
@@ -128,22 +130,16 @@ const normalizeHighlightColor = (color: string | undefined, index: number): stri
     ? color as string
     : HIGHLIGHT_COLOR_PALETTE[index % HIGHLIGHT_COLOR_PALETTE.length];
 
-const HIGHLIGHT_SHADOWS: Record<SubtitleTheme, string> = {
-  stroke: "0 1px 2px rgba(255, 255, 255, 0.82), 0 3px 10px rgba(255, 255, 255, 0.42)",
-  "stroke-white": "0 2px 5px rgba(2, 6, 23, 0.58), 0 5px 14px rgba(2, 6, 23, 0.34)",
-};
-
 const renderCaptionTokens = ({
   chunks,
-  subtitleTheme,
+  layer,
 }: {
   chunks: CaptionRenderChunk[];
-  subtitleTheme: SubtitleTheme;
+  layer?: SubtitleTextLayerSpec;
 }): React.ReactNode => {
   return chunks.map((chunk, index) => {
     const highlightFontScale = getCaptionChunkFontScale(chunk);
     const highlightColor = chunk.isHighlighted ? normalizeHighlightColor(chunk.highlightColor, index) : "inherit";
-    const textTreatment = getSubtitleTextTreatment(subtitleTheme);
 
     return (
       <span
@@ -154,16 +150,13 @@ const renderCaptionTokens = ({
             : "inline whitespace-pre-wrap align-baseline font-bold"
         )}
         style={{
-          color: highlightColor,
+          color: layer ? layer.color : highlightColor,
           opacity: 1,
           fontSize:
             highlightFontScale && highlightFontScale !== 1
               ? `calc(1em * ${highlightFontScale})`
               : undefined,
-          textShadow: chunk.isHighlighted ? HIGHLIGHT_SHADOWS[subtitleTheme] : undefined,
           lineHeight: chunk.isHighlighted ? 1.04 : undefined,
-          WebkitTextStroke: textTreatment.WebkitTextStroke,
-          paintOrder: textTreatment.paintOrder,
         }}
       >
         {chunk.text}
@@ -183,7 +176,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     height,
     overlayReferenceWidth,
     overlayReferenceHeight,
-    subtitleTheme = "white",
+    subtitleTheme = "stroke-white",
     subtitleScale = 1,
     subtitleYPercent = 90,
     progressScale = 1,
@@ -284,6 +277,11 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   const progressStrokeWidth = Math.min(
     2,
     Math.max(1, Math.round((typography.progressHeight * 0.034 + Number.EPSILON) * 4) / 4)
+  );
+  const subtitleTextFillColor = getSubtitleTextFillColor(resolvedSubtitleTheme);
+  const subtitleTextShadowLayers = useMemo(
+    () => getSubtitleTextShadowLayers(resolvedSubtitleTheme),
+    [resolvedSubtitleTheme]
   );
 
   const wrappedCaptions = useMemo(
@@ -533,7 +531,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       },
       subtitleBox: {
         boxSizing: "border-box" as const,
-        ...getSubtitleTextTreatment(resolvedSubtitleTheme),
+        color: subtitleTextFillColor,
         fontSize: typography.subtitleFontSize,
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
@@ -638,6 +636,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     subtitleLineHeight,
     subtitleBoxMaxWidth,
     subtitleTextMaxWidth,
+    subtitleTextFillColor,
     subtitleRenderFontSize,
     typography,
   ]);
@@ -750,12 +749,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   ]);
 
   const subtitleStyleOverrides = useMemo(() => {
-    return getSubtitleThemeStyle({
+    const style = getSubtitleThemeStyle({
       subtitleTheme: resolvedSubtitleTheme,
       boxMaxWidth: subtitleBoxMaxWidth,
       textMaxWidth: subtitleTextMaxWidth,
     });
-  }, [resolvedSubtitleTheme, subtitleBoxMaxWidth, subtitleTextMaxWidth]);
+    return {
+      ...style,
+      color: subtitleTextFillColor,
+    };
+  }, [resolvedSubtitleTheme, subtitleBoxMaxWidth, subtitleTextFillColor, subtitleTextMaxWidth]);
   const subtitleThemeClassName =
     resolvedSubtitleTheme === "stroke-white" ? "text-slate-50" : "text-neutral-900";
 
@@ -815,6 +818,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                   ...scaledStyles.subtitleBox,
                   ...subtitleStyleOverrides,
                   fontSize: subtitleMeasuredFontSize,
+                  position: "relative",
                   whiteSpace: "pre-line",
                   border: "none",
                   boxShadow: "none",
@@ -823,15 +827,36 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                   borderRadius: 0,
                 }}
               >
-                {activeCaptionChunks.length > 0 ? (
+                {subtitleTextShadowLayers.map((layer) => (
                   <span
-                    className="inline whitespace-pre-wrap"
+                    key={`subtitle-layer-${layer.key}`}
+                    aria-hidden="true"
+                    className="block whitespace-pre-wrap"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      color: layer.color,
+                      opacity: layer.opacity,
+                      transform: `translate(${layer.translateXEm}em, ${layer.translateYEm}em)`,
+                      pointerEvents: "none",
+                    }}
                   >
-                    {renderCaptionTokens({chunks: activeCaptionChunks, subtitleTheme: resolvedSubtitleTheme})}
+                    {renderCaptionTextLayer({
+                      chunks: activeCaptionChunks,
+                      text: activeCaptionLayout?.text ?? subtitleRenderText,
+                      layer,
+                    })}
                   </span>
-                ) : (
-                  activeCaptionLayout?.text ?? subtitleRenderText
-                )}
+                ))}
+                <span
+                  className="relative block whitespace-pre-wrap"
+                  style={{color: subtitleTextFillColor}}
+                >
+                  {renderCaptionTextLayer({
+                    chunks: activeCaptionChunks,
+                    text: activeCaptionLayout?.text ?? subtitleRenderText,
+                  })}
+                </span>
               </div>
             </div>
           </div>
@@ -860,10 +885,6 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                       fontSize: segment.labelFit.fontSize,
                       fontWeight: segment.index === currentActiveTopicIndex ? 800 : 700,
                       color: segment.index === currentActiveTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.82)",
-                      textShadow:
-                        segment.index === currentActiveTopicIndex
-                          ? "0 1px 4px rgba(0, 0, 0, 0.3), 0 0 8px rgba(255, 255, 255, 0.18)"
-                          : "none",
                     }}
                   >
                     {segment.labelFit.visible ? segment.labelFit.text : ""}
@@ -876,4 +897,19 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       </div>
     </AbsoluteFill>
   );
+};
+
+const renderCaptionTextLayer = ({
+  chunks,
+  text,
+  layer,
+}: {
+  chunks: CaptionRenderChunk[];
+  text: string;
+  layer?: SubtitleTextLayerSpec;
+}): React.ReactNode => {
+  if (chunks.length > 0) {
+    return renderCaptionTokens({chunks, layer});
+  }
+  return text;
 };

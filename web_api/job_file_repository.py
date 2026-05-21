@@ -619,12 +619,9 @@ def _has_artifacts(files: dict[str, Any]) -> bool:
     return False
 
 
-def _is_cleanup_candidate_status(status: str | None) -> bool:
-    return status == JOB_STATUS_SUCCEEDED
-
-
-def _list_succeeded_jobs_with_artifacts(
+def _list_jobs_with_artifacts(
     *,
+    statuses: set[str],
     limit: int,
     cutoff_updated_at: str | None = None,
 ) -> list[str]:
@@ -643,7 +640,7 @@ def _list_succeeded_jobs_with_artifacts(
         if not meta:
             continue
         status = _normalize_meta_status(meta.get("status"))
-        if not _is_cleanup_candidate_status(status):
+        if status not in statuses:
             continue
         files = get_job_files(job_id) or {}
         if not _has_artifacts(files):
@@ -658,11 +655,35 @@ def _list_succeeded_jobs_with_artifacts(
 
 
 def list_expired_succeeded_jobs(cutoff_updated_at: str, *, limit: int) -> list[str]:
-    return _list_succeeded_jobs_with_artifacts(limit=limit, cutoff_updated_at=cutoff_updated_at)
+    return _list_jobs_with_artifacts(
+        statuses={JOB_STATUS_SUCCEEDED},
+        limit=limit,
+        cutoff_updated_at=cutoff_updated_at,
+    )
 
 
 def list_succeeded_jobs_with_artifacts(*, limit: int) -> list[str]:
-    return _list_succeeded_jobs_with_artifacts(limit=limit)
+    return _list_jobs_with_artifacts(statuses={JOB_STATUS_SUCCEEDED}, limit=limit)
+
+
+def list_stale_jobs_with_artifacts(
+    cutoff_updated_at: str,
+    *,
+    statuses: tuple[str, ...],
+    limit: int,
+) -> list[str]:
+    normalized_statuses = {
+        status
+        for status in (_normalize_meta_status(value) for value in statuses)
+        if status is not None and status != JOB_STATUS_SUCCEEDED
+    }
+    if not normalized_statuses:
+        return []
+    return _list_jobs_with_artifacts(
+        statuses=normalized_statuses,
+        limit=limit,
+        cutoff_updated_at=cutoff_updated_at,
+    )
 
 
 def list_jobs_by_status(status: str) -> list[str]:

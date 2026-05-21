@@ -295,6 +295,14 @@ function StepCard({ step, index }: { step: typeof FLOW_STEPS[0]; index: number }
   );
 }
 
+function HeaderCreditBadge({ balance }: { balance: number | null }) {
+  return (
+    <Badge variant="secondary" className="px-3 py-1">
+      {balance === null ? "剩余额度 ..." : `剩余额度 ${Math.max(0, balance)} 次`}
+    </Badge>
+  );
+}
+
 export default function HomePageClient() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -326,9 +334,8 @@ export default function HomePageClient() {
     return () => setApiAuthTokenProvider(null);
   }, []);
 
-  // On mount: restore cached job ID and do a lightweight background session check
-  // (getSession only — no token fetch, no /me call) so the header reflects the
-  // signed-in state without blocking page render.
+  // On mount: restore cached job ID, then refresh the signed-in profile so the
+  // header can show the current credit balance without waiting for an upload.
   useEffect(() => {
     let alive = true;
     try {
@@ -343,6 +350,13 @@ export default function HomePageClient() {
       if (user?.id) {
         setIsSignedIn(true);
         setAuthAccount(String(user.email || user.name || user.id || "").trim());
+        getMe().then((profile) => {
+          if (!alive) return;
+          setCreditBalance(Number(profile.credits?.balance ?? 0));
+        }).catch(() => {
+          if (!alive) return;
+          setCreditBalance(null);
+        });
       }
     }).catch(() => undefined);
     return () => { alive = false; };
@@ -545,9 +559,7 @@ export default function HomePageClient() {
             <div className="flex items-center gap-3">
               {isSignedIn && (
                 <>
-                  <Badge variant="secondary" className="px-3 py-1">
-                    {creditBalance === null ? "已登录" : `剩余 ${creditBalance} 次`}
-                  </Badge>
+                  <HeaderCreditBadge balance={creditBalance} />
                   <span className="hidden text-sm text-muted-foreground sm:inline-block">
                     {authAccount}
                   </span>
@@ -596,9 +608,7 @@ export default function HomePageClient() {
               </>
             ) : (
               <>
-                <Badge variant="secondary" className="px-3 py-1">
-                  {creditBalance === null ? "已登录" : `剩余 ${creditBalance} 次`}
-                </Badge>
+                <HeaderCreditBadge balance={creditBalance} />
                 <span className="hidden text-sm text-muted-foreground sm:inline-block">
                   {authAccount}
                 </span>
