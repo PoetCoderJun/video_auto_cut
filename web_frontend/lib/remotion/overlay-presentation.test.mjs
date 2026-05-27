@@ -18,10 +18,11 @@ import {
 } from "./overlay-presentation.ts";
 
 test("lets the chapter card use natural height with fit-content width", () => {
-  const style = getChapterCardStyle({cardMaxWidth: 420});
+  const style = getChapterCardStyle({cardMaxWidth: 420, cardMinWidth: 180});
 
   assert.equal(style.width, "fit-content");
   assert.equal(style.maxWidth, 420);
+  assert.equal(style.minWidth, 180);
   assert.equal("minHeight" in style, false);
   assert.equal(style.position, "relative");
   assert.equal("borderLeft" in style, false);
@@ -153,7 +154,13 @@ test("chapter and progress visuals use explicit export-safe layers", () => {
     chapterLayers.some((layer) => layer.kind === "accent"),
     "expected chapter card to keep an explicit accent layer"
   );
-  assert.ok(progressLayers.length >= 2, "expected progress track to keep explicit surface layers");
+  assert.equal(progressLayers.length, 1, "expected progress track to use one calm translucent surface layer");
+  assert.equal(progressLayers[0].kind, "surface");
+  assert.doesNotMatch(
+    String(progressLayers[0].style.background || progressLayers[0].style.backgroundColor || ""),
+    /gradient/i,
+    "expected refined progress surface to avoid faux 3D gradients"
+  );
 
   for (const layer of [...chapterLayers, ...progressLayers]) {
     assert.equal("boxShadow" in layer.style, false);
@@ -179,7 +186,7 @@ test("subtitle default bottom reserves space above the progress bar", () => {
 
   assert.equal(
     reserved,
-    24 + 40 + Math.max(10, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
+    24 + 40 + Math.max(6, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
   );
 });
 
@@ -193,5 +200,5 @@ test("subtitle reserve can use actual rendered subtitle height for highlighted c
     showProgress: true,
   });
 
-  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.18));
+  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.12));
 });

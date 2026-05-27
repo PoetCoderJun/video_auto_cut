@@ -22,7 +22,7 @@ export const OVERLAY_SCALE_LIMITS = {
 } as const;
 
 export const OVERLAY_POSITION_LIMITS = {
-  subtitleY: {min: 0, max: 100, step: 1, defaultValue: 90},
+  subtitleY: {min: 0, max: 100, step: 1, defaultValue: 94},
   progressY: {min: 0, max: 100, step: 1, defaultValue: 97},
 } as const;
 
@@ -185,8 +185,8 @@ export const applyOverlayScaleToTypography = (
     0.25
   );
   const progressHeight = Math.max(
-    scaleDimension(typography.progressHeight, progressVisualScale, 18, 0.25),
-    Math.round(progressLabelFontSize * 2.4)
+    scaleDimension(typography.progressHeight, progressVisualScale, 20, 0.25),
+    Math.round(progressLabelFontSize * 1.7)
   );
 
   return {

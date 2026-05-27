@@ -8,7 +8,7 @@ export const CHAPTER_CARD_PADDING_X_EM = 0.68;
 export const CHAPTER_CARD_PADDING_Y_EM = 0.38;
 export const CHAPTER_CARD_RADIUS_EM = 0.38;
 export const PROGRESS_LABEL_PADDING_X_EM = 0.22;
-export const SUBTITLE_PROGRESS_GAP_EM = 0.24;
+export const SUBTITLE_PROGRESS_GAP_EM = 0.16;
 
 const round = (value: number): number => Math.round(value);
 
@@ -179,12 +179,14 @@ export const getChapterAccentColor = (activeTopicIndex = 0): string =>
 
 export const getChapterCardStyle = ({
   cardMaxWidth,
+  cardMinWidth,
   gap,
   paddingX,
   paddingY,
   radius,
 }: {
   cardMaxWidth: number;
+  cardMinWidth?: number;
   gap?: number;
   paddingX?: number;
   paddingY?: number;
@@ -197,6 +199,7 @@ export const getChapterCardStyle = ({
     flexDirection: "column",
     gap: typeof gap === "number" ? gap : `${CHAPTER_CARD_GAP_EM}em`,
     width: "fit-content",
+    minWidth: typeof cardMinWidth === "number" ? cardMinWidth : undefined,
     maxWidth: cardMaxWidth,
     padding:
       typeof paddingX === "number" && typeof paddingY === "number"
@@ -273,23 +276,8 @@ export const getProgressTrackBackdropLayers = (): OverlayVisualLayerSpec[] => [
     style: {
       position: "absolute",
       inset: "0",
-      background:
-        "linear-gradient(180deg, rgba(31, 41, 55, 0.48) 0%, rgba(8, 13, 22, 0.34) 100%)",
+      backgroundColor: "rgba(18, 24, 33, 0.24)",
       borderRadius: "inherit",
-    },
-  },
-  {
-    key: "shine",
-    kind: "shine",
-    style: {
-      position: "absolute",
-      left: "0",
-      right: "0",
-      top: "0",
-      height: "38%",
-      backgroundColor: "rgba(255, 255, 255, 0.12)",
-      borderTopLeftRadius: "inherit",
-      borderTopRightRadius: "inherit",
     },
   },
 ];
@@ -318,7 +306,7 @@ export const reserveSubtitleBottomForProgress = ({
       ? subtitleVisualHeight
       : null;
   const gap = visualHeight
-    ? Math.max(8, round(visualHeight * 0.18))
-    : Math.max(8, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
+    ? Math.max(6, round(visualHeight * 0.12))
+    : Math.max(6, round(subtitleFontSize * 0.16));
   return Math.max(subtitleBottom, progressBottom + progressHeight + gap);
 };

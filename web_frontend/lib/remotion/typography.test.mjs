@@ -152,29 +152,29 @@ test("keeps default overlay component ratios balanced across common preview reso
       `${resolution.id} subtitle ratio should stay balanced, got ${(subtitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      progressRatio >= 0.031 && progressRatio <= 0.041,
+      progressRatio >= 0.026 && progressRatio <= 0.043,
       `${resolution.id} progress ratio should stay balanced, got ${(progressRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      progressLabelRatio >= 0.016 && progressLabelRatio <= 0.021,
+      progressLabelRatio >= 0.0145 && progressLabelRatio <= 0.021,
       `${resolution.id} progress label ratio should stay balanced, got ${(progressLabelRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterTitleRatio >= 0.047 && chapterTitleRatio <= 0.06,
+      chapterTitleRatio >= 0.034 && chapterTitleRatio <= 0.052,
       `${resolution.id} chapter title ratio should stay balanced, got ${(chapterTitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterWidthRatio >= 0.68 && chapterWidthRatio <= 0.76,
+      chapterWidthRatio >= 0.54 && chapterWidthRatio <= 0.63,
       `${resolution.id} chapter card width ratio should stay balanced, got ${(chapterWidthRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      subtitleBottomRatio >= 0.065 && subtitleBottomRatio <= 0.084,
+      subtitleBottomRatio >= 0.055 && subtitleBottomRatio <= 0.078,
       `${resolution.id} subtitle bottom ratio should stay balanced, got ${(subtitleBottomRatio * 100).toFixed(2)}%`
     );
   }
 });
 
-test("makes chapter cards more prominent without pushing subtitles away from progress", () => {
+test("keeps chapter cards compact and rectangular without pushing subtitles away from progress", () => {
   const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
   const chapterMetrics = getChapterCardLayoutMetrics({width: 1920, typography});
   const progressTopFromBottom = typography.progressBottom + typography.progressHeight;
@@ -189,6 +189,7 @@ test("makes chapter cards more prominent without pushing subtitles away from pro
   const subtitleProgressGap = reservedSubtitleBottom - progressTopFromBottom;
   const chapterCardStyle = getChapterCardStyle({
     cardMaxWidth: chapterMetrics.cardMaxWidth,
+    cardMinWidth: typography.chapterCardMinWidth,
     gap: typography.chapterGap,
     paddingX: typography.chapterCardPaddingX,
     paddingY: typography.chapterCardPaddingY,
@@ -196,54 +197,66 @@ test("makes chapter cards more prominent without pushing subtitles away from pro
   });
 
   assert.ok(
-    typography.chapterTitleFontSize >= 54,
-    `expected 1080p chapter title to be visibly larger, got ${typography.chapterTitleFontSize}`
+    typography.chapterTitleFontSize >= 36 && typography.chapterTitleFontSize <= 42,
+    `expected 1080p chapter title to be compact, got ${typography.chapterTitleFontSize}`
   );
   assert.ok(
-    typography.chapterMetaFontSize >= 24,
-    `expected 1080p chapter meta to be visibly larger, got ${typography.chapterMetaFontSize}`
+    typography.chapterMetaFontSize >= 16 && typography.chapterMetaFontSize <= 20,
+    `expected 1080p chapter meta to be compact, got ${typography.chapterMetaFontSize}`
   );
   assert.ok(
-    chapterMetrics.cardMaxWidth >= 1300,
-    `expected 1080p chapter card max width to allow a larger block, got ${chapterMetrics.cardMaxWidth}`
+    chapterMetrics.cardMaxWidth >= 980 && chapterMetrics.cardMaxWidth <= 1120,
+    `expected 1080p chapter card max width to stay restrained, got ${chapterMetrics.cardMaxWidth}`
+  );
+  assert.ok(
+    Number(chapterCardStyle.minWidth) >= 220 && Number(chapterCardStyle.minWidth) <= 260,
+    `expected short chapter cards to keep a rectangular min width, got ${chapterCardStyle.minWidth}`
   );
   assert.equal(
     chapterCardStyle.padding,
     `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`
   );
   assert.ok(
-    subtitleProgressGap >= 12 && subtitleProgressGap <= 16,
+    subtitleProgressGap >= 7 && subtitleProgressGap <= 11,
     `expected subtitle and progress to form a tighter bottom group, got ${subtitleProgressGap}`
   );
 });
 
-test("uses a larger but restrained progress label baseline on common landscape outputs", () => {
+test("uses a slim refined progress baseline on common landscape outputs", () => {
   const typography1080 = getResponsiveOverlayTypography({width: 1920, height: 1080});
   const typography4k = getResponsiveOverlayTypography({width: 3840, height: 2160});
 
   assert.ok(
-    typography1080.progressLabelFontSize >= 15,
-    `expected 1080p progress label font >= 18, got ${typography1080.progressLabelFontSize}`
+    typography1080.progressLabelFontSize >= 14,
+    `expected 1080p progress label font >= 14, got ${typography1080.progressLabelFontSize}`
   );
   assert.ok(
-    typography1080.progressLabelFontSize <= 20,
-    `expected 1080p progress label font <= 20, got ${typography1080.progressLabelFontSize}`
+    typography1080.progressLabelFontSize <= 17,
+    `expected 1080p progress label font <= 17, got ${typography1080.progressLabelFontSize}`
   );
   assert.ok(
-    typography1080.progressHeight <= 44,
-    `expected 1080p progress height <= 44, got ${typography1080.progressHeight}`
+    typography1080.progressHeight >= 28 && typography1080.progressHeight <= 34,
+    `expected 1080p progress height to be present but restrained, got ${typography1080.progressHeight}`
   );
   assert.ok(
-    typography4k.progressLabelFontSize >= 25,
-    `expected 4k progress label font >= 30, got ${typography4k.progressLabelFontSize}`
+    typography1080.progressRadius >= 5 && typography1080.progressRadius <= 7,
+    `expected 1080p progress radius to avoid a heavy pill shape, got ${typography1080.progressRadius}`
   );
   assert.ok(
-    typography4k.progressLabelFontSize <= 40,
-    `expected 4k progress label font <= 40, got ${typography4k.progressLabelFontSize}`
+    typography4k.progressLabelFontSize >= 28,
+    `expected 4k progress label font >= 28, got ${typography4k.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressHeight <= 88,
-    `expected 4k progress height <= 88, got ${typography4k.progressHeight}`
+    typography4k.progressLabelFontSize <= 34,
+    `expected 4k progress label font <= 34, got ${typography4k.progressLabelFontSize}`
+  );
+  assert.ok(
+    typography4k.progressHeight >= 56 && typography4k.progressHeight <= 68,
+    `expected 4k progress height to be present but restrained, got ${typography4k.progressHeight}`
+  );
+  assert.ok(
+    typography4k.progressRadius >= 9 && typography4k.progressRadius <= 13,
+    `expected 4k progress radius to avoid a heavy pill shape, got ${typography4k.progressRadius}`
   );
 });
 

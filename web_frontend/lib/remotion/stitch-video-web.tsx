@@ -595,6 +595,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       chapterCard: {
         ...getChapterCardStyle({
           cardMaxWidth: chapterCardMetrics.cardMaxWidth,
+          cardMinWidth: typography.chapterCardMinWidth,
           gap: typography.chapterGap,
           paddingX: typography.chapterCardPaddingX,
           paddingY: typography.chapterCardPaddingY,
@@ -634,7 +635,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         borderRadius: typography.progressRadius,
         overflow: "hidden" as const,
         backgroundColor: "transparent",
-        border: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.2)`,
+        border: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.14)`,
       },
       progressFill: {
         position: "absolute" as const,
@@ -642,7 +643,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         top: 0,
         bottom: 0,
         width: "0%",
-        background: "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+        backgroundColor: "rgba(93, 220, 205, 0.36)",
         borderRadius: typography.progressRadius,
         zIndex: 1,
       },
@@ -654,7 +655,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         alignItems: "center" as const,
         justifyContent: "center" as const,
         overflow: "hidden" as const,
-        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.12)`,
+        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.08)`,
         zIndex: 2,
       },
       progressSegmentLabel: {
@@ -949,16 +950,16 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                     width: `${(segment.endRatio - segment.startRatio) * 100}%`,
                     backgroundColor:
                       segment.index === currentActiveTopicIndex
-                        ? "rgba(111, 255, 226, 0.1)"
-                        : "rgba(255, 255, 255, 0.012)",
+                        ? "rgba(255, 255, 255, 0.07)"
+                        : "rgba(255, 255, 255, 0.018)",
                   }}
                 >
                   <div
                     style={{
                       ...scaledStyles.progressSegmentLabel,
                       fontSize: segment.labelFit.fontSize,
-                      fontWeight: segment.index === currentActiveTopicIndex ? 800 : 700,
-                      color: segment.index === currentActiveTopicIndex ? "#ffffff" : "rgba(238, 244, 255, 0.82)",
+                      fontWeight: segment.index === currentActiveTopicIndex ? 750 : 650,
+                      color: segment.index === currentActiveTopicIndex ? "rgba(255, 255, 255, 0.92)" : "rgba(244, 248, 255, 0.72)",
                     }}
                   >
                     {segment.labelFit.visible ? segment.labelFit.text : ""}
