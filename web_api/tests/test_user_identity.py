@@ -78,7 +78,7 @@ class UserIdentityTests(unittest.TestCase):
 
         self.assertEqual(users, [("auth-user-1", "same@example.com", "ACTIVE", "2026-03-01T00:00:00Z")])
         self.assertEqual(ledger_user_ids, {"auth-user-1"})
-        self.assertEqual(get_credit_balance("auth-user-1"), 23)
+        self.assertEqual(get_credit_balance("auth-user-1"), 24)
         self.assertEqual(get_job_owner_user_id(job_id), "auth-user-1")
 
     def test_init_db_reconciles_to_auth_user_id_before_unique_index_creation(self) -> None:

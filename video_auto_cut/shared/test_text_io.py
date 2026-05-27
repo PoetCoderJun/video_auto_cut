@@ -191,9 +191,12 @@ def write_chapters_v2_json(chapters: list[dict[str, Any]], output_path: Path) ->
 
 def load_chapters_v2_json(source_path: Path, *, all_lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     payload = json.loads(source_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
+    if isinstance(payload, list):
+        chapters = payload
+    elif isinstance(payload, dict):
+        chapters = payload.get("chapters")
+    else:
         raise RuntimeError("invalid chapter v2 payload")
-    chapters = payload.get("chapters")
     if not isinstance(chapters, list):
         raise RuntimeError("invalid chapter v2 payload")
     return canonicalize_test_chapters(chapters, all_lines)

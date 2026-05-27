@@ -61,10 +61,15 @@ function ExportFramePreview({
   const [isSourcePreloading, setIsSourcePreloading] = useState(false);
   const [isSourceBuffered, setIsSourceBuffered] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
+  const [isPreviewMounted, setIsPreviewMounted] = useState(false);
   const playerRef = useRef<PlayerRef>(null);
   const bufferVideoRef = useRef<HTMLVideoElement | null>(null);
   const wasPlayingBeforeScrubRef = useRef(false);
   const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setIsPreviewMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!onPreviewTimeChange) {
@@ -398,17 +403,23 @@ function ExportFramePreview({
             className="hidden"
           />
         )}
-        <Player
-          ref={playerRef}
-          component={StitchVideoWeb}
-          durationInFrames={config.composition.durationInFrames}
-          fps={config.composition.fps}
-          compositionWidth={config.composition.width}
-          compositionHeight={config.composition.height}
-          inputProps={inputProps!}
-          controls={false}
-          style={playerStyle}
-        />
+        {isPreviewMounted ? (
+          <Player
+            ref={playerRef}
+            component={StitchVideoWeb}
+            durationInFrames={config.composition.durationInFrames}
+            fps={config.composition.fps}
+            compositionWidth={config.composition.width}
+            compositionHeight={config.composition.height}
+            inputProps={inputProps!}
+            controls={false}
+            style={playerStyle}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-black text-sm text-white/70">
+            正在准备预览…
+          </div>
+        )}
         {(isSourcePreloading || (isPlaying && isBuffering)) && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30">
             <div className="flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur-sm">
@@ -424,7 +435,7 @@ function ExportFramePreview({
           <button
             type="button"
             onClick={togglePlayback}
-            disabled={isSourcePreloading || isBuffering}
+            disabled={!isPreviewMounted || isSourcePreloading || isBuffering}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             aria-label={isPlaying ? "Pause" : "Play"}
           >
