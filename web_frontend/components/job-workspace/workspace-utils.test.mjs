@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildPreviewRenderMeta,
+  withPreviewOverlayReference,
   getTestPreviewLines,
   isPreviewRenderMetaReduced,
 } from "./workspace-utils.ts";
@@ -87,4 +88,40 @@ test("isPreviewRenderMetaReduced detects when preview can stay on original light
 
   assert.equal(isPreviewRenderMetaReduced(sourceMeta, previewMeta), false);
   assert.deepEqual(previewMeta, sourceMeta);
+});
+
+test("withPreviewOverlayReference keeps reduced preview overlay proportions tied to source video", () => {
+  const config = {
+    output_name: "out.mp4",
+    composition: {
+      id: "StitchVideoWeb",
+      fps: 10,
+      width: 960,
+      height: 540,
+      durationInFrames: 120,
+    },
+    input_props: {
+      src: "",
+      captions: [],
+      topics: [],
+      segments: [],
+      fps: 10,
+      width: 960,
+      height: 540,
+    },
+  };
+
+  const referenced = withPreviewOverlayReference(config, {
+    width: 3840,
+    height: 2160,
+    fps: 59.94,
+    duration_sec: 120,
+  });
+
+  assert.equal(referenced.composition.width, 960);
+  assert.equal(referenced.composition.height, 540);
+  assert.equal(referenced.input_props.overlayReferenceWidth, 3840);
+  assert.equal(referenced.input_props.overlayReferenceHeight, 2160);
+  assert.equal(config.input_props.overlayReferenceWidth, undefined);
+  assert.equal(config.input_props.overlayReferenceHeight, undefined);
 });

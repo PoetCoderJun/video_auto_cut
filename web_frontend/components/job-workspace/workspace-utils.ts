@@ -94,6 +94,26 @@ export function buildPreviewRenderMeta(meta: RenderMeta): RenderMeta {
   };
 }
 
+export function withPreviewOverlayReference(
+  config: WebRenderConfig,
+  sourceMeta: RenderMeta,
+): WebRenderConfig {
+  const sourceWidth = Math.round(Number(sourceMeta.width) || 0);
+  const sourceHeight = Math.round(Number(sourceMeta.height) || 0);
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return config;
+  }
+
+  return {
+    ...config,
+    input_props: {
+      ...config.input_props,
+      overlayReferenceWidth: sourceWidth,
+      overlayReferenceHeight: sourceHeight,
+    },
+  };
+}
+
 export function isPreviewRenderMetaReduced(sourceMeta: RenderMeta, previewMeta: RenderMeta): boolean {
   return (
     previewMeta.width < sourceMeta.width ||

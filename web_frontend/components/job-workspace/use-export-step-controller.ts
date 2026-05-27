@@ -72,6 +72,7 @@ import {
   resolveRenderMetaFromFile,
   triggerFileDownload,
   withTimeout,
+  withPreviewOverlayReference,
 } from "./workspace-utils";
 import {buildSrtDownloadFromRenderConfig} from "./export-subtitles";
 
@@ -304,7 +305,7 @@ export function useExportStepController({
         const config = await loadRenderConfigWithMeta(sourceFile, previewMeta, {
           timeoutMs: {config: RENDER_CONFIG_TIMEOUT_MS},
         });
-        return applyRenderPreviewConfig(config);
+        return applyRenderPreviewConfig(withPreviewOverlayReference(config, meta));
       } catch (err) {
         setRenderConfig(null);
         setRenderPreviewProfile(null);
