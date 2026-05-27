@@ -143,11 +143,11 @@ test("keeps default overlay component ratios balanced across common preview reso
     const subtitleBottomRatio = typography.subtitleBottom / resolution.height;
 
     assert.ok(
-      subtitleRatio >= 0.046 && subtitleRatio <= 0.056,
+      subtitleRatio >= 0.047 && subtitleRatio <= 0.055,
       `${resolution.id} subtitle ratio should stay balanced, got ${(subtitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      progressRatio >= 0.034 && progressRatio <= 0.046,
+      progressRatio >= 0.031 && progressRatio <= 0.041,
       `${resolution.id} progress ratio should stay balanced, got ${(progressRatio * 100).toFixed(2)}%`
     );
     assert.ok(
@@ -155,18 +155,42 @@ test("keeps default overlay component ratios balanced across common preview reso
       `${resolution.id} progress label ratio should stay balanced, got ${(progressLabelRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterTitleRatio >= 0.033 && chapterTitleRatio <= 0.043,
+      chapterTitleRatio >= 0.0375 && chapterTitleRatio <= 0.047,
       `${resolution.id} chapter title ratio should stay balanced, got ${(chapterTitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterWidthRatio >= 0.58 && chapterWidthRatio <= 0.72,
+      chapterWidthRatio >= 0.64 && chapterWidthRatio <= 0.74,
       `${resolution.id} chapter card width ratio should stay balanced, got ${(chapterWidthRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      subtitleBottomRatio >= 0.09 && subtitleBottomRatio <= 0.11,
+      subtitleBottomRatio >= 0.077 && subtitleBottomRatio <= 0.085,
       `${resolution.id} subtitle bottom ratio should stay balanced, got ${(subtitleBottomRatio * 100).toFixed(2)}%`
     );
   }
+});
+
+test("makes chapter cards more prominent without pushing subtitles away from progress", () => {
+  const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
+  const chapterMetrics = getChapterCardLayoutMetrics({width: 1920, typography});
+  const progressTopFromBottom = typography.progressBottom + typography.progressHeight;
+  const subtitleProgressGap = typography.subtitleBottom - progressTopFromBottom;
+
+  assert.ok(
+    typography.chapterTitleFontSize >= 42,
+    `expected 1080p chapter title to be visibly larger, got ${typography.chapterTitleFontSize}`
+  );
+  assert.ok(
+    typography.chapterMetaFontSize >= 19,
+    `expected 1080p chapter meta to be visibly larger, got ${typography.chapterMetaFontSize}`
+  );
+  assert.ok(
+    chapterMetrics.cardMaxWidth >= 1200,
+    `expected 1080p chapter card max width to allow a larger block, got ${chapterMetrics.cardMaxWidth}`
+  );
+  assert.ok(
+    subtitleProgressGap >= 20 && subtitleProgressGap <= 28,
+    `expected subtitle and progress to form a tighter bottom group, got ${subtitleProgressGap}`
+  );
 });
 
 test("uses a larger but restrained progress label baseline on common landscape outputs", () => {

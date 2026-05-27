@@ -3,12 +3,12 @@ import type {CSSProperties} from "react";
 export const SUBTITLE_BOX_PADDING_X_EM = 0.34;
 export const SUBTITLE_BOX_PADDING_Y_EM = 0.19;
 export const SUBTITLE_BOX_RADIUS_EM = 0.24;
-export const CHAPTER_CARD_GAP_EM = 0.2;
-export const CHAPTER_CARD_PADDING_X_EM = 0.62;
-export const CHAPTER_CARD_PADDING_Y_EM = 0.34;
-export const CHAPTER_CARD_RADIUS_EM = 0.36;
+export const CHAPTER_CARD_GAP_EM = 0.22;
+export const CHAPTER_CARD_PADDING_X_EM = 0.68;
+export const CHAPTER_CARD_PADDING_Y_EM = 0.38;
+export const CHAPTER_CARD_RADIUS_EM = 0.38;
 export const PROGRESS_LABEL_PADDING_X_EM = 0.22;
-export const SUBTITLE_PROGRESS_GAP_EM = 0.34;
+export const SUBTITLE_PROGRESS_GAP_EM = 0.42;
 
 const round = (value: number): number => Math.round(value);
 
@@ -305,7 +305,7 @@ export const reserveSubtitleBottomForProgress = ({
       ? subtitleVisualHeight
       : null;
   const gap = visualHeight
-    ? Math.max(12, round(visualHeight * 0.42))
-    : Math.max(12, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
+    ? Math.max(10, round(visualHeight * 0.3))
+    : Math.max(10, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
   return Math.max(subtitleBottom, progressBottom + progressHeight + gap);
 };

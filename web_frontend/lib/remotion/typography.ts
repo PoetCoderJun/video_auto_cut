@@ -492,27 +492,27 @@ export const getResponsiveOverlayTypography = ({
   const ultraWideStrength = clamp((aspectRatio - 4) / 3, 0, 1);
   const subtitleFontSize = ratioDimension(
     resolvedHeight,
-    0.048 + portraitStrength * 0.002,
+    0.049 - portraitStrength * 0.001,
     26,
     1,
     resolvedWidth * 0.15
   );
   const progressLabelFontSize = Math.max(
-    ratioDimension(resolvedHeight, 0.0175 + portraitStrength * 0.001, 10, 0.25),
+    ratioDimension(resolvedHeight, 0.0165 + portraitStrength * 0.0005, 10, 0.25),
     ultraWideStrength > 0 ? 14 : 10
   );
   const progressHeight = atLeast(
-    ratioDimension(resolvedHeight, 0.036 + portraitStrength * 0.003, 20, 0.25),
-    round(progressLabelFontSize * 2)
+    ratioDimension(resolvedHeight, 0.032 + portraitStrength * 0.001, 18, 0.25),
+    round(progressLabelFontSize * 1.9)
   );
-  const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.034 + portraitStrength * 0.001, 20, 0.25);
-  const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.016, 11, 0.25);
-  const chapterTop = ratioDimension(resolvedHeight, 0.032, 16);
+  const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.04 - portraitStrength * 0.002, 22, 0.25);
+  const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.0185 - portraitStrength * 0.0005, 12, 0.25);
+  const chapterTop = ratioDimension(resolvedHeight, 0.035, 16);
   const progressRadius = atLeast(ratioDimension(progressHeight, 0.3, 8, 0.25), round(progressHeight * 0.28));
 
   return {
     subtitleFontSize,
-    subtitleBottom: ratioDimension(resolvedHeight, 0.096 + portraitStrength * 0.01, 44),
+    subtitleBottom: ratioDimension(resolvedHeight, 0.078 + portraitStrength * 0.006, 40),
     subtitleSidePadding: ratioDimension(resolvedWidth, 0.035, 18),
     subtitlePaddingX: ratioDimension(subtitleFontSize, 0.34, 12),
     subtitlePaddingY: ratioDimension(subtitleFontSize, 0.22, 8),
@@ -521,11 +521,11 @@ export const getResponsiveOverlayTypography = ({
     subtitleSafeWidthRatio: clamp(0.85 + portraitStrength * 0.05, 0.85, 0.9),
     chapterTop,
     chapterInsetX: ratioDimension(resolvedWidth, 0.022, 16),
-    chapterGap: ratioDimension(chapterTitleFontSize, 0.18, 4.5, 0.25),
-    chapterCardMinWidth: ratioDimension(resolvedWidth, 0.2 + portraitStrength * 0.04, 160, 0.5),
-    chapterCardMaxWidthRatio: clamp(0.64 + portraitStrength * 0.08, 0.64, 0.72),
-    chapterCardPaddingX: ratioDimension(chapterTitleFontSize, 0.38, 8, 0.25),
-    chapterCardPaddingY: ratioDimension(chapterTitleFontSize, 0.28, 7, 0.25),
+    chapterGap: ratioDimension(chapterTitleFontSize, 0.22, 5.5, 0.25),
+    chapterCardMinWidth: ratioDimension(resolvedWidth, 0.24 + portraitStrength * 0.04, 180, 0.5),
+    chapterCardMaxWidthRatio: clamp(0.68 + portraitStrength * 0.06, 0.68, 0.74),
+    chapterCardPaddingX: ratioDimension(chapterTitleFontSize, 0.48, 10, 0.25),
+    chapterCardPaddingY: ratioDimension(chapterTitleFontSize, 0.34, 8.5, 0.25),
     chapterCardRadius: ratioDimension(chapterTitleFontSize, 0.32, 8, 0.25),
     chapterMetaFontSize,
     chapterTitleFontSize,

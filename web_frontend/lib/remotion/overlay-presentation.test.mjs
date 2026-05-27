@@ -159,7 +159,7 @@ test("subtitle default bottom reserves space above the progress bar", () => {
 
   assert.equal(
     reserved,
-    24 + 40 + Math.max(12, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
+    24 + 40 + Math.max(10, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
   );
 });
 
@@ -173,5 +173,5 @@ test("subtitle reserve can use actual rendered subtitle height for highlighted c
     showProgress: true,
   });
 
-  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.42));
+  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.3));
 });
