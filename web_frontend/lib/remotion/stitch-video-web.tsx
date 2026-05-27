@@ -586,6 +586,10 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
       chapterCard: {
         ...getChapterCardStyle({
           cardMaxWidth: chapterCardMetrics.cardMaxWidth,
+          gap: typography.chapterGap,
+          paddingX: typography.chapterCardPaddingX,
+          paddingY: typography.chapterCardPaddingY,
+          radius: typography.chapterCardRadius,
           activeTopicIndex: currentActiveTopicIndex,
         }),
       },

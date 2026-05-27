@@ -505,14 +505,14 @@ export const getResponsiveOverlayTypography = ({
     ratioDimension(resolvedHeight, 0.032 + portraitStrength * 0.001, 18, 0.25),
     round(progressLabelFontSize * 1.9)
   );
-  const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.04 - portraitStrength * 0.002, 22, 0.25);
-  const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.0185 - portraitStrength * 0.0005, 12, 0.25);
+  const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.052 - portraitStrength * 0.005, 28, 0.25);
+  const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.024 - portraitStrength * 0.003, 14, 0.25);
   const chapterTop = ratioDimension(resolvedHeight, 0.035, 16);
   const progressRadius = atLeast(ratioDimension(progressHeight, 0.3, 8, 0.25), round(progressHeight * 0.28));
 
   return {
     subtitleFontSize,
-    subtitleBottom: ratioDimension(resolvedHeight, 0.078 + portraitStrength * 0.006, 40),
+    subtitleBottom: ratioDimension(resolvedHeight, 0.066 + portraitStrength * 0.004, 40),
     subtitleSidePadding: ratioDimension(resolvedWidth, 0.035, 18),
     subtitlePaddingX: ratioDimension(subtitleFontSize, 0.34, 12),
     subtitlePaddingY: ratioDimension(subtitleFontSize, 0.22, 8),
@@ -521,12 +521,12 @@ export const getResponsiveOverlayTypography = ({
     subtitleSafeWidthRatio: clamp(0.85 + portraitStrength * 0.05, 0.85, 0.9),
     chapterTop,
     chapterInsetX: ratioDimension(resolvedWidth, 0.022, 16),
-    chapterGap: ratioDimension(chapterTitleFontSize, 0.22, 5.5, 0.25),
-    chapterCardMinWidth: ratioDimension(resolvedWidth, 0.24 + portraitStrength * 0.04, 180, 0.5),
-    chapterCardMaxWidthRatio: clamp(0.68 + portraitStrength * 0.06, 0.68, 0.74),
-    chapterCardPaddingX: ratioDimension(chapterTitleFontSize, 0.48, 10, 0.25),
-    chapterCardPaddingY: ratioDimension(chapterTitleFontSize, 0.34, 8.5, 0.25),
-    chapterCardRadius: ratioDimension(chapterTitleFontSize, 0.32, 8, 0.25),
+    chapterGap: ratioDimension(chapterTitleFontSize, 0.24, 7, 0.25),
+    chapterCardMinWidth: ratioDimension(resolvedWidth, 0.28 + portraitStrength * 0.04, 210, 0.5),
+    chapterCardMaxWidthRatio: clamp(0.72 + portraitStrength * 0.04, 0.72, 0.76),
+    chapterCardPaddingX: ratioDimension(chapterTitleFontSize, 0.58, 14, 0.25),
+    chapterCardPaddingY: ratioDimension(chapterTitleFontSize, 0.42, 11, 0.25),
+    chapterCardRadius: ratioDimension(chapterTitleFontSize, 0.38, 10, 0.25),
     chapterMetaFontSize,
     chapterTitleFontSize,
     progressInsetX: ratioDimension(resolvedWidth, 0.024, 16, 0.25),
@@ -755,7 +755,11 @@ export const getChapterCardLayoutMetrics = ({
   width: number;
   typography: Pick<
     OverlayTypography,
-    "chapterInsetX" | "chapterCardMinWidth" | "chapterCardMaxWidthRatio" | "chapterTitleFontSize"
+    | "chapterInsetX"
+    | "chapterCardMinWidth"
+    | "chapterCardMaxWidthRatio"
+    | "chapterTitleFontSize"
+    | "chapterCardPaddingX"
   >;
 }): ChapterCardLayoutMetrics => {
   const chapterWrapWidth = Math.max(1, width - typography.chapterInsetX * 2);
@@ -769,6 +773,7 @@ export const getChapterCardLayoutMetrics = ({
     titleMaxWidth: getChapterCardTitleMaxWidth({
       cardMaxWidth,
       titleFontSize: typography.chapterTitleFontSize,
+      paddingX: typography.chapterCardPaddingX,
     }),
   };
 };

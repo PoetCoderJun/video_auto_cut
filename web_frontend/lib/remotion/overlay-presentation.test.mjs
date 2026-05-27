@@ -34,6 +34,26 @@ test("derives chapter title width budget from CSS-side horizontal padding", () =
   assert.equal(titleMaxWidth, 420 - 30 * CHAPTER_CARD_PADDING_X_EM * 2);
 });
 
+test("lets render-time chapter typography tokens drive the actual card box", () => {
+  const style = getChapterCardStyle({
+    cardMaxWidth: 720,
+    gap: 14,
+    paddingX: 32,
+    paddingY: 24,
+    radius: 18,
+  });
+  const titleMaxWidth = getChapterCardTitleMaxWidth({
+    cardMaxWidth: 720,
+    titleFontSize: 56,
+    paddingX: 32,
+  });
+
+  assert.equal(style.gap, 14);
+  assert.equal(style.padding, "24px 32px");
+  assert.equal(style.borderRadius, 18);
+  assert.equal(titleMaxWidth, 720 - 32 * 2);
+});
+
 test("boxed subtitle themes reduce text width by CSS-side padding while text themes do not", () => {
   assert.equal(
     getSubtitleTextMaxWidth({boxMaxWidth: 600, fontSize: 40, isBoxedTheme: true}),
@@ -173,5 +193,5 @@ test("subtitle reserve can use actual rendered subtitle height for highlighted c
     showProgress: true,
   });
 
-  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.3));
+  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.18));
 });

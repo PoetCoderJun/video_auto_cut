@@ -17,7 +17,12 @@ import {
 } from "./typography.ts";
 import {applyOverlayScaleToTypography} from "./overlay-controls.ts";
 import {MOCK_RESOLUTION_PRESETS} from "./dev-export-preview-presets.ts";
-import {getSubtitleThemeFitWidth, getSubtitleThemeRenderFontSize} from "./overlay-presentation.ts";
+import {
+  getChapterCardStyle,
+  getSubtitleThemeFitWidth,
+  getSubtitleThemeRenderFontSize,
+  reserveSubtitleBottomForProgress,
+} from "./overlay-presentation.ts";
 
 test("uses an explicit cross-platform Chinese font stack for overlays", () => {
   assert.match(OVERLAY_FONT_FAMILY, /Noto Sans SC/);
@@ -155,15 +160,15 @@ test("keeps default overlay component ratios balanced across common preview reso
       `${resolution.id} progress label ratio should stay balanced, got ${(progressLabelRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterTitleRatio >= 0.0375 && chapterTitleRatio <= 0.047,
+      chapterTitleRatio >= 0.047 && chapterTitleRatio <= 0.06,
       `${resolution.id} chapter title ratio should stay balanced, got ${(chapterTitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      chapterWidthRatio >= 0.64 && chapterWidthRatio <= 0.74,
+      chapterWidthRatio >= 0.68 && chapterWidthRatio <= 0.76,
       `${resolution.id} chapter card width ratio should stay balanced, got ${(chapterWidthRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      subtitleBottomRatio >= 0.077 && subtitleBottomRatio <= 0.085,
+      subtitleBottomRatio >= 0.065 && subtitleBottomRatio <= 0.084,
       `${resolution.id} subtitle bottom ratio should stay balanced, got ${(subtitleBottomRatio * 100).toFixed(2)}%`
     );
   }
@@ -173,22 +178,41 @@ test("makes chapter cards more prominent without pushing subtitles away from pro
   const typography = getResponsiveOverlayTypography({width: 1920, height: 1080});
   const chapterMetrics = getChapterCardLayoutMetrics({width: 1920, typography});
   const progressTopFromBottom = typography.progressBottom + typography.progressHeight;
-  const subtitleProgressGap = typography.subtitleBottom - progressTopFromBottom;
+  const reservedSubtitleBottom = reserveSubtitleBottomForProgress({
+    subtitleBottom: typography.subtitleBottom,
+    progressBottom: typography.progressBottom,
+    progressHeight: typography.progressHeight,
+    subtitleFontSize: typography.subtitleFontSize,
+    subtitleVisualHeight: Math.ceil(typography.subtitleFontSize * 1.5),
+    showProgress: true,
+  });
+  const subtitleProgressGap = reservedSubtitleBottom - progressTopFromBottom;
+  const chapterCardStyle = getChapterCardStyle({
+    cardMaxWidth: chapterMetrics.cardMaxWidth,
+    gap: typography.chapterGap,
+    paddingX: typography.chapterCardPaddingX,
+    paddingY: typography.chapterCardPaddingY,
+    radius: typography.chapterCardRadius,
+  });
 
   assert.ok(
-    typography.chapterTitleFontSize >= 42,
+    typography.chapterTitleFontSize >= 54,
     `expected 1080p chapter title to be visibly larger, got ${typography.chapterTitleFontSize}`
   );
   assert.ok(
-    typography.chapterMetaFontSize >= 19,
+    typography.chapterMetaFontSize >= 24,
     `expected 1080p chapter meta to be visibly larger, got ${typography.chapterMetaFontSize}`
   );
   assert.ok(
-    chapterMetrics.cardMaxWidth >= 1200,
+    chapterMetrics.cardMaxWidth >= 1300,
     `expected 1080p chapter card max width to allow a larger block, got ${chapterMetrics.cardMaxWidth}`
   );
+  assert.equal(
+    chapterCardStyle.padding,
+    `${typography.chapterCardPaddingY}px ${typography.chapterCardPaddingX}px`
+  );
   assert.ok(
-    subtitleProgressGap >= 20 && subtitleProgressGap <= 28,
+    subtitleProgressGap >= 12 && subtitleProgressGap <= 16,
     `expected subtitle and progress to form a tighter bottom group, got ${subtitleProgressGap}`
   );
 });

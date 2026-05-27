@@ -8,7 +8,7 @@ export const CHAPTER_CARD_PADDING_X_EM = 0.68;
 export const CHAPTER_CARD_PADDING_Y_EM = 0.38;
 export const CHAPTER_CARD_RADIUS_EM = 0.38;
 export const PROGRESS_LABEL_PADDING_X_EM = 0.22;
-export const SUBTITLE_PROGRESS_GAP_EM = 0.42;
+export const SUBTITLE_PROGRESS_GAP_EM = 0.24;
 
 const round = (value: number): number => Math.round(value);
 
@@ -156,11 +156,13 @@ export const getSubtitleThemeStyle = ({
 export const getChapterCardTitleMaxWidth = ({
   cardMaxWidth,
   titleFontSize,
+  paddingX,
 }: {
   cardMaxWidth: number;
   titleFontSize: number;
+  paddingX?: number;
 }): number =>
-  Math.max(1, cardMaxWidth - titleFontSize * CHAPTER_CARD_PADDING_X_EM * 2);
+  Math.max(1, cardMaxWidth - (paddingX ?? titleFontSize * CHAPTER_CARD_PADDING_X_EM) * 2);
 
 const chapterAccentColors = [
   "#8ee0ff",
@@ -177,19 +179,30 @@ export const getChapterAccentColor = (activeTopicIndex = 0): string =>
 
 export const getChapterCardStyle = ({
   cardMaxWidth,
+  gap,
+  paddingX,
+  paddingY,
+  radius,
 }: {
   cardMaxWidth: number;
+  gap?: number;
+  paddingX?: number;
+  paddingY?: number;
+  radius?: number;
   activeTopicIndex?: number;
 }): CSSProperties => {
   return {
     position: "relative",
     display: "inline-flex",
     flexDirection: "column",
-    gap: `${CHAPTER_CARD_GAP_EM}em`,
+    gap: typeof gap === "number" ? gap : `${CHAPTER_CARD_GAP_EM}em`,
     width: "fit-content",
     maxWidth: cardMaxWidth,
-    padding: `${CHAPTER_CARD_PADDING_Y_EM}em ${CHAPTER_CARD_PADDING_X_EM}em`,
-    borderRadius: `${CHAPTER_CARD_RADIUS_EM}em`,
+    padding:
+      typeof paddingX === "number" && typeof paddingY === "number"
+        ? `${paddingY}px ${paddingX}px`
+        : `${CHAPTER_CARD_PADDING_Y_EM}em ${CHAPTER_CARD_PADDING_X_EM}em`,
+    borderRadius: typeof radius === "number" ? radius : `${CHAPTER_CARD_RADIUS_EM}em`,
     overflow: "hidden",
     boxSizing: "border-box",
   };
@@ -305,7 +318,7 @@ export const reserveSubtitleBottomForProgress = ({
       ? subtitleVisualHeight
       : null;
   const gap = visualHeight
-    ? Math.max(10, round(visualHeight * 0.3))
-    : Math.max(10, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
+    ? Math.max(8, round(visualHeight * 0.18))
+    : Math.max(8, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
   return Math.max(subtitleBottom, progressBottom + progressHeight + gap);
 };
