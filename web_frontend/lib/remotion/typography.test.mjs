@@ -147,11 +147,11 @@ test("keeps default overlay component ratios balanced across common preview reso
       `${resolution.id} subtitle ratio should stay balanced, got ${(subtitleRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      progressRatio >= 0.043 && progressRatio <= 0.057,
+      progressRatio >= 0.034 && progressRatio <= 0.046,
       `${resolution.id} progress ratio should stay balanced, got ${(progressRatio * 100).toFixed(2)}%`
     );
     assert.ok(
-      progressLabelRatio >= 0.019 && progressLabelRatio <= 0.023,
+      progressLabelRatio >= 0.016 && progressLabelRatio <= 0.021,
       `${resolution.id} progress label ratio should stay balanced, got ${(progressLabelRatio * 100).toFixed(2)}%`
     );
     assert.ok(
@@ -178,12 +178,24 @@ test("uses a larger but restrained progress label baseline on common landscape o
     `expected 1080p progress label font >= 18, got ${typography1080.progressLabelFontSize}`
   );
   assert.ok(
+    typography1080.progressLabelFontSize <= 20,
+    `expected 1080p progress label font <= 20, got ${typography1080.progressLabelFontSize}`
+  );
+  assert.ok(
+    typography1080.progressHeight <= 44,
+    `expected 1080p progress height <= 44, got ${typography1080.progressHeight}`
+  );
+  assert.ok(
     typography4k.progressLabelFontSize >= 25,
     `expected 4k progress label font >= 30, got ${typography4k.progressLabelFontSize}`
   );
   assert.ok(
-    typography4k.progressHeight >= 66,
-    `expected 4k progress height >= 66, got ${typography4k.progressHeight}`
+    typography4k.progressLabelFontSize <= 40,
+    `expected 4k progress label font <= 40, got ${typography4k.progressLabelFontSize}`
+  );
+  assert.ok(
+    typography4k.progressHeight <= 88,
+    `expected 4k progress height <= 88, got ${typography4k.progressHeight}`
   );
 });
 

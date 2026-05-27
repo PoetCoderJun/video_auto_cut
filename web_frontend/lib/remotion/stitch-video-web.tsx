@@ -433,6 +433,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         .join("|"),
     [activeCaptionChunks]
   );
+  const subtitleHighlightVisualScale = useMemo(
+    () =>
+      activeCaptionChunks.reduce(
+        (maximum, chunk) => Math.max(maximum, getCaptionChunkFontScale(chunk) ?? 1),
+        1
+      ),
+    [activeCaptionChunks]
+  );
 
   useLayoutEffect(() => {
     const element = subtitleRef.current;
@@ -461,6 +469,13 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
     subtitleRenderText,
   ]);
   const subtitleMeasuredFontSize = subtitleDomLayout?.fontSize ?? subtitleRenderFontSize;
+  const subtitleVisualLineCount = Math.max(
+    1,
+    activeCaptionLayout?.lines.length ?? subtitleDomLayout?.maxLines ?? 1
+  );
+  const subtitleVisualHeight = Math.ceil(
+    subtitleMeasuredFontSize * subtitleLineHeight * subtitleVisualLineCount * subtitleHighlightVisualScale
+  );
   const reservedSubtitleBottom = useMemo(
     () =>
       reserveSubtitleBottomForProgress({
@@ -468,9 +483,17 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         progressBottom: resolvedProgressBottom,
         progressHeight: typography.progressHeight,
         subtitleFontSize: subtitleMeasuredFontSize,
+        subtitleVisualHeight,
         showProgress,
       }),
-    [resolvedProgressBottom, resolvedSubtitleBottom, showProgress, subtitleMeasuredFontSize, typography.progressHeight]
+    [
+      resolvedProgressBottom,
+      resolvedSubtitleBottom,
+      showProgress,
+      subtitleMeasuredFontSize,
+      subtitleVisualHeight,
+      typography.progressHeight,
+    ]
   );
 
   const overlayLayerStyle = useMemo(
@@ -543,6 +566,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         fontWeight: 700,
         fontFamily: OVERLAY_FONT_FAMILY,
         lineHeight: subtitleLineHeight,
+        WebkitFontSmoothing: "antialiased" as const,
+        MozOsxFontSmoothing: "grayscale" as const,
         lineBreak: "auto" as const,
         fontKerning: "none" as const,
         fontVariantLigatures: "none" as const,
@@ -605,6 +630,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         bottom: 0,
         width: "0%",
         background: "linear-gradient(90deg, rgba(29, 217, 255, 0.58), rgba(66, 240, 180, 0.45))",
+        borderRadius: typography.progressRadius,
         zIndex: 1,
       },
       progressSegment: {
@@ -615,7 +641,7 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
         alignItems: "center" as const,
         justifyContent: "center" as const,
         overflow: "hidden" as const,
-        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.18)`,
+        borderRight: `${progressStrokeWidth}px solid rgba(255, 255, 255, 0.12)`,
         zIndex: 2,
       },
       progressSegmentLabel: {
@@ -910,8 +936,8 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
                     width: `${(segment.endRatio - segment.startRatio) * 100}%`,
                     backgroundColor:
                       segment.index === currentActiveTopicIndex
-                        ? "rgba(255, 255, 255, 0.09)"
-                        : "rgba(255, 255, 255, 0.02)",
+                        ? "rgba(111, 255, 226, 0.1)"
+                        : "rgba(255, 255, 255, 0.012)",
                   }}
                 >
                   <div

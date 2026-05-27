@@ -80,6 +80,20 @@ test("subtitle shadow layers use duplicated text instead of unsupported CSS text
   assert.ok(lightLayers.some((layer) => layer.color === "#020617"));
 });
 
+test("subtitle shadow layers avoid large soft offsets that encode as blurry text", () => {
+  for (const theme of ["stroke", "stroke-white"]) {
+    const layers = getSubtitleTextShadowLayers(theme);
+    assert.ok(layers.length <= 5, `${theme} should use a small number of crisp text layers`);
+    for (const layer of layers) {
+      const offset = Math.hypot(layer.translateXEm, layer.translateYEm);
+      assert.ok(
+        offset <= 0.06,
+        `${theme} layer ${layer.key} offset should stay crisp, got ${offset.toFixed(3)}em`
+      );
+    }
+  }
+});
+
 test("overlay presentation avoids CSS effects that browser export cannot reproduce", () => {
   const chapterCard = getChapterCardStyle({cardMaxWidth: 420});
   const subtitleStyle = getSubtitleThemeStyle({
@@ -147,4 +161,17 @@ test("subtitle default bottom reserves space above the progress bar", () => {
     reserved,
     24 + 40 + Math.max(12, Math.round(48 * SUBTITLE_PROGRESS_GAP_EM))
   );
+});
+
+test("subtitle reserve can use actual rendered subtitle height for highlighted captions", () => {
+  const reserved = reserveSubtitleBottomForProgress({
+    subtitleBottom: 65,
+    progressBottom: 24,
+    progressHeight: 40,
+    subtitleFontSize: 48,
+    subtitleVisualHeight: 92,
+    showProgress: true,
+  });
+
+  assert.equal(reserved, 24 + 40 + Math.round(92 * 0.42));
 });

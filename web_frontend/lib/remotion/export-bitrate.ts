@@ -33,6 +33,7 @@ export type DynamicRenderBitratePlan = {
 type NormalizeVideoBitrateOptions = {
   width: number;
   height: number;
+  fps?: number;
   codec: WebRenderVideoCodec;
 };
 
@@ -58,11 +59,14 @@ export function estimateWebRenderVideoBitrate(
   width: number,
   height: number,
   codec: WebRenderVideoCodec,
-  quality: WebRenderQuality
+  quality: WebRenderQuality,
+  fps = 30
 ): number {
   const pixels = Math.max(1, Math.trunc(width)) * Math.max(1, Math.trunc(height));
   const scaleFactor = Math.pow(pixels / REFERENCE_PIXELS, 0.95);
-  const baseBitrate = REFERENCE_BITRATE * scaleFactor;
+  const normalizedFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const frameRateFactor = Math.pow(clamp(normalizedFps, 24, 120) / 30, 0.5);
+  const baseBitrate = REFERENCE_BITRATE * scaleFactor * frameRateFactor;
   const codecAdjusted = baseBitrate * CODEC_EFFICIENCY_FACTORS[codec];
   return roundToNearestThousand(codecAdjusted * QUALITY_FACTORS[quality]);
 }
@@ -71,10 +75,10 @@ function normalizeVideoBitrate(
   target: number,
   options: NormalizeVideoBitrateOptions
 ): number {
-  const { width, height, codec } = options;
-  const floor = estimateWebRenderVideoBitrate(width, height, codec, "low");
+  const { width, height, fps, codec } = options;
+  const floor = estimateWebRenderVideoBitrate(width, height, codec, "high", fps);
   const ceil = Math.max(
-    estimateWebRenderVideoBitrate(width, height, codec, "very-high"),
+    estimateWebRenderVideoBitrate(width, height, codec, "very-high", fps),
     60_000_000
   );
   return roundToNearestThousand(clamp(target, floor, ceil));
@@ -128,7 +132,8 @@ export function buildDynamicRenderBitratePlan(options: {
     meta.width,
     meta.height,
     videoCodec,
-    "high"
+    "high",
+    meta.fps
   );
   const audioBitrate = inferAudioBitrate(meta, audioCodec);
   const overallBitrate = inferOverallBitrate(meta, fileSizeBytes);
@@ -147,6 +152,7 @@ export function buildDynamicRenderBitratePlan(options: {
     videoBitrate: normalizeVideoBitrate(sourceVideoBitrate, {
       width: meta.width,
       height: meta.height,
+      fps: meta.fps,
       codec: videoCodec,
     }),
     audioBitrate,

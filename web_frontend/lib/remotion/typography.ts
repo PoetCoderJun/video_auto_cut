@@ -489,6 +489,7 @@ export const getResponsiveOverlayTypography = ({
   const resolvedHeight = Math.max(1, height);
   const aspectRatio = resolvedWidth / resolvedHeight;
   const portraitStrength = clamp((0.82 - aspectRatio) / 0.32, 0, 1);
+  const ultraWideStrength = clamp((aspectRatio - 4) / 3, 0, 1);
   const subtitleFontSize = ratioDimension(
     resolvedHeight,
     0.048 + portraitStrength * 0.002,
@@ -496,10 +497,13 @@ export const getResponsiveOverlayTypography = ({
     1,
     resolvedWidth * 0.15
   );
-  const progressLabelFontSize = ratioDimension(resolvedHeight, 0.02 + portraitStrength * 0.001, 11, 0.25);
+  const progressLabelFontSize = Math.max(
+    ratioDimension(resolvedHeight, 0.0175 + portraitStrength * 0.001, 10, 0.25),
+    ultraWideStrength > 0 ? 14 : 10
+  );
   const progressHeight = atLeast(
-    ratioDimension(resolvedHeight, 0.044 + portraitStrength * 0.002, 26, 0.25),
-    round(progressLabelFontSize * 2.25)
+    ratioDimension(resolvedHeight, 0.036 + portraitStrength * 0.003, 20, 0.25),
+    round(progressLabelFontSize * 2)
   );
   const chapterTitleFontSize = ratioDimension(resolvedHeight, 0.034 + portraitStrength * 0.001, 20, 0.25);
   const chapterMetaFontSize = ratioDimension(resolvedHeight, 0.016, 11, 0.25);

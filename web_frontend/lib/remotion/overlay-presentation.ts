@@ -49,22 +49,20 @@ export const getSubtitleTextShadowLayers = (
   switch (normalizeSubtitleTheme(subtitleTheme)) {
     case "stroke-white":
       return [
-        {key: "outline-top", color: "#0f172a", opacity: 0.78, translateXEm: 0, translateYEm: -0.025},
-        {key: "outline-right", color: "#0f172a", opacity: 0.78, translateXEm: 0.025, translateYEm: 0},
-        {key: "outline-bottom", color: "#0f172a", opacity: 0.78, translateXEm: 0, translateYEm: 0.025},
-        {key: "outline-left", color: "#0f172a", opacity: 0.78, translateXEm: -0.025, translateYEm: 0},
-        {key: "shadow-near", color: "#020617", opacity: 0.36, translateXEm: 0, translateYEm: 0.07},
-        {key: "shadow-far", color: "#020617", opacity: 0.22, translateXEm: 0, translateYEm: 0.13},
+        {key: "outline-top", color: "#0f172a", opacity: 0.7, translateXEm: 0, translateYEm: -0.018},
+        {key: "outline-right", color: "#0f172a", opacity: 0.7, translateXEm: 0.018, translateYEm: 0},
+        {key: "outline-bottom", color: "#0f172a", opacity: 0.7, translateXEm: 0, translateYEm: 0.018},
+        {key: "outline-left", color: "#0f172a", opacity: 0.7, translateXEm: -0.018, translateYEm: 0},
+        {key: "shadow-near", color: "#020617", opacity: 0.24, translateXEm: 0, translateYEm: 0.045},
       ];
     case "stroke":
     default:
       return [
-        {key: "outline-top", color: "#ffffff", opacity: 0.86, translateXEm: 0, translateYEm: -0.025},
-        {key: "outline-right", color: "#ffffff", opacity: 0.86, translateXEm: 0.025, translateYEm: 0},
-        {key: "outline-bottom", color: "#ffffff", opacity: 0.86, translateXEm: 0, translateYEm: 0.025},
-        {key: "outline-left", color: "#ffffff", opacity: 0.86, translateXEm: -0.025, translateYEm: 0},
-        {key: "shadow-glow", color: "#ffffff", opacity: 0.38, translateXEm: 0, translateYEm: 0.08},
-        {key: "shadow-contrast", color: "#0f172a", opacity: 0.12, translateXEm: 0, translateYEm: 0.04},
+        {key: "outline-top", color: "#ffffff", opacity: 0.78, translateXEm: 0, translateYEm: -0.018},
+        {key: "outline-right", color: "#ffffff", opacity: 0.78, translateXEm: 0.018, translateYEm: 0},
+        {key: "outline-bottom", color: "#ffffff", opacity: 0.78, translateXEm: 0, translateYEm: 0.018},
+        {key: "outline-left", color: "#ffffff", opacity: 0.78, translateXEm: -0.018, translateYEm: 0},
+        {key: "shadow-contrast", color: "#0f172a", opacity: 0.1, translateXEm: 0, translateYEm: 0.035},
       ];
   }
 };
@@ -263,7 +261,7 @@ export const getProgressTrackBackdropLayers = (): OverlayVisualLayerSpec[] => [
       position: "absolute",
       inset: "0",
       background:
-        "linear-gradient(180deg, rgba(26, 34, 47, 0.58) 0%, rgba(11, 17, 26, 0.44) 100%)",
+        "linear-gradient(180deg, rgba(31, 41, 55, 0.48) 0%, rgba(8, 13, 22, 0.34) 100%)",
       borderRadius: "inherit",
     },
   },
@@ -275,8 +273,8 @@ export const getProgressTrackBackdropLayers = (): OverlayVisualLayerSpec[] => [
       left: "0",
       right: "0",
       top: "0",
-      height: "34%",
-      backgroundColor: "rgba(255, 255, 255, 0.08)",
+      height: "38%",
+      backgroundColor: "rgba(255, 255, 255, 0.12)",
       borderTopLeftRadius: "inherit",
       borderTopRightRadius: "inherit",
     },
@@ -291,15 +289,23 @@ export const reserveSubtitleBottomForProgress = ({
   progressBottom,
   progressHeight,
   subtitleFontSize,
+  subtitleVisualHeight,
   showProgress,
 }: {
   subtitleBottom: number;
   progressBottom: number;
   progressHeight: number;
   subtitleFontSize: number;
+  subtitleVisualHeight?: number;
   showProgress: boolean;
 }): number => {
   if (!showProgress) return subtitleBottom;
-  const gap = Math.max(12, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
+  const visualHeight =
+    typeof subtitleVisualHeight === "number" && Number.isFinite(subtitleVisualHeight) && subtitleVisualHeight > 0
+      ? subtitleVisualHeight
+      : null;
+  const gap = visualHeight
+    ? Math.max(12, round(visualHeight * 0.42))
+    : Math.max(12, round(subtitleFontSize * SUBTITLE_PROGRESS_GAP_EM));
   return Math.max(subtitleBottom, progressBottom + progressHeight + gap);
 };
