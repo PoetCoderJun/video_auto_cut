@@ -7,7 +7,7 @@ import type {RenderCaption as ApiRenderCaption} from "../api";
 import {
   applyOverlayScaleToTypography,
   DEFAULT_OVERLAY_CONTROLS,
-  resolveOverlayAnchorBottom,
+  resolveOverlayVisualBottom,
   type ProgressLabelMode,
 } from "./overlay-controls";
 import {
@@ -264,17 +264,14 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   const progressLabelLineHeight = allowWrappedProgressLabels ? 1.08 : 1.2;
   const progressLabelPaddingX = getProgressLabelPaddingX(typography.progressLabelFontSize);
   const subtitleLineHeight = getSubtitleLineHeight({subtitleScale: safeSubtitleScale, isPortrait});
-  const resolvedSubtitleBottom = resolveOverlayAnchorBottom({
+  const normalizedSubtitleYPercent = clamp(subtitleYPercent, 0, 100);
+  const normalizedProgressYPercent = clamp(progressYPercent, 0, 100);
+  const shouldAutoReserveSubtitleForProgress =
+    Math.abs(normalizedSubtitleYPercent - DEFAULT_OVERLAY_CONTROLS.subtitleYPercent) < 0.001;
+  const resolvedProgressBottom = resolveOverlayVisualBottom({
     frameHeight: overlayHeight,
-    baselineBottom: typography.subtitleBottom,
-    currentPercent: clamp(subtitleYPercent, 0, 100),
-    defaultPercent: DEFAULT_OVERLAY_CONTROLS.subtitleYPercent,
-  });
-  const resolvedProgressBottom = resolveOverlayAnchorBottom({
-    frameHeight: overlayHeight,
-    baselineBottom: typography.progressBottom,
-    currentPercent: clamp(progressYPercent, 0, 100),
-    defaultPercent: DEFAULT_OVERLAY_CONTROLS.progressYPercent,
+    visualHeight: typography.progressHeight,
+    currentPercent: normalizedProgressYPercent,
   });
   const progressStrokeWidth = Math.min(
     2,
@@ -476,19 +473,31 @@ export const StitchVideoWeb: React.FC<StitchVideoWebProps | SubtitleRenderV1Cont
   const subtitleVisualHeight = Math.ceil(
     subtitleMeasuredFontSize * subtitleLineHeight * subtitleVisualLineCount * subtitleHighlightVisualScale
   );
-  const reservedSubtitleBottom = useMemo(
+  const resolvedSubtitleBottom = useMemo(
     () =>
-      reserveSubtitleBottomForProgress({
+      resolveOverlayVisualBottom({
+        frameHeight: overlayHeight,
+        visualHeight: subtitleVisualHeight,
+        currentPercent: normalizedSubtitleYPercent,
+      }),
+    [normalizedSubtitleYPercent, overlayHeight, subtitleVisualHeight]
+  );
+  const reservedSubtitleBottom = useMemo(
+    () => {
+      if (!shouldAutoReserveSubtitleForProgress) return resolvedSubtitleBottom;
+      return reserveSubtitleBottomForProgress({
         subtitleBottom: resolvedSubtitleBottom,
         progressBottom: resolvedProgressBottom,
         progressHeight: typography.progressHeight,
         subtitleFontSize: subtitleMeasuredFontSize,
         subtitleVisualHeight,
         showProgress,
-      }),
+      });
+    },
     [
       resolvedProgressBottom,
       resolvedSubtitleBottom,
+      shouldAutoReserveSubtitleForProgress,
       showProgress,
       subtitleMeasuredFontSize,
       subtitleVisualHeight,

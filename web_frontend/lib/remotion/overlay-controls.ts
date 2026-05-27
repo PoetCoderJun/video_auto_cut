@@ -140,6 +140,25 @@ export const resolveOverlayAnchorBottom = ({
   return Math.max(0, roundToStep(baselineBottom + (resolvedHeight * deltaPercent) / 100, 0.25));
 };
 
+export const resolveOverlayVisualBottom = ({
+  frameHeight,
+  visualHeight,
+  currentPercent,
+}: {
+  frameHeight: number;
+  visualHeight: number;
+  currentPercent: number;
+}): number => {
+  const resolvedHeight = Math.max(1, Number.isFinite(frameHeight) ? frameHeight : 1);
+  const resolvedVisualHeight =
+    Number.isFinite(visualHeight) && visualHeight > 0
+      ? Math.min(resolvedHeight, visualHeight)
+      : 1;
+  const travel = Math.max(0, resolvedHeight - resolvedVisualHeight);
+  const anchorPercent = normalizeOverlayControlNumber(currentPercent, 100, {min: 0, max: 100});
+  return roundToStep(travel * (100 - anchorPercent) / 100, 0.25);
+};
+
 export const applyOverlayScaleToTypography = (
   typography: OverlayTypography,
   controls: OverlayScaleControls
